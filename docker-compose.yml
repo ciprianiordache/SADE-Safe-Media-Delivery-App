@@ -1,0 +1,29 @@
+# Local development dependencies for SADE.
+#   docker compose up -d
+# Postgres is published on host port 5433 (mapped to the container's 5432) so
+# it never clashes with a Postgres already running locally on 5432. This
+# matches config defaults: database.host=localhost, database.port=5433,
+# database.user=postgres, database.name=sade. Set DATABASE_PASSWORD in .env to
+# the same value as POSTGRES_PASSWORD below.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sade-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sade
+    ports:
+      - "5433:5432"
+    volumes:
+      - sade-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sade"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  sade-pgdata:

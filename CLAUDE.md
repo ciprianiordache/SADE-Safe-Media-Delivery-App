@@ -1,0 +1,212 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project status
+
+**M1 in progress — magic-link login works end to end.** Done and tested:
+
+- `config/` — full loader (defaults < YAML < env), `config.Duration`, secret generation, `Validate`.
+- `internals/logger/` — `slog` + lumberjack; `internals/database/` — pool + `Connect` + `Migrate` +
+  shared `CRUD()`; `internals/server/` — synchronous-bind HTTP lifecycle.
+- Root `main.go` + `app.go` — `NewApp` → `Run` → `Close`; builds logger, connects+migrates the DB,
+  builds the mailer, wires the `user` + `auth` domains, serves `app.NewRouter(...)`.
+- `internals/app/<domain>/model.go` for all six domains + `internals/app/models.go` (`Models()`).
+- **`internals/app/user/`** — full stack (repo/service/handler + tests).
+- **`internals/app/auth/`** — magic-link flow (`RequestLink` / `Complete` / `Authenticate` /
+  `Logout`) + handler (`POST /api/auth/request`, `GET /api/auth/callback`, `POST /api/auth/logout`).
+- **`internals/app/magic_token/` + `internals/app/session/`** — repos (`Consume` is atomic
+  delete-on-use; `GetByHash` / `Delete`).
+- **`internals/app/router.go` + `middleware.go`** — central mux, `Recover`/`RequestLog`/`CORS`/`Auth`
+  chain, `RequireUser` / `RequireRole`, `UserFrom(ctx)`, `GET /api/me`.
+- `internals/httpx/` — shared HTTP helpers. `internals/testutil/` — `DB(t, models...)` + `Logger()`.
+- `internals/storage/` (local disk), `internals/ffmpeg/` (`os/exec` engine),
+  `internals/mailer/` (`smtp`/`log`/`noop`), `internals/token/` (HMAC share tokens).
+- `docker-compose.yml` — Postgres on host port 5433.
+- `internals/app/integration_test.go` (full-graph round-trip) + `router_test.go` (real
+  request→callback→cookie→`/api/me`→logout over `httptest`).
+
+Not started: `repo.go` / `service.go` / `handler.go` for `job` / `asset` / `payment`,
+`internals/worker`, the `/p/:token` + `/d/:token` share handlers, and `frontend/` (default
+SvelteKit skeleton). `storage`, `ffmpeg` and `token` are built but not yet referenced from
+`app.go` — wired in with the worker (storage/ffmpeg) and the share handlers (token). `mailer` is
+now wired via `auth`.
+
+- **Spec:** `Writerside/topics/` (`Default-topic.md` = product goal, `sever.md` = block components).
+- **Agreed build plan:** `docs/SADE-plan.pdf` — read it before starting any feature. It defines
+  the target file tree, the milestones (M0–M6), and every decision below.
+
+SADE (Safe Media Delivery): an operator uploads a media file (video/audio/image), the backend
+applies a watermark asynchronously, then emails the recipient a signed link to the watermarked
+preview. Backlog: payments unlock the original file.
+
+## Commands
+
+Go (from repo root):
+- `go build ./...`
+- `go test ./...`
+- Single package / test: `go test ./internals/database -run '^TestMigrateAndCRUD$'`
+- `go vet ./...` and `gofmt -l .`
+- `docker compose up -d` — Postgres on host port **5433** (matches config defaults); the app
+  fails fast at `db.Connect` if it is not running.
+
+Frontend (from `frontend/`):
+- `npm run dev` — dev server
+- `npm run build` / `npm run preview`
+- `npm run check` — `svelte-check` type checking (there is no separate lint step)
+
+## Architecture
+
+### Backend layering (mirrors `github.com/ciprianiordache/nutrition-planner`)
+
+Each domain lives in its own package `internals/app/<feature>/` with a fixed file set:
+`model.go`, `errors.go`, `repo.go`, `service.go`, `handler.go` (+ `*_test.go`). `user` is
+built end to end; the other five domains have only `model.go` so far.
+Dependency direction is strictly `handler → service → repo → internals/database`. `handler`
+uses `internals/httpx` for JSON I/O; tests use `internals/testutil` for a migrated SQLite DB.
+
+- `model.go` holds the domain struct with `db:"..."` tags **and** separate
+  `CreateRequest` / `UpdateRequest` / `Response` DTOs with `json:` tags plus a `toResponse()`
+  mapper. The `db`-tagged struct never reaches the HTTP layer. Purely-internal domains
+  (`magic_token`, `session`) skip the DTOs and carry small predicate helpers instead.
+- `repo.go` defines a `Repo` interface and a `repo{ db *database.Database }` impl that calls
+  `r.db.CRUD()` (never `crud.New` — the dialect is set once in `internals/database`); it
+  translates `crud.ErrNotFound` into the package's own `ErrNotFound`, and treats an empty
+  `List` page as `([]T{}, nil)`.
+- `service.go` — `Service` interface + `service{ repo, log *slog.Logger }` via `NewService`.
+  Validation + normalisation live here; mutations are logged, reads are not. Race-safe
+  find-or-create pattern: on a unique-constraint failure, re-read (see `user.EnsureByEmail`).
+- `handler.go` — `Handler{ svc, log }` via `NewHandler`; methods are `http.HandlerFunc`s using
+  `internals/httpx` and `r.PathValue("id")`. They map domain errors to status codes
+  (`ErrNotFound`→404, `ErrInvalidInput`→400) and never leak `err` text to the client. Routes are
+  registered centrally in `internals/app/router.go` (SADE diverges from nutrition-planner, which
+  binds handlers to Wails). `user`'s surface is admin-only (`GET /api/users`, `GET/PATCH
+  /api/users/{id}`); the current-user endpoint `/api/me` belongs to `auth` (it's about the session).
+
+Wiring lives in root `app.go` (`NewApp(ctx)` → `App.Run(ctx)` → `App.Close()`): config → logger
+(`slog.SetDefault` + `.With("environment", …)`) → `database.Connect` → `db.Migrate(app.Models()...)`
+→ `mailer.New` → per-domain `NewRepo` → `NewService` → `NewHandler` → `app.NewRouter(app.Deps{…})`
+→ `server.New`. `main.go` is a thin `run()` that owns `signal.NotifyContext` and guarantees
+`App.Close` runs. `cmd/` is reserved for utilities (e.g. `cmd/seed`).
+
+`internals/app/router.go` builds the mux (Go 1.22 method+path patterns) and wraps it in
+`chain(mux, Recover, RequestLog, CORS, Auth)` — first listed is outermost. `middleware.go`:
+`Auth(authSvc, cookieName)` resolves the session cookie and attaches the `user.Response` to the
+request context (never rejects); `RequireUser` → 401, `RequireRole(roles…)` → 403;
+`UserFrom(ctx) (user.Response, bool)` reads it back. `CORS` uses `Server.CORSAllowedOrigins`
+(credentials on, so no wildcard). The context key lives in `package app`, so `/api/me` is a
+tiny handler in `router.go`, not in `auth` (keeps `app` ← `auth` a one-way import).
+
+### Domain models
+
+`internals/app/models.go` exposes `Models() []any` — the single ordered list handed to
+`db.Migrate`; add a domain by adding one line there. All IDs are `db:"id,primary_key,uuid"`
+(crud-depot generates a UUIDv4 before INSERT; stored as `TEXT`). `created_at`/`updated_at` use
+`oncreate`/`onwrite` and **must stay `time.Time`** (crud-depot's timestamp hook only fires on
+that exact type). Nullable columns are modelled as **plain zero values, not pointers or
+`sql.Null*`** — crud-depot cannot scan a non-NULL value back into a pointer, and schema-builder
+maps `sql.NullTime` to `TEXT`. So "unused" means `""` for strings, zero `time.Time` for
+timestamps (see the `Expired()` helpers on `magic_token` / `session`). Status/kind enums are
+package-level string consts.
+
+| Model (`pkg.Type` → table) | Key fields | Relationships |
+|---|---|---|
+| `user.User` → `users` | `email` unique, `role` (`operator`/`admin`, default `operator`) | parent of everything |
+| `magic_token.MagicToken` → `magic_tokens` | `token_hash` unique (sha256 of the emailed token), `expires_at`. **Single-use = the row is deleted on consumption** (`Repo.Consume`, in a tx with a RowsAffected gate), not a flag | `user_id` → `users` cascade |
+| `session.Session` → `sessions` | `token_hash` unique (sha256 of the cookie), `expires_at` | `user_id` → `users` cascade |
+| `job.Job` → `jobs` | `status` indexed (`pending`→`processing`→`done`/`failed`), `media_type`, `recipient_email`, `watermark_kind`, `watermark_opts` (JSON string), `attempts`, `error` | `user_id` → `users` cascade |
+| `asset.Asset` → `assets` | `kind` (`original`/`preview`), `storage_key`, `filename`, `mime`, `size_bytes`, `checksum` | `job_id` → `jobs` cascade. **A job's files are asset rows keyed by `job_id`; `Job` holds no asset columns.** |
+| `payment.Payment` → `payments` | *(backlog, not wired)* `provider`, `provider_ref`, `status`, `amount_cents`, `currency` | `job_id` → `jobs` cascade |
+
+**Every component that logs takes the shared `*slog.Logger` by injection** — `server.New` and
+`database.New` already do; feature packages follow the same rule. Do not create a second logger
+or log via the bare `log` package.
+
+### Data layer — not an ORM
+
+Two libraries operate on the *same* `db`-tagged structs, both reached through `internals/database`:
+- `github.com/ciprianiordache/schema-builder` (`package schema`) — behind `db.Migrate(models…)`.
+  Ensures tables/indexes/FKs exist at boot (idempotent). Consumes `primary_key`, `uuid`, `auto`,
+  `notnull`, `unique`, `index`, `references:table(col)`, `on_delete:`, `on_update:`.
+- `github.com/ciprianiordache/crud-depot` (`package crud`) — behind `db.CRUD()`. Runtime CRUD
+  over `database/sql` (`Create/Read/ReadOne/Get/Update/Delete`, `RunInTx`). Consumes `default:`,
+  `oncreate`, `onwrite` (which schema-builder ignores). Returns `crud.ErrNotFound`. Note `Read`
+  (plural) also returns `crud.ErrNotFound` when nothing matches.
+
+### Supporting packages
+
+- `config/` — `Config` struct with `yaml` / `env` / `default` / `secret` / `generate` field tags.
+  `config.Load(yaml, env)` layers **struct defaults < YAML < env**, auto-generates each of
+  `config.yaml` / `.env` that is missing (never clobbering the other), and fails startup if a
+  `secret` is empty or still `CHANGE_ME`. `secret generate:"rand32"` fields (e.g. `Auth.HMACSecret`)
+  are self-generated. `config.Duration` round-trips as `"15s"` in YAML and env; call `.Std()`.
+  `config.Validate` checks enums and cross-field rules.
+- `internals/database/` — `New(cfg, log)` then `Connect(ctx)` (bounded `PingContext`). The SQL
+  **dialect is chosen here** from the driver name; callers never pick one. Exposes `db.CRUD()`
+  (shared `*crud.CRUD`), `db.Migrate(models…)` (schema-builder, idempotent), and
+  `Exec/Query/QueryRow/Begin` (so `*Database` satisfies crud-depot's `Executor`/`TxBeginner`).
+  `pgx` driver is registered by a blank import in the package; SQLite is test-only.
+- `internals/logger/` — `New(cfg) (*slog.Logger, io.Closer, error)`, json/text, stdout/file/both,
+  lumberjack rotation, optional `AddSource`. No custom logging abstraction. **Close the returned
+  `io.Closer` on shutdown** (`App.Close` does) — required on Windows to release the log file.
+- `internals/server/` — `New(cfg, log, handler)` + `Start`/`Shutdown`/`Err`, or the `Run(ctx, s)`
+  convenience. `Start` binds the socket synchronously so a taken port is a returned error, not a
+  fatal. Timeouts and `MaxHeaderBytes` come from `config.ServerConfig`. Owns no routes.
+- `internals/storage/` — `Storage` interface (`Put`/`Open`/`Stat`/`Delete` + `LocalPath`), built
+  by `storage.New(cfg, log)`. Objects are addressed by forward-slash key
+  (`originals/<jobID>/<assetID>.mp4`); keys are confined to the root (`..`, absolute, backslash →
+  `ErrBadKey`). `Put` is temp-file-then-rename atomic. `LocalPath(key) (path, ok)` gives ffmpeg a
+  real path for the local backend; `ok` is false for S3 (not implemented yet — `New` errors on it).
+  Metadata (real MIME, checksum) is the asset domain's job, not this package's.
+- `internals/ffmpeg/` — watermark `Engine` (`ffmpeg.New(cfg, log)`). Shells `ffmpeg`/`ffprobe`
+  **directly via `os/exec`** (not `u2takey/ffmpeg-go`): a hand-built `-filter_complex` is clearer
+  for overlay+drawtext+opacity+position, and `Engine.buildArgs` is unit-tested as a plain arg
+  list with no ffmpeg installed. `Engine.Probe(ctx, path)` classifies media; `Engine.Watermark(ctx, Request)`
+  dispatches video/image (logo `overlay` + `drawtext`, opacity via `colorchannelmixer`) and audio
+  (`amix` of a looped low-gain clip). Every call takes a context so `WORKER_JOB_TIMEOUT` cancels
+  it. Needs the `ffmpeg`/`ffprobe` binaries; `New` fails fast if missing.
+- `internals/app/auth/` — the magic-link flow (no table of its own; composes `user` + `magic_token`
+  + `session` + `mailer`). `Service`: `RequestLink` (ensure account → mint token → email the
+  `PublicURL/api/auth/callback?token=` link), `Complete` (spend token → create session → return
+  its secret + expiry), `Authenticate` (cookie value → user; deletes an expired session as a side
+  effect), `Logout`. Only sha256 hashes of the link token and the session secret are stored. Any
+  unusable token → `ErrInvalidToken` (no probing which of unknown/used/expired).
+- `internals/worker/` *(not built)* — in-process pool. A job upload writes a `Job` row
+  (`status=pending`) + original `Asset`; the worker picks it up (`FOR UPDATE SKIP LOCKED`), runs
+  the engine, `storage.Put`s a preview + preview `Asset` row, emails the link. DB row is the
+  source of truth. Will declare its own dependency interfaces (job/asset stores, notifier).
+- `internals/mailer/` — `mailer.New(cfg, log)` → `Mailer.Send(ctx, Message)`. Transport from
+  `Mailer.Transport`: `smtp` (STARTTLS on 587, implicit TLS on 465, PLAIN auth when a user is
+  set), `log` (renders to the logger — the local magic-link path; body at Info, full RFC 5322 at
+  Debug), `noop` (discard). `build()` assembles the message once (quoted-printable,
+  `multipart/alternative` when `Message.HTML` is set, RFC 2047 subject); templating is the
+  caller's job.
+- `internals/token/` — `token.New(secret)` → `Signer.Sign(purpose, subject, ttl)` /
+  `Verify(purpose, tok)`. Stateless HMAC-SHA256 capability tokens for the public `/p/:token`
+  (purpose `"preview"`) and `/d/:token` (`"download"`) links — no DB row, no login. Signed
+  payload is `purpose.subject.exp`; a token for one purpose never verifies for another. Uses
+  `Auth.HMACSecret` (shared with sessions, domain-separated by the purpose prefix).
+
+### Auth
+
+Operator login is magic-link only (no password). `POST /api/auth/request {email}` →
+`user.EnsureByEmail` (find-or-create an operator) → a random 32-byte token, sha256-hashed and
+stored with `MagicLinkTTL` → email carries `PublicURL/api/auth/callback?token=<raw>`. The
+callback spends the token (atomic delete) and issues a DB-backed session: a random secret in the
+`sade_session` cookie (HttpOnly, `Secure` per `Auth.SessionCookieSecure`, SameSite=Lax,
+`SessionTTL`), only its sha256 stored. `Auth` middleware attaches the user on every request;
+`/api/me` returns it; `/api/users*` additionally needs `RequireRole("admin")`. `POST
+/api/auth/logout` deletes the session row and clears the cookie. Recipients of watermarked
+previews never get an account — they use signed `internals/token` links (`/p`, `/d`, not built).
+
+### Frontend
+
+SvelteKit 2 / Svelte 5. **Runes mode is forced** for all non-`node_modules` files via
+`frontend/vite.config.ts`. TypeScript `strict`. Currently the default skeleton; target
+`adapter-static`, with the Go binary serving `frontend/build`.
+
+## Constraints
+
+- `notifix` and `log-dog` (referenced in `Writerside/topics/sever.md`) are the client's private
+  in-house products and are **not accessible**. Use `internals/mailer` (SMTP) and
+  `internals/logger` (`slog`) instead.

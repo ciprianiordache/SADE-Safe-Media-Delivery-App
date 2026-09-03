@@ -1,0 +1,19 @@
+# Generated at first run by config.Load
+/config.yaml
+/.env
+
+# Runtime data root (storage, logs, scratch, uploads)
+/.data/
+
+# Go build output
+/sade
+/sade.exe
+*.test
+*.out
+
+# Watermark / font assets are provided per deployment
+/assets/
+
+# OS / editor
+.DS_Store
+Thumbs.db

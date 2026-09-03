@@ -1,0 +1,19 @@
+# Normalise line endings: text files are LF in the repo, checked out native.
+* text=auto eol=lf
+
+# Explicit binaries (never touched by eol conversion).
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.mp3   binary
+*.mp4   binary
+
+# Generated / vendored: keep out of language stats and diffs.
+frontend/package-lock.json linguist-generated=true
+go.sum                     linguist-generated=true
