@@ -35,7 +35,7 @@ now wired via `auth`.
 - **Spec:** `Writerside/topics/` (`Default-topic.md` = product goal, `sever.md` = block components).
 - **Agreed build plan:** `docs/SADE-plan.pdf` — read it before starting any feature. It defines
   the target file tree, the milestones (M0–M6), and every decision below.
-- **Repo:** `github.com/ciprianiordache/SADE-Safe-Media-Delivery-App-` (`origin`, branch `main`).
+- **Repo:** `github.com/ciprianiordache/SADE-Safe-Media-Delivery-App` (`origin`, branch `main`).
   Line endings are normalised to LF via `.gitattributes`.
 
 SADE (Safe Media Delivery): an operator uploads a media file (video/audio/image), the backend
