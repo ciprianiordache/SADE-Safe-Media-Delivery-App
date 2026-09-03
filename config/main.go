@@ -23,6 +23,16 @@ import (
 // until a real value is put in the .env file.
 const placeholderSecret = "CHANGE_ME"
 
+// Defaults returns a Config populated entirely from the `default` struct
+// tags, without touching any file, env var, or secret. It is for standalone
+// tools (e.g. cmd/watermark) and tests that need a section like FFmpeg
+// without the full Load pipeline.
+func Defaults() *Config {
+	c := &Config{}
+	applyDefaults(reflect.ValueOf(c).Elem())
+	return c
+}
+
 // Load resolves configuration from a YAML file plus a .env file, generating
 // whichever is missing (non-secret defaults into the YAML, secrets into the
 // .env), then layers the sources: struct defaults < YAML < environment.

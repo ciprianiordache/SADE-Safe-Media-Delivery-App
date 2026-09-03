@@ -111,7 +111,8 @@ func (e *Engine) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 }
 
 // Watermark applies the configured watermark to req.SourcePath and writes the
-// result to req.OutputPath. The output directory is created if missing.
+// result to req.OutputPath. The output directory is created if missing. When
+// req.OnProgress is set, ffmpeg's -progress stream is parsed and reported.
 func (e *Engine) Watermark(ctx context.Context, req Request) error {
 	if req.SourcePath == "" || req.OutputPath == "" {
 		return fmt.Errorf("ffmpeg: source and output paths are required")
@@ -119,6 +120,11 @@ func (e *Engine) Watermark(ctx context.Context, req Request) error {
 	args, err := e.buildArgs(req)
 	if err != nil {
 		return err
+	}
+	if req.OnProgress != nil {
+		// -progress writes a key=value stream to stdout; -nostats hushes the
+		// default stderr progress line. Insert right after "-y".
+		args = append(args[:1:1], append([]string{"-progress", "pipe:1", "-nostats"}, args[1:]...)...)
 	}
 	if err := os.MkdirAll(filepath.Dir(req.OutputPath), 0o755); err != nil {
 		return fmt.Errorf("ffmpeg: create output dir: %w", err)
@@ -129,8 +135,35 @@ func (e *Engine) Watermark(ctx context.Context, req Request) error {
 	cmd.Stderr = &errb
 	e.log.Debug("ffmpeg run", "media", req.Media, "overlay", req.Overlay, "args", strings.Join(args, " "))
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg: watermark %s: %w: %s", req.Media, err, tail(errb.String(), 500))
+	if req.OnProgress == nil {
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("ffmpeg: watermark %s: %w: %s", req.Media, err, tail(errb.String(), 500))
+		}
+		return nil
+	}
+
+	dur := req.DurationSec
+	if dur == 0 {
+		if pr, perr := e.Probe(ctx, req.SourcePath); perr == nil {
+			dur = pr.DurationSec
+		}
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("ffmpeg: stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("ffmpeg: start: %w", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		parseProgress(stdout, dur, req.OnProgress)
+		close(done)
+	}()
+	waitErr := cmd.Wait()
+	<-done
+	if waitErr != nil {
+		return fmt.Errorf("ffmpeg: watermark %s: %w: %s", req.Media, waitErr, tail(errb.String(), 500))
 	}
 	return nil
 }

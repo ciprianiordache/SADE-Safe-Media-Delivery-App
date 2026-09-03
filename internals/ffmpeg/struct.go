@@ -38,6 +38,13 @@ type Request struct {
 	Media      string // MediaVideo | MediaAudio | MediaImage
 	Overlay    string // OverlayLogo | OverlayText | OverlayBoth (ignored for audio)
 	Text       string // text to burn in when Overlay includes text; caller renders any template
+
+	// DurationSec, when > 0, lets Watermark report Percent without a
+	// second ffprobe call. The worker already has it from Probe.
+	DurationSec float64
+	// OnProgress, when non-nil, is called for each ffmpeg -progress block.
+	// It runs on a background goroutine; keep it quick and non-blocking.
+	OnProgress func(Progress)
 }
 
 // ProbeResult is the subset of ffprobe output the pipeline needs.

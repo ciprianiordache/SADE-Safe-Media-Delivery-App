@@ -195,13 +195,19 @@ func TestWatermarkIntegration(t *testing.T) {
 	}
 
 	out := filepath.Join(dir, "out.mp4")
+	var updates []Progress
 	if err := e.Watermark(context.Background(), Request{
 		SourcePath: src, OutputPath: out, Media: MediaVideo, Overlay: OverlayText, Text: "SADE preview",
+		DurationSec: pr.DurationSec,
+		OnProgress:  func(p Progress) { updates = append(updates, p) },
 	}); err != nil {
 		t.Fatalf("Watermark: %v", err)
 	}
 	if fi, err := os.Stat(out); err != nil || fi.Size() == 0 {
 		t.Fatalf("output missing or empty: %v", err)
+	}
+	if len(updates) == 0 || !updates[len(updates)-1].Done || updates[len(updates)-1].Percent != 100 {
+		t.Fatalf("progress not reported to completion: %+v", updates)
 	}
 }
 

@@ -20,8 +20,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **`internals/app/router.go` + `middleware.go`** — central mux, `Recover`/`RequestLog`/`CORS`/`Auth`
   chain, `RequireUser` / `RequireRole`, `UserFrom(ctx)`, `GET /api/me`.
 - `internals/httpx/` — shared HTTP helpers. `internals/testutil/` — `DB(t, models...)` + `Logger()`.
-- `internals/storage/` (local disk), `internals/ffmpeg/` (`os/exec` engine),
+- `internals/storage/` (local disk), `internals/ffmpeg/` (`os/exec` engine + `-progress` parsing),
   `internals/mailer/` (`smtp`/`log`/`noop`), `internals/token/` (HMAC share tokens).
+- `cmd/watermark/` — CLI that runs the engine on one file with a live progress bar.
 - `docker-compose.yml` — Postgres on host port 5433.
 - `internals/app/integration_test.go` (full-graph round-trip) + `router_test.go` (real
   request→callback→cookie→`/api/me`→logout over `httptest`).
@@ -51,6 +52,9 @@ Go (from repo root):
 - `go vet ./...` and `gofmt -l .`
 - `docker compose up -d` — Postgres on host port **5433** (matches config defaults); the app
   fails fast at `db.Connect` if it is not running.
+- `go run ./cmd/watermark -in FILE [-out FILE] [-kind logo|text|both] [-text "..."]` — apply the
+  watermark to one file with a live progress bar. Manual test of `internals/ffmpeg`; needs
+  `ffmpeg`/`ffprobe` on PATH.
 
 Frontend (from `frontend/`):
 - `npm run dev` — dev server
@@ -142,7 +146,8 @@ Two libraries operate on the *same* `db`-tagged structs, both reached through `i
   `config.yaml` / `.env` that is missing (never clobbering the other), and fails startup if a
   `secret` is empty or still `CHANGE_ME`. `secret generate:"rand32"` fields (e.g. `Auth.HMACSecret`)
   are self-generated. `config.Duration` round-trips as `"15s"` in YAML and env; call `.Std()`.
-  `config.Validate` checks enums and cross-field rules.
+  `config.Validate` checks enums and cross-field rules. `config.Defaults()` returns a `*Config`
+  from the `default` tags only (no file/env/secret) — for standalone tools (`cmd/watermark`) and tests.
 - `internals/database/` — `New(cfg, log)` then `Connect(ctx)` (bounded `PingContext`). The SQL
   **dialect is chosen here** from the driver name; callers never pick one. Exposes `db.CRUD()`
   (shared `*crud.CRUD`), `db.Migrate(models…)` (schema-builder, idempotent), and
@@ -161,12 +166,19 @@ Two libraries operate on the *same* `db`-tagged structs, both reached through `i
   real path for the local backend; `ok` is false for S3 (not implemented yet — `New` errors on it).
   Metadata (real MIME, checksum) is the asset domain's job, not this package's.
 - `internals/ffmpeg/` — watermark `Engine` (`ffmpeg.New(cfg, log)`). Shells `ffmpeg`/`ffprobe`
-  **directly via `os/exec`** (not `u2takey/ffmpeg-go`): a hand-built `-filter_complex` is clearer
-  for overlay+drawtext+opacity+position, and `Engine.buildArgs` is unit-tested as a plain arg
-  list with no ffmpeg installed. `Engine.Probe(ctx, path)` classifies media; `Engine.Watermark(ctx, Request)`
+  **directly via `os/exec`, deliberately NOT `u2takey/ffmpeg-go`**: that library's core file
+  hard-imports the full `aws-sdk-go` v1 (unavoidable transitive dep), is lightly maintained
+  (v0.5.0 / Go 1.16), and under the hood does the same `exec.CommandContext` we do — a
+  hand-built `-filter_complex` string is clearer for overlay+drawtext+opacity+position and
+  `Engine.buildArgs` stays a pure function unit-tested with no ffmpeg installed. If the client
+  ever requires the literal import, routing `buildArgs` output through `ffmpeg_go.Input().Output()`
+  is a contained change. `Engine.Probe(ctx, path)` classifies media; `Engine.Watermark(ctx, Request)`
   dispatches video/image (logo `overlay` + `drawtext`, opacity via `colorchannelmixer`) and audio
   (`amix` of a looped low-gain clip). Every call takes a context so `WORKER_JOB_TIMEOUT` cancels
-  it. Needs the `ffmpeg`/`ffprobe` binaries; `New` fails fast if missing.
+  it. When `Request.OnProgress != nil`, `-progress pipe:1` output is parsed (`progress.go`) into
+  `Progress{Percent, OutTime, Frame, FPS, Speed, …, Done}` — no polling, no temp file; `Percent`
+  needs `Request.DurationSec` (or a self-probe). `cmd/watermark` is the CLI demo. Needs the
+  `ffmpeg`/`ffprobe` binaries; `New` fails fast if missing.
 - `internals/app/auth/` — the magic-link flow (no table of its own; composes `user` + `magic_token`
   + `session` + `mailer`). `Service`: `RequestLink` (ensure account → mint token → email the
   `PublicURL/api/auth/callback?token=` link), `Complete` (spend token → create session → return
