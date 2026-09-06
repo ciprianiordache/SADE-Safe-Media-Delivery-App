@@ -6,6 +6,7 @@ import (
 
 	"sade/config"
 	"sade/internals/app/auth"
+	"sade/internals/app/job"
 	"sade/internals/app/user"
 	"sade/internals/httpx"
 )
@@ -18,6 +19,7 @@ type Deps struct {
 	Auth    *auth.Handler
 	AuthSvc *auth.Service
 	User    *user.Handler
+	Job     *job.Handler
 }
 
 // NewRouter builds the application's HTTP handler: routes plus the global
@@ -34,6 +36,18 @@ func NewRouter(d Deps) http.Handler {
 
 	// Signed-in.
 	mux.Handle("GET /api/me", RequireUser(http.HandlerFunc(me)))
+
+	// Operator-scoped: require a session and hand the job handlers the
+	// operator id, so the job package never imports the auth layer.
+	operator := func(h http.HandlerFunc) http.Handler {
+		return RequireUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u, _ := UserFrom(r.Context())
+			h(w, r.WithContext(job.WithUserID(r.Context(), u.ID)))
+		}))
+	}
+	mux.Handle("POST /api/jobs", operator(d.Job.Create))
+	mux.Handle("GET /api/jobs", operator(d.Job.List))
+	mux.Handle("GET /api/jobs/{id}", operator(d.Job.Get))
 
 	// Admin only.
 	admin := func(h http.HandlerFunc) http.Handler {

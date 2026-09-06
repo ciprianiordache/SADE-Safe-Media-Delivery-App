@@ -4,7 +4,11 @@
 // A job's files are rows in the asset domain (asset.JobID), not columns here.
 package job
 
-import "time"
+import (
+	"time"
+
+	"sade/internals/app/asset"
+)
 
 // Status lifecycle: pending -> processing -> done | failed.
 const (
@@ -58,18 +62,20 @@ type CreateRequest struct {
 }
 
 // Response is the API view of a job. Status transitions are internal (the
-// worker owns them), so there is no update request DTO.
+// worker owns them), so there is no update request DTO. Assets is populated
+// only by the single-job detail endpoint; the list endpoint leaves it nil.
 type Response struct {
-	ID             string    `json:"id"`
-	Status         string    `json:"status"`
-	MediaType      string    `json:"mediaType"`
-	RecipientEmail string    `json:"recipientEmail"`
-	WatermarkKind  string    `json:"watermarkKind"`
-	WatermarkText  string    `json:"watermarkText,omitempty"`
-	Attempts       int       `json:"attempts"`
-	Error          string    `json:"error,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID             string           `json:"id"`
+	Status         string           `json:"status"`
+	MediaType      string           `json:"mediaType"`
+	RecipientEmail string           `json:"recipientEmail"`
+	WatermarkKind  string           `json:"watermarkKind"`
+	WatermarkText  string           `json:"watermarkText,omitempty"`
+	Attempts       int              `json:"attempts"`
+	Error          string           `json:"error,omitempty"`
+	CreatedAt      time.Time        `json:"createdAt"`
+	UpdatedAt      time.Time        `json:"updatedAt"`
+	Assets         []asset.Response `json:"assets,omitempty"`
 }
 
 func toResponse(j Job) Response {

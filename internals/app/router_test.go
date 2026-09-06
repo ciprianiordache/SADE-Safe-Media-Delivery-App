@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -12,11 +14,14 @@ import (
 	"time"
 
 	"sade/config"
+	"sade/internals/app/asset"
 	"sade/internals/app/auth"
+	"sade/internals/app/job"
 	"sade/internals/app/magic_token"
 	"sade/internals/app/session"
 	"sade/internals/app/user"
 	"sade/internals/mailer"
+	"sade/internals/storage"
 	"sade/internals/testutil"
 )
 
@@ -52,7 +57,7 @@ func (m *capMailer) lastLink(t *testing.T) string {
 // mailer, and returns an httptest server plus a client with a cookie jar.
 func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer) {
 	t.Helper()
-	db := testutil.DB(t, user.User{}, magic_token.MagicToken{}, session.Session{})
+	db := testutil.DB(t, user.User{}, magic_token.MagicToken{}, session.Session{}, job.Job{}, asset.Asset{})
 	cm := &capMailer{}
 
 	cfg := &config.Config{}
@@ -62,12 +67,19 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer) {
 		SessionTTL:        config.Duration(24 * time.Hour),
 		SessionCookieName: "sade_session",
 	}
+	cfg.Upload = config.Defaults().Upload
+
+	store, err := storage.New(config.StorageConfig{Driver: "local", LocalPath: t.TempDir()}, testutil.Logger())
+	if err != nil {
+		t.Fatalf("storage.New: %v", err)
+	}
 
 	userSvc := user.NewService(user.NewRepo(db), testutil.Logger())
 	authSvc := auth.NewService(
 		userSvc, magic_token.NewRepo(db), session.NewRepo(db), cm,
 		cfg.Auth, "http://APIBASE", "http://app.test", testutil.Logger(),
 	)
+	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, cfg.Upload, testutil.Logger())
 
 	router := NewRouter(Deps{
 		Cfg:     cfg,
@@ -75,6 +87,7 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer) {
 		Auth:    auth.NewHandler(authSvc, cfg.Auth, testutil.Logger()),
 		AuthSvc: authSvc,
 		User:    user.NewHandler(userSvc, testutil.Logger()),
+		Job:     job.NewHandler(jobSvc, cfg.Upload, testutil.Logger()),
 	})
 
 	srv := httptest.NewServer(router)
@@ -160,6 +173,149 @@ func TestAuthFlowEndToEnd(t *testing.T) {
 	}
 	if resp := get(t, client, srv.URL+"/api/me"); resp != http.StatusUnauthorized {
 		t.Errorf("/api/me after logout = %d, want 401", resp)
+	}
+}
+
+// signIn runs the magic-link dance and leaves the client holding a session
+// cookie for email.
+func signIn(t *testing.T, srv *httptest.Server, client *http.Client, cm *capMailer, email string) {
+	t.Helper()
+	resp, err := client.Post(srv.URL+"/api/auth/request", "application/json",
+		strings.NewReader(`{"email":"`+email+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("request link = %d, want 202", resp.StatusCode)
+	}
+	link := strings.Replace(cm.lastLink(t), "http://APIBASE", srv.URL, 1)
+	cb, err := client.Get(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cb.Body.Close()
+	if !hasSessionCookie(client, srv.URL) {
+		t.Fatal("no session cookie after callback")
+	}
+}
+
+// multipartUpload builds a POST /api/jobs body with one file part and extra
+// text fields, returning the body and its Content-Type header.
+func multipartUpload(t *testing.T, filename string, content []byte, fields map[string]string) (*bytes.Buffer, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fw, err := mw.CreateFormFile("file", filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return &buf, mw.FormDataContentType()
+}
+
+func TestJobUploadFlowEndToEnd(t *testing.T) {
+	srv, client, cm := buildTestApp(t)
+
+	// Unauthenticated upload is rejected.
+	body, ct := multipartUpload(t, "clip.png", []byte("img-bytes"),
+		map[string]string{"recipientEmail": "client@example.com"})
+	resp, err := client.Post(srv.URL+"/api/jobs", ct, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("upload signed out = %d, want 401", resp.StatusCode)
+	}
+
+	signIn(t, srv, client, cm, "op@example.com")
+
+	// Upload a file -> 201 with a pending job and its original asset.
+	body, ct = multipartUpload(t, "clip.png", []byte("img-bytes"), map[string]string{
+		"recipientEmail": "client@example.com",
+		"watermarkKind":  job.WatermarkText,
+		"watermarkText":  "confidential",
+	})
+	resp, err = client.Post(srv.URL+"/api/jobs", ct, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("upload = %d, want 201", resp.StatusCode)
+	}
+	var created job.Response
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Status != job.StatusPending || created.MediaType != job.MediaImage {
+		t.Errorf("created job = %+v", created)
+	}
+	if len(created.Assets) != 1 || created.Assets[0].Kind != asset.KindOriginal || created.Assets[0].SizeBytes == 0 {
+		t.Errorf("created assets = %+v", created.Assets)
+	}
+
+	// It shows up in the caller's list.
+	lresp, err := client.Get(srv.URL + "/api/jobs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lresp.Body.Close()
+	var list []job.Response
+	if err := json.NewDecoder(lresp.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].ID != created.ID {
+		t.Fatalf("list = %+v, want the one created job", list)
+	}
+
+	// Detail returns the job with its assets.
+	dresp, err := client.Get(srv.URL + "/api/jobs/" + created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dresp.Body.Close()
+	if dresp.StatusCode != http.StatusOK {
+		t.Fatalf("detail = %d, want 200", dresp.StatusCode)
+	}
+	var detail job.Response
+	if err := json.NewDecoder(dresp.Body).Decode(&detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.ID != created.ID || len(detail.Assets) != 1 {
+		t.Errorf("detail = %+v", detail)
+	}
+
+	// A rejected extension is a 415 and creates nothing.
+	body, ct = multipartUpload(t, "notes.txt", []byte("plain"),
+		map[string]string{"recipientEmail": "client@example.com"})
+	bresp, err := client.Post(srv.URL+"/api/jobs", ct, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bresp.Body.Close()
+	if bresp.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("bad-extension upload = %d, want 415", bresp.StatusCode)
+	}
+
+	// Another operator does not see the first operator's job.
+	jar2, _ := cookiejar.New(nil)
+	client2 := &http.Client{Jar: jar2, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	signIn(t, srv, client2, cm, "other@example.com")
+	oresp := get(t, client2, srv.URL+"/api/jobs/"+created.ID)
+	if oresp != http.StatusNotFound {
+		t.Errorf("other operator GET job = %d, want 404", oresp)
 	}
 }
 

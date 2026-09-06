@@ -42,7 +42,9 @@ type Response struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-func toResponse(a Asset) Response {
+// ToResponse maps a stored asset to its API view. Exported so the job layer,
+// which owns the "job + its files" response, can render asset rows.
+func ToResponse(a Asset) Response {
 	return Response{
 		ID:        a.ID,
 		JobID:     a.JobID,
@@ -53,4 +55,13 @@ func toResponse(a Asset) Response {
 		Checksum:  a.Checksum,
 		CreatedAt: a.CreatedAt,
 	}
+}
+
+// ToResponses maps a slice of assets, preserving order.
+func ToResponses(as []Asset) []Response {
+	out := make([]Response, len(as))
+	for i, a := range as {
+		out[i] = ToResponse(a)
+	}
+	return out
 }

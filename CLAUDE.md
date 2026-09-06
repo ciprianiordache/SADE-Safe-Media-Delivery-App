@@ -4,34 +4,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**M1 in progress — magic-link login works end to end.** Done and tested:
+**M1 done. M2 done — job upload stores the original + its asset row.** Done and tested:
 
 - `config/` — full loader (defaults < YAML < env), `config.Duration`, secret generation, `Validate`.
 - `internals/logger/` — `slog` + lumberjack; `internals/database/` — pool + `Connect` + `Migrate` +
   shared `CRUD()`; `internals/server/` — synchronous-bind HTTP lifecycle.
 - Root `main.go` + `app.go` — `NewApp` → `Run` → `Close`; builds logger, connects+migrates the DB,
-  builds the mailer, wires the `user` + `auth` domains, serves `app.NewRouter(...)`.
+  builds the mailer + `storage`, wires the `user` + `auth` + `job` domains, serves `app.NewRouter(...)`.
 - `internals/app/<domain>/model.go` for all six domains + `internals/app/models.go` (`Models()`).
 - **`internals/app/user/`** — full stack (repo/service/handler + tests).
 - **`internals/app/auth/`** — magic-link flow (`RequestLink` / `Complete` / `Authenticate` /
   `Logout`) + handler (`POST /api/auth/request`, `GET /api/auth/callback`, `POST /api/auth/logout`).
+- **`internals/app/job/`** — full stack. `Service.Create` validates the recipient/kind, detects
+  media type from the filename extension against `config.Upload.Allowed*`, streams the upload into
+  `storage` (`originals/<jobID>/original<ext>`) with a sha256 + size-cap `io.TeeReader`/`LimitReader`,
+  writes the `Job` row (`status=pending`) + the original `asset.Asset` row, and rolls both back
+  (blob + row) on any later failure. `Get`/`List` are owner-scoped (a non-owner's job reads as 404).
+  Handler: `POST /api/jobs` (multipart `file` + `recipientEmail`/`watermarkKind`/`watermarkText`/
+  `watermarkOpts`, `MaxBytesReader`-guarded), `GET /api/jobs`, `GET /api/jobs/{id}`.
+- **`internals/app/asset/`** — repo only (`Create` / `GetByID` / `ListByJob` / `GetByJobAndKind` /
+  `Delete`), like `magic_token`/`session`. Exported `ToResponse`/`ToResponses` so `job` renders
+  asset rows in its detail response. No handler — assets reach clients via signed share links.
 - **`internals/app/magic_token/` + `internals/app/session/`** — repos (`Consume` is atomic
   delete-on-use; `GetByHash` / `Delete`).
 - **`internals/app/router.go` + `middleware.go`** — central mux, `Recover`/`RequestLog`/`CORS`/`Auth`
-  chain, `RequireUser` / `RequireRole`, `UserFrom(ctx)`, `GET /api/me`.
+  chain, `RequireUser` / `RequireRole`, `UserFrom(ctx)`, `GET /api/me`. The `operator` wrapper
+  guards the `/api/jobs*` routes with `RequireUser` and passes the operator id down via
+  `job.WithUserID(ctx, id)` (keeps `job` from importing the auth layer).
 - `internals/httpx/` — shared HTTP helpers. `internals/testutil/` — `DB(t, models...)` + `Logger()`.
-- `internals/storage/` (local disk), `internals/ffmpeg/` (`os/exec` engine + `-progress` parsing),
-  `internals/mailer/` (`smtp`/`log`/`noop`), `internals/token/` (HMAC share tokens).
+- `internals/storage/` (local disk, wired in `app.go`), `internals/ffmpeg/` (`os/exec` engine +
+  `-progress` parsing), `internals/mailer/` (`smtp`/`log`/`noop`), `internals/token/` (HMAC share tokens).
 - `cmd/watermark/` — CLI that runs the engine on one file with a live progress bar.
 - `docker-compose.yml` — Postgres on host port 5433.
 - `internals/app/integration_test.go` (full-graph round-trip) + `router_test.go` (real
-  request→callback→cookie→`/api/me`→logout over `httptest`).
+  request→callback→cookie→`/api/me`→logout, and the full job upload→list→detail flow over `httptest`).
 
-Not started: `repo.go` / `service.go` / `handler.go` for `job` / `asset` / `payment`,
-`internals/worker`, the `/p/:token` + `/d/:token` share handlers, and `frontend/` (default
-SvelteKit skeleton). `storage`, `ffmpeg` and `token` are built but not yet referenced from
-`app.go` — wired in with the worker (storage/ffmpeg) and the share handlers (token). `mailer` is
-now wired via `auth`.
+Not started: `repo.go` / `service.go` / `handler.go` for `payment`, `internals/worker`, the
+`/p/:token` + `/d/:token` share handlers, and `frontend/` (default SvelteKit skeleton). `ffmpeg`
+and `token` are built but not yet referenced from `app.go` — wired in with the worker (ffmpeg) and
+the share handlers (token). `mailer` is wired via `auth`; `storage` via `job`.
 
 - **Spec:** `Writerside/topics/` (`Default-topic.md` = product goal, `sever.md` = block components).
 - **Agreed build plan:** `docs/SADE-plan.pdf` — read it before starting any feature. It defines
@@ -66,10 +77,13 @@ Frontend (from `frontend/`):
 ### Backend layering (mirrors `github.com/ciprianiordache/nutrition-planner`)
 
 Each domain lives in its own package `internals/app/<feature>/` with a fixed file set:
-`model.go`, `errors.go`, `repo.go`, `service.go`, `handler.go` (+ `*_test.go`). `user` is
-built end to end; the other five domains have only `model.go` so far.
+`model.go`, `errors.go`, `repo.go`, `service.go`, `handler.go` (+ `*_test.go`). `user` and `job`
+are built end to end; `asset` is repo-only (semi-internal, like `magic_token`/`session`);
+`payment` has only `model.go` so far.
 Dependency direction is strictly `handler → service → repo → internals/database`. `handler`
 uses `internals/httpx` for JSON I/O; tests use `internals/testutil` for a migrated SQLite DB.
+Cross-domain composition follows `auth` (a service holds another domain's `Service`/`Repo`):
+`job.Service` composes `asset.Repo` and `internals/storage`.
 
 - `model.go` holds the domain struct with `db:"..."` tags **and** separate
   `CreateRequest` / `UpdateRequest` / `Response` DTOs with `json:` tags plus a `toResponse()`

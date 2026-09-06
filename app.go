@@ -9,7 +9,9 @@ import (
 
 	"sade/config"
 	"sade/internals/app"
+	"sade/internals/app/asset"
 	"sade/internals/app/auth"
+	"sade/internals/app/job"
 	"sade/internals/app/magic_token"
 	"sade/internals/app/session"
 	"sade/internals/app/user"
@@ -17,6 +19,7 @@ import (
 	"sade/internals/logger"
 	"sade/internals/mailer"
 	"sade/internals/server"
+	"sade/internals/storage"
 )
 
 // App is the wired-together application: configuration, the shared logger,
@@ -81,6 +84,12 @@ func NewApp(ctx context.Context) (*App, error) {
 		return fail(fmt.Errorf("init mailer: %w", err))
 	}
 
+	store, err := storage.New(cfg.Storage, log)
+	if err != nil {
+		_ = db.Close()
+		return fail(fmt.Errorf("init storage: %w", err))
+	}
+
 	// Domains: repo -> service -> handler.
 	userSvc := user.NewService(user.NewRepo(db), log)
 	userH := user.NewHandler(userSvc, log)
@@ -91,8 +100,11 @@ func NewApp(ctx context.Context) (*App, error) {
 	)
 	authH := auth.NewHandler(authSvc, cfg.Auth, log)
 
+	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, cfg.Upload, log)
+	jobH := job.NewHandler(jobSvc, cfg.Upload, log)
+
 	router := app.NewRouter(app.Deps{
-		Cfg: cfg, Log: log, Auth: authH, AuthSvc: authSvc, User: userH,
+		Cfg: cfg, Log: log, Auth: authH, AuthSvc: authSvc, User: userH, Job: jobH,
 	})
 
 	a := &App{cfg: cfg, log: log, logGC: logGC, db: db}
