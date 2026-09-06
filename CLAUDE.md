@@ -4,13 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**M1 done. M2 done — job upload stores the original + its asset row.** Done and tested:
+**M1 done. M2 done. M3 (ffmpeg engine) was already built; the watermark worker is now wired —
+uploads are watermarked async, the preview is stored, and the recipient is emailed a signed
+`/p/<token>` link.** Done and tested:
 
 - `config/` — full loader (defaults < YAML < env), `config.Duration`, secret generation, `Validate`.
+  `Auth.ShareTokenTTL` (default 30d) bounds the signed `/p` and `/d` links.
 - `internals/logger/` — `slog` + lumberjack; `internals/database/` — pool + `Connect` + `Migrate` +
-  shared `CRUD()`; `internals/server/` — synchronous-bind HTTP lifecycle.
+  shared `CRUD()` + `Driver()`; `internals/server/` — synchronous-bind HTTP lifecycle.
 - Root `main.go` + `app.go` — `NewApp` → `Run` → `Close`; builds logger, connects+migrates the DB,
-  builds the mailer + `storage`, wires the `user` + `auth` + `job` domains, serves `app.NewRouter(...)`.
+  builds the mailer + `storage`, wires the `user` + `auth` + `job` domains, builds the `ffmpeg`
+  engine + `token` signer + the `worker` pool, serves `app.NewRouter(...)`. `App.Run` starts the
+  worker, runs the server, then stops the worker within `Worker.ShutdownGrace`. If `ffmpeg.New`
+  fails (binaries missing) the worker is skipped and the app still serves — uploads just stay
+  `pending`.
 - `internals/app/<domain>/model.go` for all six domains + `internals/app/models.go` (`Models()`).
 - **`internals/app/user/`** — full stack (repo/service/handler + tests).
 - **`internals/app/auth/`** — magic-link flow (`RequestLink` / `Complete` / `Authenticate` /
@@ -22,6 +29,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   (blob + row) on any later failure. `Get`/`List` are owner-scoped (a non-owner's job reads as 404).
   Handler: `POST /api/jobs` (multipart `file` + `recipientEmail`/`watermarkKind`/`watermarkText`/
   `watermarkOpts`, `MaxBytesReader`-guarded), `GET /api/jobs`, `GET /api/jobs/{id}`.
+  `Repo` also carries the worker-facing state machine (raw SQL, dialect-aware via `db.Driver()`):
+  `ClaimPending` (atomic `UPDATE … RETURNING`, `FOR UPDATE SKIP LOCKED` on Postgres, bumps
+  `attempts`), `MarkDone` / `MarkFailed` / `MarkForRetry(nextAttemptAt)` / `ResetStuck(cutoff)`.
+  `Job` gained a `next_attempt_at` column (zero = ready now) gating (re)claims for retry backoff.
 - **`internals/app/asset/`** — repo only (`Create` / `GetByID` / `ListByJob` / `GetByJobAndKind` /
   `Delete`), like `magic_token`/`session`. Exported `ToResponse`/`ToResponses` so `job` renders
   asset rows in its detail response. No handler — assets reach clients via signed share links.
@@ -31,18 +42,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   chain, `RequireUser` / `RequireRole`, `UserFrom(ctx)`, `GET /api/me`. The `operator` wrapper
   guards the `/api/jobs*` routes with `RequireUser` and passes the operator id down via
   `job.WithUserID(ctx, id)` (keeps `job` from importing the auth layer).
+- **`internals/worker/`** — in-process pool, wired in `app.go`. `New(cfg, JobStore, AssetStore,
+  Blob, Engine, Notifier, log)` over small interfaces the pool declares itself; `app.go` binds them
+  with `jobStoreAdapter`/`assetStoreAdapter` (in `worker_wiring.go`) + `storage` + `*ffmpeg.Engine`
+  + `worker.EmailNotifier`. `Start` runs `ResetStuck` once then a dispatcher (polls
+  `ClaimPending` every `PollInterval`, batches of `ClaimBatchSize`) feeding `Concurrency`
+  processor goroutines over a channel. `process` = load original → `LocalPath` → `engine.Probe`
+  → `engine.Watermark` into `previews/<jobID>/<base>-preview.<ext>` (`.mp4` video / `.m4a` audio /
+  source ext image) → `Stat` + sha256 → `asset.AddPreview` → `Notifier.PreviewReady` (a failed
+  email is logged, not fatal). Outcome: `MarkDone`, or `MarkForRetry` with `RetryBackoff<<(attempt-1)`
+  while `attempts <= MaxRetries`, else `MarkFailed`. Per-job `context` is detached from shutdown
+  (bounded by `JobTimeout`); `Stop` waits out `ShutdownGrace`. Only the local storage backend is
+  supported (needs `LocalPath`); S3 staging is a TODO.
 - `internals/httpx/` — shared HTTP helpers. `internals/testutil/` — `DB(t, models...)` + `Logger()`.
-- `internals/storage/` (local disk, wired in `app.go`), `internals/ffmpeg/` (`os/exec` engine +
-  `-progress` parsing), `internals/mailer/` (`smtp`/`log`/`noop`), `internals/token/` (HMAC share tokens).
+- `internals/storage/` (local disk, wired via `job` + `worker`), `internals/ffmpeg/` (`os/exec`
+  engine + `-progress` parsing, wired via `worker`), `internals/mailer/` (`smtp`/`log`/`noop`),
+  `internals/token/` (HMAC share tokens, wired via `worker.EmailNotifier` for the `preview` purpose).
 - `cmd/watermark/` — CLI that runs the engine on one file with a live progress bar.
 - `docker-compose.yml` — Postgres on host port 5433.
 - `internals/app/integration_test.go` (full-graph round-trip) + `router_test.go` (real
   request→callback→cookie→`/api/me`→logout, and the full job upload→list→detail flow over `httptest`).
 
-Not started: `repo.go` / `service.go` / `handler.go` for `payment`, `internals/worker`, the
-`/p/:token` + `/d/:token` share handlers, and `frontend/` (default SvelteKit skeleton). `ffmpeg`
-and `token` are built but not yet referenced from `app.go` — wired in with the worker (ffmpeg) and
-the share handlers (token). `mailer` is wired via `auth`; `storage` via `job`.
+Not started: `repo.go` / `service.go` / `handler.go` for `payment`, the `/p/:token` + `/d/:token`
+share handlers (so the link `worker.EmailNotifier` sends does not resolve yet — that route is the
+next step), and `frontend/` (default SvelteKit skeleton). `mailer` is wired via `auth` + `worker`;
+`storage` via `job` + `worker`; `ffmpeg` + `token` via `worker`.
 
 - **Spec:** `Writerside/topics/` (`Default-topic.md` = product goal, `sever.md` = block components).
 - **Agreed build plan:** `docs/SADE-plan.pdf` — read it before starting any feature. It defines
@@ -105,9 +129,12 @@ Cross-domain composition follows `auth` (a service holds another domain's `Servi
 
 Wiring lives in root `app.go` (`NewApp(ctx)` → `App.Run(ctx)` → `App.Close()`): config → logger
 (`slog.SetDefault` + `.With("environment", …)`) → `database.Connect` → `db.Migrate(app.Models()...)`
-→ `mailer.New` → per-domain `NewRepo` → `NewService` → `NewHandler` → `app.NewRouter(app.Deps{…})`
-→ `server.New`. `main.go` is a thin `run()` that owns `signal.NotifyContext` and guarantees
-`App.Close` runs. `cmd/` is reserved for utilities (e.g. `cmd/seed`).
+→ `mailer.New` → `storage.New` → per-domain `NewRepo` → `NewService` → `NewHandler` →
+`app.NewRouter(app.Deps{…})` → `server.New` → (if `ffmpeg.New` succeeds) `token.New` +
+`worker.New`. `App.Run` starts the worker, blocks on `server.Run`, then `worker.Stop`. `main.go`
+is a thin `run()` that owns `signal.NotifyContext` and guarantees `App.Close` runs. Worker
+dependency adapters live in root `worker_wiring.go` (package `main`). `cmd/` is reserved for
+utilities (e.g. `cmd/seed`).
 
 `internals/app/router.go` builds the mux (Go 1.22 method+path patterns) and wraps it in
 `chain(mux, Recover, RequestLog, CORS, Auth)` — first listed is outermost. `middleware.go`:
@@ -134,7 +161,7 @@ package-level string consts.
 | `user.User` → `users` | `email` unique, `role` (`operator`/`admin`, default `operator`) | parent of everything |
 | `magic_token.MagicToken` → `magic_tokens` | `token_hash` unique (sha256 of the emailed token), `expires_at`. **Single-use = the row is deleted on consumption** (`Repo.Consume`, in a tx with a RowsAffected gate), not a flag | `user_id` → `users` cascade |
 | `session.Session` → `sessions` | `token_hash` unique (sha256 of the cookie), `expires_at` | `user_id` → `users` cascade |
-| `job.Job` → `jobs` | `status` indexed (`pending`→`processing`→`done`/`failed`), `media_type`, `recipient_email`, `watermark_kind`, `watermark_opts` (JSON string), `attempts`, `error` | `user_id` → `users` cascade |
+| `job.Job` → `jobs` | `status` indexed (`pending`→`processing`→`done`/`failed`), `media_type`, `recipient_email`, `watermark_kind`, `watermark_text`, `watermark_opts` (JSON string), `attempts`, `error`, `next_attempt_at` indexed (zero = ready now; worker retry-backoff gate) | `user_id` → `users` cascade |
 | `asset.Asset` → `assets` | `kind` (`original`/`preview`), `storage_key`, `filename`, `mime`, `size_bytes`, `checksum` | `job_id` → `jobs` cascade. **A job's files are asset rows keyed by `job_id`; `Job` holds no asset columns.** |
 | `payment.Payment` → `payments` | *(backlog, not wired)* `provider`, `provider_ref`, `status`, `amount_cents`, `currency` | `job_id` → `jobs` cascade |
 
@@ -199,10 +226,19 @@ Two libraries operate on the *same* `db`-tagged structs, both reached through `i
   its secret + expiry), `Authenticate` (cookie value → user; deletes an expired session as a side
   effect), `Logout`. Only sha256 hashes of the link token and the session secret are stored. Any
   unusable token → `ErrInvalidToken` (no probing which of unknown/used/expired).
-- `internals/worker/` *(not built)* — in-process pool. A job upload writes a `Job` row
-  (`status=pending`) + original `Asset`; the worker picks it up (`FOR UPDATE SKIP LOCKED`), runs
-  the engine, `storage.Put`s a preview + preview `Asset` row, emails the link. DB row is the
-  source of truth. Will declare its own dependency interfaces (job/asset stores, notifier).
+- `internals/worker/` — in-process pool (`worker.New` + `Start`/`Stop`), wired in `app.go`. Declares
+  its own dependency interfaces — `JobStore`, `AssetStore`, `Blob`, `Engine`, `Notifier` — bound to
+  the real repos/`storage`/`ffmpeg` by adapters in root `worker_wiring.go`, and to fakes in tests.
+  A dispatcher polls `JobStore.ClaimPending` (atomic claim, `FOR UPDATE SKIP LOCKED` on Postgres,
+  bumps `attempts`) every `PollInterval` and feeds `Concurrency` processors. `process` per job:
+  load original → `Blob.LocalPath` → `Engine.Probe` → `Engine.Watermark` into
+  `previews/<jobID>/<base>-preview.<ext>` → `Blob.Stat` + sha256 → `AssetStore.AddPreview` →
+  `Notifier.PreviewReady`. Outcome drives `MarkDone` / `MarkForRetry` (`RetryBackoff<<(attempt-1)`,
+  while `attempts <= MaxRetries`) / `MarkFailed`. `Start` first runs `ResetStuck` (requeue rows
+  stuck `processing` past `StuckJobTimeout`). Per-job context is detached from shutdown, bounded
+  by `JobTimeout`; `Stop` waits out `ShutdownGrace`. `worker.EmailNotifier` signs a `token`
+  `"preview"` capability for the preview asset id and mails `PublicURL/p/<token>`. DB row is the
+  source of truth. Local storage only (needs `LocalPath`); S3 staging is a TODO.
 - `internals/mailer/` — `mailer.New(cfg, log)` → `Mailer.Send(ctx, Message)`. Transport from
   `Mailer.Transport`: `smtp` (STARTTLS on 587, implicit TLS on 465, PLAIN auth when a user is
   set), `log` (renders to the logger — the local magic-link path; body at Info, full RFC 5322 at

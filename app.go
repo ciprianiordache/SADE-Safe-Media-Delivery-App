@@ -16,10 +16,13 @@ import (
 	"sade/internals/app/session"
 	"sade/internals/app/user"
 	"sade/internals/database"
+	"sade/internals/ffmpeg"
 	"sade/internals/logger"
 	"sade/internals/mailer"
 	"sade/internals/server"
 	"sade/internals/storage"
+	"sade/internals/token"
+	"sade/internals/worker"
 )
 
 // App is the wired-together application: configuration, the shared logger,
@@ -36,6 +39,7 @@ type App struct {
 	logGC  io.Closer
 	db     *database.Database
 	server *server.Server
+	worker *worker.Pool // nil when ffmpeg is unavailable
 }
 
 // NewApp loads config, starts the logger, connects the database and ensures
@@ -91,6 +95,9 @@ func NewApp(ctx context.Context) (*App, error) {
 	}
 
 	// Domains: repo -> service -> handler.
+	jobRepo := job.NewRepo(db)
+	assetRepo := asset.NewRepo(db)
+
 	userSvc := user.NewService(user.NewRepo(db), log)
 	userH := user.NewHandler(userSvc, log)
 
@@ -100,7 +107,7 @@ func NewApp(ctx context.Context) (*App, error) {
 	)
 	authH := auth.NewHandler(authSvc, cfg.Auth, log)
 
-	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, cfg.Upload, log)
+	jobSvc := job.NewService(jobRepo, assetRepo, store, cfg.Upload, log)
 	jobH := job.NewHandler(jobSvc, cfg.Upload, log)
 
 	router := app.NewRouter(app.Deps{
@@ -109,14 +116,57 @@ func NewApp(ctx context.Context) (*App, error) {
 
 	a := &App{cfg: cfg, log: log, logGC: logGC, db: db}
 	a.server = server.New(cfg.Server, log, router)
+
+	// The watermark worker. If ffmpeg/ffprobe are missing the app still runs
+	// (uploads queue as pending); the pool just does not start.
+	if engine, eErr := ffmpeg.New(cfg.FFmpeg, log); eErr != nil {
+		log.Warn("watermark worker disabled", "reason", eErr)
+	} else {
+		signer, sErr := token.New(cfg.Auth.HMACSecret)
+		if sErr != nil {
+			_ = db.Close()
+			return fail(fmt.Errorf("init share-token signer: %w", sErr))
+		}
+		a.worker = worker.New(
+			worker.Config{
+				Concurrency:     cfg.Worker.Concurrency,
+				PollInterval:    cfg.Worker.PollInterval.Std(),
+				ClaimBatchSize:  cfg.Worker.ClaimBatchSize,
+				MaxRetries:      cfg.Worker.MaxRetries,
+				RetryBackoff:    cfg.Worker.RetryBackoff.Std(),
+				JobTimeout:      cfg.Worker.JobTimeout.Std(),
+				StuckJobTimeout: cfg.Worker.StuckJobTimeout.Std(),
+				ShutdownGrace:   cfg.Worker.ShutdownGrace.Std(),
+				TextTemplate:    cfg.FFmpeg.TextTemplate,
+			},
+			jobStoreAdapter{jobRepo},
+			assetStoreAdapter{assetRepo},
+			store,
+			engine,
+			worker.NewEmailNotifier(mail, signer, cfg.App.PublicURL, cfg.Auth.ShareTokenTTL.Std()),
+			log,
+		)
+	}
 	return a, nil
 }
 
-// Run serves until ctx is cancelled (SIGINT/SIGTERM) or the server stops on
-// its own, then shuts the server down gracefully. Close still has to be
-// called afterwards to release the database and logger.
+// Run starts the watermark worker (if enabled) and serves until ctx is
+// cancelled (SIGINT/SIGTERM) or the server stops on its own, then shuts the
+// server and the worker down gracefully. Close still has to be called
+// afterwards to release the database and logger.
 func (a *App) Run(ctx context.Context) error {
-	return server.Run(ctx, a.server)
+	if a.worker != nil {
+		a.worker.Start(ctx)
+	}
+	srvErr := server.Run(ctx, a.server)
+	if a.worker != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), a.cfg.Worker.ShutdownGrace.Std())
+		defer cancel()
+		if err := a.worker.Stop(stopCtx); err != nil {
+			a.log.Error("worker did not stop cleanly", "error", err)
+		}
+	}
+	return srvErr
 }
 
 // Close releases resources in reverse order of construction: database, then

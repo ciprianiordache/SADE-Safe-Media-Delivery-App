@@ -168,6 +168,7 @@ type AuthConfig struct {
 	HMACSecret          string   `yaml:"hmac_secret" env:"AUTH_HMAC_SECRET" secret:"true" generate:"rand32"`
 	SessionTTL          Duration `yaml:"session_ttl" env:"AUTH_SESSION_TTL" default:"168h"` // 7 days
 	MagicLinkTTL        Duration `yaml:"magic_link_ttl" env:"AUTH_MAGIC_LINK_TTL" default:"15m"`
+	ShareTokenTTL       Duration `yaml:"share_token_ttl" env:"AUTH_SHARE_TOKEN_TTL" default:"720h"` // 30 days; signed /p and /d links
 	SessionCookieName   string   `yaml:"session_cookie_name" env:"AUTH_SESSION_COOKIE_NAME" default:"sade_session"`
 	SessionCookieSecure bool     `yaml:"session_cookie_secure" env:"AUTH_SESSION_COOKIE_SECURE" default:"false"` // true behind HTTPS
 }

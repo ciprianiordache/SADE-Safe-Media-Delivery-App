@@ -34,18 +34,24 @@ const (
 
 // Job is one watermarking request.
 type Job struct {
-	ID             string    `db:"id,primary_key,uuid"`
-	UserID         string    `db:"user_id,notnull,index,references:users(id),on_delete:cascade"`
-	Status         string    `db:"status,notnull,index,default:pending"`
-	MediaType      string    `db:"media_type,notnull"`
-	RecipientEmail string    `db:"recipient_email,notnull"`
-	WatermarkKind  string    `db:"watermark_kind,notnull,default:both"`
-	WatermarkText  string    `db:"watermark_text"` // "" = render from the configured template
-	WatermarkOpts  string    `db:"watermark_opts"` // JSON overriding ffmpeg defaults; "" = defaults
-	Attempts       int       `db:"attempts,notnull,default:0"`
-	Error          string    `db:"error"` // last failure message; "" = none
-	CreatedAt      time.Time `db:"created_at,oncreate"`
-	UpdatedAt      time.Time `db:"updated_at,onwrite"`
+	ID             string `db:"id,primary_key,uuid"`
+	UserID         string `db:"user_id,notnull,index,references:users(id),on_delete:cascade"`
+	Status         string `db:"status,notnull,index,default:pending"`
+	MediaType      string `db:"media_type,notnull"`
+	RecipientEmail string `db:"recipient_email,notnull"`
+	WatermarkKind  string `db:"watermark_kind,notnull,default:both"`
+	WatermarkText  string `db:"watermark_text"` // "" = render from the configured template
+	WatermarkOpts  string `db:"watermark_opts"` // JSON overriding ffmpeg defaults; "" = defaults
+	Attempts       int    `db:"attempts,notnull,default:0"`
+	Error          string `db:"error"` // last failure message; "" = none
+	// NextAttemptAt gates when the worker may (re)claim this row: a pending
+	// job is eligible once now >= NextAttemptAt. The zero value (set on
+	// insert) means "ready immediately"; the worker pushes it into the future
+	// for retry backoff. Modelled as a plain time.Time per the nullable-column
+	// rule - zero, not NULL.
+	NextAttemptAt time.Time `db:"next_attempt_at,index"`
+	CreatedAt     time.Time `db:"created_at,oncreate"`
+	UpdatedAt     time.Time `db:"updated_at,onwrite"`
 }
 
 // TableName is the SQL table (used by both schema-builder and crud-depot).
