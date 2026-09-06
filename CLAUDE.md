@@ -68,11 +68,39 @@ share handlers (so the link `worker.EmailNotifier` sends does not resolve yet �
 next step), and `frontend/` (default SvelteKit skeleton). `mailer` is wired via `auth` + `worker`;
 `storage` via `job` + `worker`; `ffmpeg` + `token` via `worker`.
 
+### Resume here (if the session reset)
+
+**Last shipped:** the watermark `worker` (commits up to `7122523`, pushed to `origin/main`).
+Backend is complete through the async watermark pipeline; the emailed preview link has no
+handler behind it yet.
+
+**Next task — M4 tail: public share routes.** Add `internals/app/share/` (new package;
+`struct.go` + `main.go` is the plan's naming, but follow the repo's `handler.go` convention):
+
+- `GET /p/{token}` — verify with `signer.Verify("preview", token)` → asset id → `asset.Repo.GetByID`
+  → confirm `Kind == KindPreview` → stream the bytes from `storage.Open(StorageKey)` with the right
+  `Content-Type` / `Content-Length` and `Content-Disposition: inline`. Support `Range` (use
+  `http.ServeContent` with an `io.ReadSeeker`, or `storage.LocalPath` + `http.ServeFile`).
+- `GET /d/{token}` — same, purpose `"download"`, `Content-Disposition: attachment`. `worker`
+  currently only signs `"preview"`; either also mail a `"download"` link or have `/d` accept
+  `"preview"` too — decide when building.
+- Wire in `router.go` **outside** the `/api` `Auth` chain concerns (these are public, no cookie);
+  they still pass through `Recover`/`RequestLog`/`CORS`. Add `Signer *token.Signer` +
+  `Storage storage.Storage` + an asset read port to `app.Deps`, built in `app.go`.
+- Map token errors: `token.ErrExpired` → 410, `ErrBadSignature`/`ErrMalformed` → 404 (don't
+  distinguish), missing asset/blob → 404.
+- Tests: `share` handler unit test with a fake asset store + in-memory storage; extend
+  `router_test.go` to sign a token and fetch `/p/<token>`.
+
+After that: M5 `frontend/`, then M6 (rate-limit on `/api/auth/request`, upload validation depth,
+integration test of the full flow, README).
+
 - **Spec:** `Writerside/topics/` (`Default-topic.md` = product goal, `sever.md` = block components).
 - **Agreed build plan:** `docs/SADE-plan.pdf` — read it before starting any feature. It defines
   the target file tree, the milestones (M0–M6), and every decision below.
 - **Repo:** `github.com/ciprianiordache/SADE-Safe-Media-Delivery-App` (`origin`, branch `main`).
-  Line endings are normalised to LF via `.gitattributes`.
+  Line endings are normalised to LF via `.gitattributes`. **Workflow: after every commit, also
+  `git push origin main`** (the user wants GitHub kept in sync with each commit).
 
 SADE (Safe Media Delivery): an operator uploads a media file (video/audio/image), the backend
 applies a watermark asynchronously, then emails the recipient a signed link to the watermarked
