@@ -4,20 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**M1 done. M2 done. M3 (ffmpeg engine) was already built; the watermark worker is now wired —
-uploads are watermarked async, the preview is stored, and the recipient is emailed a signed
-`/p/<token>` link.** Done and tested:
+**M1–M4 done. The whole backend flow works end to end:** an operator uploads → the job is stored →
+the worker watermarks it async → the preview is stored → the recipient is emailed signed
+`/p/<token>` (view) + `/d/<token>` (download) links → the public `share` handlers stream the
+watermarked preview with Range support, no login. Only `frontend/` (M5) and hardening (M6) remain
+(plus the `payment` backlog). Done and tested:
 
 - `config/` — full loader (defaults < YAML < env), `config.Duration`, secret generation, `Validate`.
   `Auth.ShareTokenTTL` (default 30d) bounds the signed `/p` and `/d` links.
 - `internals/logger/` — `slog` + lumberjack; `internals/database/` — pool + `Connect` + `Migrate` +
   shared `CRUD()` + `Driver()`; `internals/server/` — synchronous-bind HTTP lifecycle.
 - Root `main.go` + `app.go` — `NewApp` → `Run` → `Close`; builds logger, connects+migrates the DB,
-  builds the mailer + `storage`, wires the `user` + `auth` + `job` domains, builds the `ffmpeg`
-  engine + `token` signer + the `worker` pool, serves `app.NewRouter(...)`. `App.Run` starts the
-  worker, runs the server, then stops the worker within `Worker.ShutdownGrace`. If `ffmpeg.New`
-  fails (binaries missing) the worker is skipped and the app still serves — uploads just stay
-  `pending`.
+  builds the mailer + `storage` + the `token` signer, wires the `user` + `auth` + `job` + `share`
+  domains, builds the `ffmpeg` engine + the `worker` pool, serves `app.NewRouter(...)`. `App.Run`
+  starts the worker, runs the server, then stops the worker within `Worker.ShutdownGrace`. If
+  `ffmpeg.New` fails (binaries missing) the worker is skipped and the app still serves — uploads
+  just stay `pending` (the rest of the app, `/p` and `/d` included, is unaffected).
 - `internals/app/<domain>/model.go` for all six domains + `internals/app/models.go` (`Models()`).
 - **`internals/app/user/`** — full stack (repo/service/handler + tests).
 - **`internals/app/auth/`** — magic-link flow (`RequestLink` / `Complete` / `Authenticate` /
@@ -35,13 +37,23 @@ uploads are watermarked async, the preview is stored, and the recipient is email
   `Job` gained a `next_attempt_at` column (zero = ready now) gating (re)claims for retry backoff.
 - **`internals/app/asset/`** — repo only (`Create` / `GetByID` / `ListByJob` / `GetByJobAndKind` /
   `Delete`), like `magic_token`/`session`. Exported `ToResponse`/`ToResponses` so `job` renders
-  asset rows in its detail response. No handler — assets reach clients via signed share links.
+  asset rows in its detail response. No handler — assets reach clients via `share`.
+- **`internals/app/share/`** — the public, login-free preview links. `Handler.Preview` (`GET
+  /p/{token}`, `Content-Disposition: inline`) and `Handler.Download` (`GET /d/{token}`,
+  `attachment`) both: `signer.Verify(purpose, token)` (`"preview"` for `/p`, `"download"` for `/d`)
+  → subject is the preview asset id → `Assets.GetByID` → must be `KindPreview` → stream from
+  `Blob`. Local files go through `http.ServeContent` (Range / conditional GET, `Accept-Ranges`,
+  `nosniff`); a non-seekable backend falls back to a whole-object copy. Error map: `token.ErrExpired`
+  → 410, everything else (bad/again wrong-purpose token, unknown asset, original asset, missing
+  blob) → an indistinguishable 404; repo error → 500. Declares its own `Assets` + `Blob` ports
+  (`asset.Repo` and `storage.Storage` satisfy them directly — no adapters).
 - **`internals/app/magic_token/` + `internals/app/session/`** — repos (`Consume` is atomic
   delete-on-use; `GetByHash` / `Delete`).
 - **`internals/app/router.go` + `middleware.go`** — central mux, `Recover`/`RequestLog`/`CORS`/`Auth`
   chain, `RequireUser` / `RequireRole`, `UserFrom(ctx)`, `GET /api/me`. The `operator` wrapper
   guards the `/api/jobs*` routes with `RequireUser` and passes the operator id down via
-  `job.WithUserID(ctx, id)` (keeps `job` from importing the auth layer).
+  `job.WithUserID(ctx, id)` (keeps `job` from importing the auth layer). `GET /p/{token}` and
+  `GET /d/{token}` are public (no cookie) — the signed token in the path is the whole authz.
 - **`internals/worker/`** — in-process pool, wired in `app.go`. `New(cfg, JobStore, AssetStore,
   Blob, Engine, Notifier, log)` over small interfaces the pool declares itself; `app.go` binds them
   with `jobStoreAdapter`/`assetStoreAdapter` (in `worker_wiring.go`) + `storage` + `*ffmpeg.Engine`
@@ -55,42 +67,42 @@ uploads are watermarked async, the preview is stored, and the recipient is email
   (bounded by `JobTimeout`); `Stop` waits out `ShutdownGrace`. Only the local storage backend is
   supported (needs `LocalPath`); S3 staging is a TODO.
 - `internals/httpx/` — shared HTTP helpers. `internals/testutil/` — `DB(t, models...)` + `Logger()`.
-- `internals/storage/` (local disk, wired via `job` + `worker`), `internals/ffmpeg/` (`os/exec`
-  engine + `-progress` parsing, wired via `worker`), `internals/mailer/` (`smtp`/`log`/`noop`),
-  `internals/token/` (HMAC share tokens, wired via `worker.EmailNotifier` for the `preview` purpose).
+- `internals/storage/` (local disk, wired via `job` + `worker` + `share`), `internals/ffmpeg/`
+  (`os/exec` engine + `-progress` parsing, wired via `worker`), `internals/mailer/`
+  (`smtp`/`log`/`noop`), `internals/token/` (HMAC share tokens, wired via `share` for verify and
+  `worker.EmailNotifier` for signing — `"preview"` and `"download"` purposes).
 - `cmd/watermark/` — CLI that runs the engine on one file with a live progress bar.
 - `docker-compose.yml` — Postgres on host port 5433.
 - `internals/app/integration_test.go` (full-graph round-trip) + `router_test.go` (real
-  request→callback→cookie→`/api/me`→logout, and the full job upload→list→detail flow over `httptest`).
+  request→callback→cookie→`/api/me`→logout, the full job upload→list→detail flow, and a
+  seed-preview→sign→`/p`+`/d` fetch over `httptest`).
 
-Not started: `repo.go` / `service.go` / `handler.go` for `payment`, the `/p/:token` + `/d/:token`
-share handlers (so the link `worker.EmailNotifier` sends does not resolve yet — that route is the
-next step), and `frontend/` (default SvelteKit skeleton). `mailer` is wired via `auth` + `worker`;
-`storage` via `job` + `worker`; `ffmpeg` + `token` via `worker`.
+Not started: `repo.go` / `service.go` / `handler.go` for `payment` (backlog), and `frontend/`
+(default SvelteKit skeleton). `mailer` is wired via `auth` + `worker`; `storage` via `job` +
+`worker` + `share`; `ffmpeg` via `worker`; `token` via `share` + `worker`.
 
 ### Resume here (if the session reset)
 
-**Last shipped:** the watermark `worker` (commits up to `7122523`, pushed to `origin/main`).
-Backend is complete through the async watermark pipeline; the emailed preview link has no
-handler behind it yet.
+**Last shipped:** the public `share` routes — `GET /p/{token}` (inline) and `GET /d/{token}`
+(attachment) stream the watermarked preview, verified by a signed `token` capability, no login.
+Backend now covers the whole flow M1–M4. Commits pushed to `origin/main`.
 
-**Next task — M4 tail: public share routes.** Add `internals/app/share/` (new package;
-`struct.go` + `main.go` is the plan's naming, but follow the repo's `handler.go` convention):
+**Next task — M5: `frontend/`** (SvelteKit 2 / Svelte 5, runes, TS, `adapter-static`, served by
+the Go binary from `frontend/build`). Per the plan (section 12):
 
-- `GET /p/{token}` — verify with `signer.Verify("preview", token)` → asset id → `asset.Repo.GetByID`
-  → confirm `Kind == KindPreview` → stream the bytes from `storage.Open(StorageKey)` with the right
-  `Content-Type` / `Content-Length` and `Content-Disposition: inline`. Support `Range` (use
-  `http.ServeContent` with an `io.ReadSeeker`, or `storage.LocalPath` + `http.ServeFile`).
-- `GET /d/{token}` — same, purpose `"download"`, `Content-Disposition: attachment`. `worker`
-  currently only signs `"preview"`; either also mail a `"download"` link or have `/d` accept
-  `"preview"` too — decide when building.
-- Wire in `router.go` **outside** the `/api` `Auth` chain concerns (these are public, no cookie);
-  they still pass through `Recover`/`RequestLog`/`CORS`. Add `Signer *token.Signer` +
-  `Storage storage.Storage` + an asset read port to `app.Deps`, built in `app.go`.
-- Map token errors: `token.ErrExpired` → 410, `ErrBadSignature`/`ErrMalformed` → 404 (don't
-  distinguish), missing asset/blob → 404.
-- Tests: `share` handler unit test with a fake asset store + in-memory storage; extend
-  `router_test.go` to sign a token and fetch `/p/<token>`.
+- Routes: `/` landing · `/login` (email → "check your inbox") · `/app` dashboard (upload form +
+  job list with status polling) · `/app/jobs/[id]` · `/preview/[token]` (player + download for
+  the recipient, no auth — though `/p` and `/d` are already served by the Go side, so the
+  frontend preview page may just embed/redirect to those).
+- `src/lib/api.ts` — typed client for `/api/*`, credentials on (cookie auth). `src/lib/` also:
+  `stores.ts`, `types.ts`, `i18n.ts`, `theme.ts`.
+- The Go server needs to serve `frontend/build` (SPA fallback) — add a static file handler in
+  `internals/app/router.go` / `app.go` for non-`/api`, non-`/p`, non-`/d`, non-`/healthz` paths.
+- CORS is already wired for `http://localhost:5173` (the dev server) in `config.Server`.
+
+Then M6: rate-limit on `POST /api/auth/request`, deeper upload validation (ffprobe the upload at
+`job.Service.Create` time, not just extension), retry/backoff review, a full-flow integration
+test, and a README.
 
 After that: M5 `frontend/`, then M6 (rate-limit on `/api/auth/request`, upload validation depth,
 integration test of the full flow, README).
@@ -274,10 +286,11 @@ Two libraries operate on the *same* `db`-tagged structs, both reached through `i
   `multipart/alternative` when `Message.HTML` is set, RFC 2047 subject); templating is the
   caller's job.
 - `internals/token/` — `token.New(secret)` → `Signer.Sign(purpose, subject, ttl)` /
-  `Verify(purpose, tok)`. Stateless HMAC-SHA256 capability tokens for the public `/p/:token`
-  (purpose `"preview"`) and `/d/:token` (`"download"`) links — no DB row, no login. Signed
-  payload is `purpose.subject.exp`; a token for one purpose never verifies for another. Uses
-  `Auth.HMACSecret` (shared with sessions, domain-separated by the purpose prefix).
+  `Verify(purpose, tok)`. Stateless HMAC-SHA256 capability tokens for the public `/p/{token}`
+  (purpose `"preview"`) and `/d/{token}` (`"download"`) links — no DB row, no login. Signed
+  payload is `purpose.subject.exp` (subject = the preview asset id); a token for one purpose never
+  verifies for another. Uses `Auth.HMACSecret` (shared with sessions, domain-separated by the
+  purpose prefix). `worker.EmailNotifier` signs both; `internals/app/share` verifies.
 
 ### Auth
 
@@ -289,7 +302,8 @@ callback spends the token (atomic delete) and issues a DB-backed session: a rand
 `SessionTTL`), only its sha256 stored. `Auth` middleware attaches the user on every request;
 `/api/me` returns it; `/api/users*` additionally needs `RequireRole("admin")`. `POST
 /api/auth/logout` deletes the session row and clears the cookie. Recipients of watermarked
-previews never get an account — they use signed `internals/token` links (`/p`, `/d`, not built).
+previews never get an account — they use signed `internals/token` links served by
+`internals/app/share` (`GET /p/{token}` inline, `GET /d/{token}` download).
 
 ### Frontend
 

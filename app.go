@@ -14,6 +14,7 @@ import (
 	"sade/internals/app/job"
 	"sade/internals/app/magic_token"
 	"sade/internals/app/session"
+	"sade/internals/app/share"
 	"sade/internals/app/user"
 	"sade/internals/database"
 	"sade/internals/ffmpeg"
@@ -94,6 +95,14 @@ func NewApp(ctx context.Context) (*App, error) {
 		return fail(fmt.Errorf("init storage: %w", err))
 	}
 
+	// Signs and verifies the public /p and /d share links. Shared by the
+	// share handler and the worker's preview-ready notifier.
+	signer, err := token.New(cfg.Auth.HMACSecret)
+	if err != nil {
+		_ = db.Close()
+		return fail(fmt.Errorf("init share-token signer: %w", err))
+	}
+
 	// Domains: repo -> service -> handler.
 	jobRepo := job.NewRepo(db)
 	assetRepo := asset.NewRepo(db)
@@ -110,8 +119,11 @@ func NewApp(ctx context.Context) (*App, error) {
 	jobSvc := job.NewService(jobRepo, assetRepo, store, cfg.Upload, log)
 	jobH := job.NewHandler(jobSvc, cfg.Upload, log)
 
+	shareH := share.NewHandler(signer, assetRepo, store, log)
+
 	router := app.NewRouter(app.Deps{
-		Cfg: cfg, Log: log, Auth: authH, AuthSvc: authSvc, User: userH, Job: jobH,
+		Cfg: cfg, Log: log, Auth: authH, AuthSvc: authSvc,
+		User: userH, Job: jobH, Share: shareH,
 	})
 
 	a := &App{cfg: cfg, log: log, logGC: logGC, db: db}
@@ -122,11 +134,6 @@ func NewApp(ctx context.Context) (*App, error) {
 	if engine, eErr := ffmpeg.New(cfg.FFmpeg, log); eErr != nil {
 		log.Warn("watermark worker disabled", "reason", eErr)
 	} else {
-		signer, sErr := token.New(cfg.Auth.HMACSecret)
-		if sErr != nil {
-			_ = db.Close()
-			return fail(fmt.Errorf("init share-token signer: %w", sErr))
-		}
 		a.worker = worker.New(
 			worker.Config{
 				Concurrency:     cfg.Worker.Concurrency,

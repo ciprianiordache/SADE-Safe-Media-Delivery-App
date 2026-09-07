@@ -7,6 +7,7 @@ import (
 	"sade/config"
 	"sade/internals/app/auth"
 	"sade/internals/app/job"
+	"sade/internals/app/share"
 	"sade/internals/app/user"
 	"sade/internals/httpx"
 )
@@ -20,6 +21,7 @@ type Deps struct {
 	AuthSvc *auth.Service
 	User    *user.Handler
 	Job     *job.Handler
+	Share   *share.Handler
 }
 
 // NewRouter builds the application's HTTP handler: routes plus the global
@@ -33,6 +35,11 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/auth/request", d.Auth.RequestLink)
 	mux.HandleFunc("GET /api/auth/callback", d.Auth.Callback)
 	mux.HandleFunc("POST /api/auth/logout", d.Auth.Logout)
+
+	// Public share links (no session): the watermarked preview, inline or as
+	// a download. Authorised by the signed token in the path, not a cookie.
+	mux.HandleFunc("GET /p/{token}", d.Share.Preview)
+	mux.HandleFunc("GET /d/{token}", d.Share.Download)
 
 	// Signed-in.
 	mux.Handle("GET /api/me", RequireUser(http.HandlerFunc(me)))

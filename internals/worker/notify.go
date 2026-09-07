@@ -10,10 +10,10 @@ import (
 	"sade/internals/token"
 )
 
-// EmailNotifier is the production Notifier: it signs a "preview" capability
-// token for the preview asset and emails the recipient the public /p/<token>
-// link. It holds no state beyond its dependencies, so one instance is shared
-// by every worker goroutine.
+// EmailNotifier is the production Notifier: it signs "preview" and "download"
+// capability tokens for the preview asset and emails the recipient the public
+// /p/<token> (view) and /d/<token> (download) links. It holds no state beyond
+// its dependencies, so one instance is shared by every worker goroutine.
 type EmailNotifier struct {
 	mail      mailer.Mailer
 	signer    *token.Signer
@@ -33,18 +33,24 @@ func NewEmailNotifier(m mailer.Mailer, signer *token.Signer, publicURL string, t
 	}
 }
 
-// PreviewReady emails recipient a signed link to the preview asset.
+// PreviewReady emails recipient signed view + download links for the preview
+// asset.
 func (n *EmailNotifier) PreviewReady(ctx context.Context, recipient, previewID string) error {
-	tok, err := n.signer.Sign("preview", previewID, n.ttl)
+	viewTok, err := n.signer.Sign("preview", previewID, n.ttl)
 	if err != nil {
 		return fmt.Errorf("sign preview token: %w", err)
 	}
-	link := n.publicURL + "/p/" + tok
+	dlTok, err := n.signer.Sign("download", previewID, n.ttl)
+	if err != nil {
+		return fmt.Errorf("sign download token: %w", err)
+	}
 	body := fmt.Sprintf(
 		"Your watermarked preview is ready.\n\n"+
-			"Open it here (the link is valid for %s):\n\n%s\n\n"+
+			"View it:     %s/p/%s\n"+
+			"Download it: %s/d/%s\n\n"+
+			"The links are valid for %s.\n"+
 			"If you were not expecting this, you can ignore this email.\n",
-		n.ttl, link,
+		n.publicURL, viewTok, n.publicURL, dlTok, n.ttl,
 	)
 	return n.mail.Send(ctx, mailer.Message{
 		To:      recipient,

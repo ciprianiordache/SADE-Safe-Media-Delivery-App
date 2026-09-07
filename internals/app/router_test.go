@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
@@ -19,10 +20,13 @@ import (
 	"sade/internals/app/job"
 	"sade/internals/app/magic_token"
 	"sade/internals/app/session"
+	"sade/internals/app/share"
 	"sade/internals/app/user"
+	"sade/internals/database"
 	"sade/internals/mailer"
 	"sade/internals/storage"
 	"sade/internals/testutil"
+	"sade/internals/token"
 )
 
 type capMailer struct {
@@ -53,9 +57,20 @@ func (m *capMailer) lastLink(t *testing.T) string {
 	return link
 }
 
+// testApp bundles the pieces a test may need to reach past the HTTP surface
+// (seed a preview asset, sign a share token).
+type testApp struct {
+	db     *database.Database
+	store  storage.Storage
+	signer *token.Signer
+}
+
+const testShareSecret = "router-test-share-secret-00000000"
+
 // buildTestApp wires the real router over an in-memory DB and a capturing
-// mailer, and returns an httptest server plus a client with a cookie jar.
-func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer) {
+// mailer, and returns an httptest server, a client with a cookie jar, the
+// mailer, and the testApp internals.
+func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer, *testApp) {
 	t.Helper()
 	db := testutil.DB(t, user.User{}, magic_token.MagicToken{}, session.Session{}, job.Job{}, asset.Asset{})
 	cm := &capMailer{}
@@ -66,12 +81,17 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer) {
 		MagicLinkTTL:      config.Duration(15 * time.Minute),
 		SessionTTL:        config.Duration(24 * time.Hour),
 		SessionCookieName: "sade_session",
+		HMACSecret:        testShareSecret,
 	}
 	cfg.Upload = config.Defaults().Upload
 
 	store, err := storage.New(config.StorageConfig{Driver: "local", LocalPath: t.TempDir()}, testutil.Logger())
 	if err != nil {
 		t.Fatalf("storage.New: %v", err)
+	}
+	signer, err := token.New(cfg.Auth.HMACSecret)
+	if err != nil {
+		t.Fatalf("token.New: %v", err)
 	}
 
 	userSvc := user.NewService(user.NewRepo(db), testutil.Logger())
@@ -88,6 +108,7 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer) {
 		AuthSvc: authSvc,
 		User:    user.NewHandler(userSvc, testutil.Logger()),
 		Job:     job.NewHandler(jobSvc, cfg.Upload, testutil.Logger()),
+		Share:   share.NewHandler(signer, asset.NewRepo(db), store, testutil.Logger()),
 	})
 
 	srv := httptest.NewServer(router)
@@ -99,11 +120,11 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer) {
 		// Do not follow the callback's redirect - we want to inspect it.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	return srv, client, cm
+	return srv, client, cm, &testApp{db: db, store: store, signer: signer}
 }
 
 func TestAuthFlowEndToEnd(t *testing.T) {
-	srv, client, cm := buildTestApp(t)
+	srv, client, cm, _ := buildTestApp(t)
 
 	// 0. /api/me while signed out -> 401
 	if resp := get(t, client, srv.URL+"/api/me"); resp != http.StatusUnauthorized {
@@ -225,7 +246,7 @@ func multipartUpload(t *testing.T, filename string, content []byte, fields map[s
 }
 
 func TestJobUploadFlowEndToEnd(t *testing.T) {
-	srv, client, cm := buildTestApp(t)
+	srv, client, cm, _ := buildTestApp(t)
 
 	// Unauthenticated upload is rejected.
 	body, ct := multipartUpload(t, "clip.png", []byte("img-bytes"),
@@ -319,8 +340,77 @@ func TestJobUploadFlowEndToEnd(t *testing.T) {
 	}
 }
 
+func TestSharePreviewFlowEndToEnd(t *testing.T) {
+	srv, client, cm, ta := buildTestApp(t)
+
+	// An operator uploads a job (no worker runs in the test).
+	signIn(t, srv, client, cm, "op@example.com")
+	body, ct := multipartUpload(t, "clip.png", []byte("original-bytes"), map[string]string{
+		"recipientEmail": "client@example.com",
+	})
+	resp, err := client.Post(srv.URL+"/api/jobs", ct, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created job.Response
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+
+	// Simulate what the worker would produce: a preview blob + asset row.
+	previewBytes := []byte("WATERMARKED-PREVIEW-CONTENT-9876543210")
+	previewKey := "previews/" + created.ID + "/clip-preview.png"
+	if _, err := ta.store.Put(context.Background(), previewKey, bytes.NewReader(previewBytes)); err != nil {
+		t.Fatalf("put preview blob: %v", err)
+	}
+	previewID, err := asset.NewRepo(ta.db).Create(&asset.Asset{
+		JobID: created.ID, Kind: asset.KindPreview, StorageKey: previewKey,
+		Filename: "clip-preview.png", MIME: "image/png", SizeBytes: int64(len(previewBytes)),
+	})
+	if err != nil {
+		t.Fatalf("create preview asset: %v", err)
+	}
+
+	// The public /p link (no cookie needed) streams the preview inline.
+	viewTok, _ := ta.signer.Sign("preview", previewID, time.Hour)
+	noAuth := &http.Client{}
+	pv, err := noAuth.Get(srv.URL + "/p/" + viewTok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pv.Body.Close()
+	if pv.StatusCode != http.StatusOK {
+		t.Fatalf("/p = %d, want 200", pv.StatusCode)
+	}
+	got, _ := io.ReadAll(pv.Body)
+	if !bytes.Equal(got, previewBytes) {
+		t.Errorf("/p body = %q", got)
+	}
+	if cd := pv.Header.Get("Content-Disposition"); !strings.HasPrefix(cd, "inline;") {
+		t.Errorf("/p Content-Disposition = %q, want inline", cd)
+	}
+
+	// The /d link serves the same bytes as an attachment.
+	dlTok, _ := ta.signer.Sign("download", previewID, time.Hour)
+	dl, err := noAuth.Get(srv.URL + "/d/" + dlTok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dl.Body.Close()
+	if dl.StatusCode != http.StatusOK {
+		t.Fatalf("/d = %d, want 200", dl.StatusCode)
+	}
+	if cd := dl.Header.Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment;") {
+		t.Errorf("/d Content-Disposition = %q, want attachment", cd)
+	}
+
+	// A tampered token is a 404.
+	if bad := get(t, noAuth, srv.URL+"/p/"+viewTok+"tampered"); bad != http.StatusNotFound {
+		t.Errorf("tampered /p token = %d, want 404", bad)
+	}
+}
+
 func TestHealthz(t *testing.T) {
-	srv, client, _ := buildTestApp(t)
+	srv, client, _, _ := buildTestApp(t)
 	resp, err := client.Get(srv.URL + "/healthz")
 	if err != nil {
 		t.Fatal(err)
@@ -332,7 +422,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestCORSPreflight(t *testing.T) {
-	srv, client, _ := buildTestApp(t)
+	srv, client, _, _ := buildTestApp(t)
 	req, _ := http.NewRequest(http.MethodOptions, srv.URL+"/api/me", nil)
 	req.Header.Set("Origin", "http://localhost:5173")
 	resp, err := client.Do(req)
