@@ -63,8 +63,12 @@ type Config struct {
 // PublicURL is the externally reachable base URL of the Go API - it is what
 // goes into the links SADE emails (magic-link callback, share links), so it
 // must point at this server, not the frontend. FrontendURL is where the API
-// redirects a browser after a successful magic-link login. DataDir is the
-// single root under which storage, logs and scratch space live by default.
+// redirects a browser after a successful magic-link login (the Vite dev
+// server in development; PublicURL itself once the Go binary serves the
+// built frontend). DataDir is the single root under which storage, logs and
+// scratch space live by default. FrontendDir is the SvelteKit adapter-static
+// build the router serves as a SPA fallback for any non-API path; a missing
+// directory (frontend not built yet) just disables that handler.
 type AppConfig struct {
 	Name        string `yaml:"name" env:"APP_NAME" default:"SADE (Safe Media Delivery)"`
 	Version     string `yaml:"version" env:"APP_VERSION" default:"v0.1.0"`
@@ -74,6 +78,7 @@ type AppConfig struct {
 	FrontendURL string `yaml:"frontend_url" env:"APP_FRONTEND_URL" default:"http://localhost:5173"`
 	DataDir     string `yaml:"data_dir" env:"APP_DATA_DIR" default:"./.data"`
 	TempDir     string `yaml:"temp_dir" env:"APP_TEMP_DIR" default:"./.data/tmp"`
+	FrontendDir string `yaml:"frontend_dir" env:"APP_FRONTEND_DIR" default:"./frontend/build"`
 }
 
 // ServerConfig holds the HTTP server settings.

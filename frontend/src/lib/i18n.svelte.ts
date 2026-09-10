@@ -1,0 +1,171 @@
+export type Locale = 'ro' | 'en';
+
+const STORAGE_KEY = 'sade:locale';
+
+const dict = {
+	ro: {
+		'app.name': 'SADE',
+		'app.tagline': 'Livrare sigură de fișiere media, cu watermark',
+		'nav.dashboard': 'Panou',
+		'nav.signOut': 'Deconectare',
+		'landing.title': 'Trimite fișiere media în siguranță',
+		'landing.subtitle':
+			'Încarci un fișier video, audio sau imagine, aplicăm automat un watermark, iar destinatarul primește un link securizat către previzualizare.',
+		'landing.cta': 'Intră în cont',
+		'landing.ctaApp': 'Mergi la panou',
+		'login.title': 'Autentificare',
+		'login.subtitle': 'Introdu adresa de email și îți trimitem un link de autentificare.',
+		'login.emailLabel': 'Email',
+		'login.emailPlaceholder': 'nume@exemplu.com',
+		'login.submit': 'Trimite link-ul',
+		'login.submitting': 'Se trimite…',
+		'login.sent': 'Verifică-ți inboxul — ți-am trimis un link de autentificare.',
+		'login.errorInvalidLink': 'Link-ul de autentificare este invalid sau a expirat. Încearcă din nou.',
+		'login.errorGeneric': 'Nu am putut trimite link-ul. Încearcă din nou.',
+		'dashboard.title': 'Panoul tău',
+		'dashboard.uploadTitle': 'Trimite un fișier nou',
+		'dashboard.recipientLabel': 'Email destinatar',
+		'dashboard.watermarkKindLabel': 'Tip watermark',
+		'dashboard.watermarkKind.logo': 'Logo',
+		'dashboard.watermarkKind.text': 'Text',
+		'dashboard.watermarkKind.both': 'Logo + text',
+		'dashboard.watermarkTextLabel': 'Text watermark (opțional)',
+		'dashboard.watermarkTextPlaceholder': 'Ex: Confidențial — nu redistribui',
+		'dashboard.fileLabel': 'Fișier',
+		'dashboard.submit': 'Încarcă',
+		'dashboard.submitting': 'Se încarcă…',
+		'dashboard.uploadError': 'Încărcarea a eșuat.',
+		'dashboard.jobsTitle': 'Fișierele tale',
+		'dashboard.jobsEmpty': 'Nu ai încărcat încă niciun fișier.',
+		'dashboard.col.file': 'Destinatar',
+		'dashboard.col.status': 'Status',
+		'dashboard.col.type': 'Tip',
+		'dashboard.col.created': 'Creat',
+		'status.pending': 'În așteptare',
+		'status.processing': 'Se procesează',
+		'status.done': 'Finalizat',
+		'status.failed': 'Eșuat',
+		'job.title': 'Detalii fișier',
+		'job.status': 'Status',
+		'job.mediaType': 'Tip media',
+		'job.recipient': 'Destinatar',
+		'job.watermarkKind': 'Tip watermark',
+		'job.watermarkText': 'Text watermark',
+		'job.attempts': 'Încercări',
+		'job.error': 'Eroare',
+		'job.createdAt': 'Creat la',
+		'job.updatedAt': 'Actualizat la',
+		'job.assets': 'Fișiere asociate',
+		'job.assetsEmpty': 'Încă nu există fișiere procesate.',
+		'job.assetsNote':
+			'Destinatarul primește pe email link-urile de previzualizare și descărcare odată ce procesarea s-a încheiat.',
+		'job.back': 'Înapoi la panou',
+		'job.notFound': 'Fișierul nu a fost găsit.',
+		'preview.title': 'Previzualizare',
+		'preview.download': 'Descarcă originalul cu watermark',
+		'preview.unsupported': 'Nu putem afișa acest fișier direct în browser.',
+		'preview.openDirect': 'Deschide previzualizarea',
+		'common.loading': 'Se încarcă…',
+		'common.signOut': 'Deconectare'
+	},
+	en: {
+		'app.name': 'SADE',
+		'app.tagline': 'Safe media delivery, watermarked',
+		'nav.dashboard': 'Dashboard',
+		'nav.signOut': 'Sign out',
+		'landing.title': 'Send media files safely',
+		'landing.subtitle':
+			'Upload a video, audio, or image file, we watermark it automatically, and the recipient gets a secure link to the preview.',
+		'landing.cta': 'Sign in',
+		'landing.ctaApp': 'Go to dashboard',
+		'login.title': 'Sign in',
+		'login.subtitle': "Enter your email and we'll send you a sign-in link.",
+		'login.emailLabel': 'Email',
+		'login.emailPlaceholder': 'name@example.com',
+		'login.submit': 'Send link',
+		'login.submitting': 'Sending…',
+		'login.sent': "Check your inbox — we've sent you a sign-in link.",
+		'login.errorInvalidLink': 'That sign-in link is invalid or expired. Please try again.',
+		'login.errorGeneric': 'Could not send the link. Please try again.',
+		'dashboard.title': 'Your dashboard',
+		'dashboard.uploadTitle': 'Send a new file',
+		'dashboard.recipientLabel': 'Recipient email',
+		'dashboard.watermarkKindLabel': 'Watermark type',
+		'dashboard.watermarkKind.logo': 'Logo',
+		'dashboard.watermarkKind.text': 'Text',
+		'dashboard.watermarkKind.both': 'Logo + text',
+		'dashboard.watermarkTextLabel': 'Watermark text (optional)',
+		'dashboard.watermarkTextPlaceholder': 'e.g. Confidential — do not redistribute',
+		'dashboard.fileLabel': 'File',
+		'dashboard.submit': 'Upload',
+		'dashboard.submitting': 'Uploading…',
+		'dashboard.uploadError': 'Upload failed.',
+		'dashboard.jobsTitle': 'Your files',
+		'dashboard.jobsEmpty': "You haven't uploaded any files yet.",
+		'dashboard.col.file': 'Recipient',
+		'dashboard.col.status': 'Status',
+		'dashboard.col.type': 'Type',
+		'dashboard.col.created': 'Created',
+		'status.pending': 'Pending',
+		'status.processing': 'Processing',
+		'status.done': 'Done',
+		'status.failed': 'Failed',
+		'job.title': 'File details',
+		'job.status': 'Status',
+		'job.mediaType': 'Media type',
+		'job.recipient': 'Recipient',
+		'job.watermarkKind': 'Watermark type',
+		'job.watermarkText': 'Watermark text',
+		'job.attempts': 'Attempts',
+		'job.error': 'Error',
+		'job.createdAt': 'Created',
+		'job.updatedAt': 'Updated',
+		'job.assets': 'Files',
+		'job.assetsEmpty': 'No processed files yet.',
+		'job.assetsNote':
+			'The recipient gets the preview and download links by email once processing finishes.',
+		'job.back': 'Back to dashboard',
+		'job.notFound': 'File not found.',
+		'preview.title': 'Preview',
+		'preview.download': 'Download the watermarked file',
+		'preview.unsupported': "We can't display this file directly in the browser.",
+		'preview.openDirect': 'Open the preview',
+		'common.loading': 'Loading…',
+		'common.signOut': 'Sign out'
+	}
+} as const satisfies Record<Locale, Record<string, string>>;
+
+export type MessageKey = keyof (typeof dict)['ro'];
+
+function readStored(): Locale {
+	try {
+		const v = localStorage.getItem(STORAGE_KEY);
+		if (v === 'ro' || v === 'en') return v;
+	} catch {
+		// localStorage unavailable
+	}
+	return 'ro';
+}
+
+class I18nStore {
+	locale = $state<Locale>('ro');
+
+	init() {
+		this.locale = readStored();
+	}
+
+	set(locale: Locale) {
+		this.locale = locale;
+		try {
+			localStorage.setItem(STORAGE_KEY, locale);
+		} catch {
+			// best-effort persistence only
+		}
+	}
+
+	t(key: MessageKey): string {
+		return dict[this.locale][key] ?? key;
+	}
+}
+
+export const i18n = new I18nStore();

@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**M1–M4 done. The whole backend flow works end to end:** an operator uploads → the job is stored →
-the worker watermarks it async → the preview is stored → the recipient is emailed signed
-`/p/<token>` (view) + `/d/<token>` (download) links → the public `share` handlers stream the
-watermarked preview with Range support, no login. Only `frontend/` (M5) and hardening (M6) remain
-(plus the `payment` backlog). Done and tested:
+**M1–M5 done. The whole app works end to end, backend and frontend:** an operator signs in via
+magic link, uploads a file from the SvelteKit dashboard → the job is stored → the worker
+watermarks it async → the preview is stored → the recipient is emailed signed `/p/<token>` (view)
++ `/d/<token>` (download) links → the public `share` handlers stream the watermarked preview with
+Range support, no login → the recipient's `/preview/[token]` page embeds/downloads it. Only
+hardening (M6) remains (plus the `payment` backlog). Done and tested:
 
 - `config/` — full loader (defaults < YAML < env), `config.Duration`, secret generation, `Validate`.
   `Auth.ShareTokenTTL` (default 30d) bounds the signed `/p` and `/d` links.
@@ -54,6 +55,11 @@ watermarked preview with Range support, no login. Only `frontend/` (M5) and hard
   guards the `/api/jobs*` routes with `RequireUser` and passes the operator id down via
   `job.WithUserID(ctx, id)` (keeps `job` from importing the auth layer). `GET /p/{token}` and
   `GET /d/{token}` are public (no cookie) — the signed token in the path is the whole authz.
+  `internals/app/static.go` (`spaFileServer` + `hasFrontendBuild`) registers `mux.Handle("/", …)`
+  last, serving `Cfg.App.FrontendDir` (default `./frontend/build`) with adapter-static's
+  `index.html` fallback for client-side routes; it 404s (never the shell) for an unmatched path
+  under `/api/`, `/p/`, `/d/`, `/healthz`, and is skipped entirely when the dir doesn't exist yet.
+  Tested in `internals/app/static_test.go`.
 - **`internals/worker/`** — in-process pool, wired in `app.go`. `New(cfg, JobStore, AssetStore,
   Blob, Engine, Notifier, log)` over small interfaces the pool declares itself; `app.go` binds them
   with `jobStoreAdapter`/`assetStoreAdapter` (in `worker_wiring.go`) + `storage` + `*ffmpeg.Engine`
@@ -83,29 +89,32 @@ Not started: `repo.go` / `service.go` / `handler.go` for `payment` (backlog), an
 
 ### Resume here (if the session reset)
 
-**Last shipped:** the public `share` routes — `GET /p/{token}` (inline) and `GET /d/{token}`
-(attachment) stream the watermarked preview, verified by a signed `token` capability, no login.
-Backend now covers the whole flow M1–M4. Commits pushed to `origin/main`.
+**Last shipped:** M5, the SvelteKit frontend (`frontend/src/`), plus the Go-side static handler
+that serves it. Backend + frontend now cover the whole flow M1–M5.
 
-**Next task — M5: `frontend/`** (SvelteKit 2 / Svelte 5, runes, TS, `adapter-static`, served by
-the Go binary from `frontend/build`). Per the plan (section 12):
+- Frontend routes built: `/` landing, `/login` (magic-link request + `?error=invalid_link`),
+  `/app` (guarded layout + upload form + polling job list), `/app/jobs/[id]` (detail + assets,
+  polls while pending/processing), `/preview/[token]` (public, no auth — cascades `<video>` →
+  `<audio>` → `<img>` → plain link against `GET /p/{token}`, downloads via `GET /d/{token}`).
+  `src/lib/`: `api.ts` (typed fetch client, `credentials: 'include'`, `ApiError`), `types.ts`
+  (hand-kept mirror of the Go `Response` DTOs), `stores.svelte.ts` (`auth`, a class w/ `$state`),
+  `theme.svelte.ts` + `i18n.svelte.ts` (ditto — Svelte 5 runes only work in `.svelte`/`.svelte.ts`
+  files, so anything stateful is named `*.svelte.ts`, not the plain `.ts` the plan sketched).
+  `adapter-static` (`fallback: 'index.html'`) + root `+layout.ts` (`ssr = false`) make it a pure
+  client-rendered SPA. `npm run check` is clean; `npm run build` produces `frontend/build`
+  (gitignored, matches `internals/app/static.go`'s default `Cfg.App.FrontendDir`).
+- Backend: added `config.AppConfig.FrontendDir` (`APP_FRONTEND_DIR`, default `./frontend/build`)
+  and `internals/app/static.go` — see the `router.go` bullet above. `app.go` needed no change
+  (`Deps.Cfg` already carries the whole config).
+- Not wired: the worker's `EmailNotifier` still mails the raw `PublicURL/p/<token>` link, not
+  `PublicURL/preview/<token>` — intentionally, per the plan ("frontend preview page may just
+  embed/redirect to those"). Revisit only if a wrapped player page in the email is wanted later.
 
-- Routes: `/` landing · `/login` (email → "check your inbox") · `/app` dashboard (upload form +
-  job list with status polling) · `/app/jobs/[id]` · `/preview/[token]` (player + download for
-  the recipient, no auth — though `/p` and `/d` are already served by the Go side, so the
-  frontend preview page may just embed/redirect to those).
-- `src/lib/api.ts` — typed client for `/api/*`, credentials on (cookie auth). `src/lib/` also:
-  `stores.ts`, `types.ts`, `i18n.ts`, `theme.ts`.
-- The Go server needs to serve `frontend/build` (SPA fallback) — add a static file handler in
-  `internals/app/router.go` / `app.go` for non-`/api`, non-`/p`, non-`/d`, non-`/healthz` paths.
-- CORS is already wired for `http://localhost:5173` (the dev server) in `config.Server`.
-
-Then M6: rate-limit on `POST /api/auth/request`, deeper upload validation (ffprobe the upload at
-`job.Service.Create` time, not just extension), retry/backoff review, a full-flow integration
-test, and a README.
-
-After that: M5 `frontend/`, then M6 (rate-limit on `/api/auth/request`, upload validation depth,
-integration test of the full flow, README).
+**Next — M6 (hardening):** rate-limit on `POST /api/auth/request`, deeper upload validation
+(ffprobe the upload at `job.Service.Create` time, not just extension), retry/backoff review, a
+full-flow integration test, and a README. Also worth a pass: wire `APP_FRONTEND_DIR`/build into
+whatever deploys this (the frontend needs `npm run build` before the Go binary can serve it — no
+build step exists yet in `docker-compose.yml` or elsewhere).
 
 - **Spec:** `Writerside/topics/` (`Default-topic.md` = product goal, `sever.md` = block components).
 - **Agreed build plan:** `docs/SADE-plan.pdf` — read it before starting any feature. It defines
@@ -226,7 +235,9 @@ Two libraries operate on the *same* `db`-tagged structs, both reached through `i
   `config.Load(yaml, env)` layers **struct defaults < YAML < env**, auto-generates each of
   `config.yaml` / `.env` that is missing (never clobbering the other), and fails startup if a
   `secret` is empty or still `CHANGE_ME`. `secret generate:"rand32"` fields (e.g. `Auth.HMACSecret`)
-  are self-generated. `config.Duration` round-trips as `"15s"` in YAML and env; call `.Std()`.
+  are self-generated. `App.FrontendDir` (default `./frontend/build`) is the adapter-static build
+  `internals/app/static.go` serves; a missing dir just disables that handler. `config.Duration`
+  round-trips as `"15s"` in YAML and env; call `.Std()`.
   `config.Validate` checks enums and cross-field rules. `config.Defaults()` returns a `*Config`
   from the `default` tags only (no file/env/secret) — for standalone tools (`cmd/watermark`) and tests.
 - `internals/database/` — `New(cfg, log)` then `Connect(ctx)` (bounded `PingContext`). The SQL
@@ -308,8 +319,32 @@ previews never get an account — they use signed `internals/token` links served
 ### Frontend
 
 SvelteKit 2 / Svelte 5. **Runes mode is forced** for all non-`node_modules` files via
-`frontend/vite.config.ts`. TypeScript `strict`. Currently the default skeleton; target
-`adapter-static`, with the Go binary serving `frontend/build`.
+`frontend/vite.config.ts`. TypeScript `strict`. Built as a pure client-rendered SPA:
+`adapter-static({ fallback: 'index.html' })` + root `src/routes/+layout.ts` (`ssr = false`);
+`internals/app/static.go` serves `frontend/build` with the same fallback semantics, so a hard
+refresh on e.g. `/app/jobs/<id>` still works.
+
+Routes (`src/routes/`): `/` landing, `/login` (magic-link request), `/app` (a guarded layout —
+`onMount` calls `auth.ensureLoaded()` and redirects to `/login` if there's no session — plus the
+upload form and a polling job list), `/app/jobs/[id]` (detail, polls while pending/processing),
+`/preview/[token]` (public, no auth — the token in the URL is the whole authorization, same as
+the Go `/p`/`/d` handlers it calls).
+
+`src/lib/`:
+- `api.ts` — typed `fetch` wrapper over `/api/*` (`credentials: 'include'` for the session
+  cookie; `ApiError` carries the HTTP status). `API_BASE` is `http://localhost:8080` in dev
+  (`import.meta.env.DEV`, matching `config.ServerConfig`'s default port) and `''` in the
+  production build (same origin — the Go binary serves both). Exported so `/preview/[token]` can
+  build direct `/p/{token}` and `/d/{token}` URLs without a JSON round trip.
+- `types.ts` — hand-kept TS mirror of the Go `Response` DTOs (`user`/`job`/`asset`); no codegen,
+  keep in sync by hand when a `model.go` `Response` changes.
+- `stores.svelte.ts`, `theme.svelte.ts`, `i18n.svelte.ts` — reactive singletons (a class holding
+  `$state` fields, instantiated once and imported by value). Svelte 5 runes only compile inside
+  `.svelte` / `.svelte.js` / `.svelte.ts` files — a plain `.ts` file never goes through the Svelte
+  preprocessor, so anything stateful lives in a `*.svelte.ts` file, not the plain `stores.ts` /
+  `theme.ts` the original plan sketched. `theme`/`i18n` persist to `localStorage` and are
+  initialized once from the root layout's `onMount` (avoids an SSR/hydration mismatch even though
+  `ssr` is off). Default locale is `ro`.
 
 ## Constraints
 

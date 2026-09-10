@@ -64,6 +64,12 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/users/{id}", admin(d.User.Get))
 	mux.Handle("PATCH /api/users/{id}", admin(d.User.SetRole))
 
+	// The built SvelteKit app (frontend/build), SPA-fallback served for
+	// everything else. Skipped when it hasn't been built yet.
+	if hasFrontendBuild(d.Cfg.App.FrontendDir) {
+		mux.Handle("/", spaFileServer(d.Cfg.App.FrontendDir))
+	}
+
 	return chain(mux,
 		Recover(d.Log),
 		RequestLog(d.Log),
