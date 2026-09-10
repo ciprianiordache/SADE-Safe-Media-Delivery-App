@@ -48,3 +48,31 @@ export interface NewJobInput {
 	watermarkKind: WatermarkKind;
 	watermarkText?: string;
 }
+
+// Mirrors config.UploadConfig's default Allowed* extensions
+// (internals/app/job checks the real config server-side; this is just a
+// fast client-side check so a bad file never reaches the upload button).
+export const ALLOWED_EXTENSIONS = [
+	'.mp4',
+	'.mov',
+	'.mkv',
+	'.webm',
+	'.avi',
+	'.mp3',
+	'.wav',
+	'.m4a',
+	'.aac',
+	'.flac',
+	'.ogg',
+	'.jpg',
+	'.jpeg',
+	'.png',
+	'.webp',
+	'.tiff'
+];
+
+export function isAllowedFile(filename: string): boolean {
+	const dot = filename.lastIndexOf('.');
+	if (dot < 0) return false;
+	return ALLOWED_EXTENSIONS.includes(filename.slice(dot).toLowerCase());
+}

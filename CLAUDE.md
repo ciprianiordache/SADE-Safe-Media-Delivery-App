@@ -90,22 +90,33 @@ Not started: `repo.go` / `service.go` / `handler.go` for `payment` (backlog), an
 ### Resume here (if the session reset)
 
 **Last shipped:** M5, the SvelteKit frontend (`frontend/src/`), plus the Go-side static handler
-that serves it. Backend + frontend now cover the whole flow M1–M5.
+that serves it — then a full visual redesign of that same frontend against a Claude Design canvas
+the user directed (link in their local session history, not reproduced here). Backend + frontend
+now cover the whole flow M1–M5, restyled.
 
-- Frontend routes built: `/` landing, `/login` (magic-link request + `?error=invalid_link`),
-  `/app` (guarded layout + upload form + polling job list), `/app/jobs/[id]` (detail + assets,
-  polls while pending/processing), `/preview/[token]` (public, no auth — cascades `<video>` →
-  `<audio>` → `<img>` → plain link against `GET /p/{token}`, downloads via `GET /d/{token}`).
-  `src/lib/`: `api.ts` (typed fetch client, `credentials: 'include'`, `ApiError`), `types.ts`
-  (hand-kept mirror of the Go `Response` DTOs), `stores.svelte.ts` (`auth`, a class w/ `$state`),
-  `theme.svelte.ts` + `i18n.svelte.ts` (ditto — Svelte 5 runes only work in `.svelte`/`.svelte.ts`
-  files, so anything stateful is named `*.svelte.ts`, not the plain `.ts` the plan sketched).
+- Frontend routes built: `/` landing, `/login` (magic-link request + `?error=invalid_link`
+  banner), `/app` (guarded layout + upload form + a searchable/filterable/sortable job list with
+  list/grid views and comfortable/compact density), `/app/jobs/[id]` (detail with a status
+  stepper + assets, polls while pending/processing), `/preview/[token]` (public, no auth, mobile-
+  first — cascades `<video>` → `<audio>` → `<img>` → plain link against `GET /p/{token}`,
+  downloads via `GET /d/{token}`). See the "Design system" paragraph above for the palette/
+  component/scope details of the redesign. `src/lib/`: `api.ts` (typed fetch client,
+  `credentials: 'include'`, `ApiError`), `types.ts` (hand-kept mirror of the Go `Response` DTOs +
+  `isAllowedFile`), `format.ts` (`relativeTime`), `stores.svelte.ts` (`auth`, a class w/
+  `$state`), `theme.svelte.ts` + `i18n.svelte.ts` (ditto — Svelte 5 runes only work in
+  `.svelte`/`.svelte.ts` files, so anything stateful is named `*.svelte.ts`, not the plain `.ts`
+  the plan sketched), `components/` (`LangThemeToggle`, `MarkBar`, `StatusBadge`, `StatusDot`).
   `adapter-static` (`fallback: 'index.html'`) + root `+layout.ts` (`ssr = false`) make it a pure
   client-rendered SPA. `npm run check` is clean; `npm run build` produces `frontend/build`
   (gitignored, matches `internals/app/static.go`'s default `Cfg.App.FrontendDir`).
 - Backend: added `config.AppConfig.FrontendDir` (`APP_FRONTEND_DIR`, default `./frontend/build`)
   and `internals/app/static.go` — see the `router.go` bullet above. `app.go` needed no change
-  (`Deps.Cfg` already carries the whole config).
+  (`Deps.Cfg` already carries the whole config). No other backend changes for the redesign — the
+  gaps between the design canvas and the shipped UI (list rows keyed on recipient not filename, no
+  copyable `/p`/`/d` links or resend button on the job detail page, dashboard search/filter/sort/
+  pagination done client-side) are deliberate: adapt-to-the-API-as-is was the chosen default
+  rather than expanding the API to match the mockup. Revisit if the client-side-200-jobs ceiling
+  or the missing operator-facing links become real problems.
 - Not wired: the worker's `EmailNotifier` still mails the raw `PublicURL/p/<token>` link, not
   `PublicURL/preview/<token>` — intentionally, per the plan ("frontend preview page may just
   embed/redirect to those"). Revisit only if a wrapped player page in the email is wanted later.
@@ -324,11 +335,32 @@ SvelteKit 2 / Svelte 5. **Runes mode is forced** for all non-`node_modules` file
 `internals/app/static.go` serves `frontend/build` with the same fallback semantics, so a hard
 refresh on e.g. `/app/jobs/<id>` still works.
 
-Routes (`src/routes/`): `/` landing, `/login` (magic-link request), `/app` (a guarded layout —
-`onMount` calls `auth.ensureLoaded()` and redirects to `/login` if there's no session — plus the
-upload form and a polling job list), `/app/jobs/[id]` (detail, polls while pending/processing),
-`/preview/[token]` (public, no auth — the token in the URL is the whole authorization, same as
-the Go `/p`/`/d` handlers it calls).
+Routes (`src/routes/`): `/` landing, `/login` (magic-link request, `?error=invalid_link` banner),
+`/app` (a guarded layout — `onMount` calls `auth.ensureLoaded()` and redirects to `/login` if
+there's no session — plus the upload form and a polling job list), `/app/jobs/[id]` (detail with
+a status stepper, polls while pending/processing), `/preview/[token]` (public, no auth, mobile-
+first — the token in the URL is the whole authorization, same as the Go `/p`/`/d` handlers it
+calls).
+
+**Design system** (redesigned 2026-09-10 from a Claude Design canvas the user seeded a session
+prior — see `docs/icon150.png`, the real logo, used everywhere the mark appears): warm palette,
+one orange accent, IBM Plex Sans + Mono (loaded via a Google Fonts `<link>` in `app.html`).
+Tokens live as CSS custom properties in `app.css` — `--bg`/`--surface`/`--text`/`--border`/
+`--accent` (+ `-hover`/`-tint` variants) and per-status colors, redefined under
+`:root[data-theme='dark']` and the `prefers-color-scheme` media query. `src/lib/components/`:
+`LangThemeToggle.svelte` (the RO|EN + light|dark pill pair, reused on every page next to the mark
+or the user chip), `MarkBar.svelte` (logo + wordmark + the toggle, for pages with no operator
+session), `StatusBadge.svelte` / `StatusDot.svelte` (job status, shared by the dashboard and
+detail page).
+
+Reskinned within what `internals/app/job`'s API actually returns, not the full canvas mockup:
+list rows key on `recipientEmail` (the list endpoint has no filename — only a job's `assets`,
+fetched on the detail page, carry one), and the job detail page has no copyable `/p`/`/d` links
+or a "resend email" action (the API never exposes a preview token to the operator, and there's no
+resend endpoint — only the worker's `EmailNotifier` ever sees the token). The dashboard's search /
+status filter / sort / density (comfortable, compact) / view (list, grid) / pagination are all
+client-side over one `GET /api/jobs?limit=200` fetch — `job.Response` carries no total count, so
+this holds up until an operator has 200+ jobs, at which point it needs real server-side paging.
 
 `src/lib/`:
 - `api.ts` — typed `fetch` wrapper over `/api/*` (`credentials: 'include'` for the session
@@ -337,14 +369,19 @@ the Go `/p`/`/d` handlers it calls).
   production build (same origin — the Go binary serves both). Exported so `/preview/[token]` can
   build direct `/p/{token}` and `/d/{token}` URLs without a JSON round trip.
 - `types.ts` — hand-kept TS mirror of the Go `Response` DTOs (`user`/`job`/`asset`); no codegen,
-  keep in sync by hand when a `model.go` `Response` changes.
+  keep in sync by hand when a `model.go` `Response` changes. Also `ALLOWED_EXTENSIONS` /
+  `isAllowedFile` — a client-side mirror of `config.UploadConfig`'s defaults, so a bad file never
+  reaches the upload button; the server's own check is still authoritative.
+- `format.ts` — `relativeTime(iso, locale)`, the compact "2m"/"1h"/"3d" timestamps in the job list.
 - `stores.svelte.ts`, `theme.svelte.ts`, `i18n.svelte.ts` — reactive singletons (a class holding
   `$state` fields, instantiated once and imported by value). Svelte 5 runes only compile inside
   `.svelte` / `.svelte.js` / `.svelte.ts` files — a plain `.ts` file never goes through the Svelte
   preprocessor, so anything stateful lives in a `*.svelte.ts` file, not the plain `stores.ts` /
   `theme.ts` the original plan sketched. `theme`/`i18n` persist to `localStorage` and are
   initialized once from the root layout's `onMount` (avoids an SSR/hydration mismatch even though
-  `ssr` is off). Default locale is `ro`.
+  `ssr` is off). Default locale is `ro`; `theme.value` is `'light' | 'dark' | 'system'` but the
+  toggle pill only ever writes `'light'`/`'dark'` explicitly (matches the 2-option design; a
+  first render can still show the `system`-resolved state before anyone clicks it).
 
 ## Constraints
 
