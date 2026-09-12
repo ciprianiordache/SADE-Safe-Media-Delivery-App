@@ -49,6 +49,15 @@ export interface NewJobInput {
 	watermarkText?: string;
 }
 
+// Mirrors internals/app/payment.statusResponse / checkoutResponse.
+export interface PaymentStatus {
+	enabled: boolean; // false when the server has no Stripe key configured
+	paid: boolean;
+	originalUrl?: string; // set only when paid - a signed GET /o/{token} link
+	amountCents: number;
+	currency: string;
+}
+
 // Mirrors config.UploadConfig's default Allowed* extensions
 // (internals/app/job checks the real config server-side; this is just a
 // fast client-side check so a bad file never reaches the upload button).

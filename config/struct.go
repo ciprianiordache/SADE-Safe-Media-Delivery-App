@@ -56,6 +56,7 @@ type Config struct {
 	FFmpeg   FFmpegConfig   `yaml:"ffmpeg"`
 	Worker   WorkerConfig   `yaml:"worker"`
 	Upload   UploadConfig   `yaml:"upload"`
+	Payment  PaymentConfig  `yaml:"payment"`
 }
 
 // AppConfig holds top-level application settings.
@@ -232,4 +233,21 @@ type UploadConfig struct {
 	AllowedAudio  []string `yaml:"allowed_audio" env:"UPLOAD_ALLOWED_AUDIO" default:".mp3,.wav,.m4a,.aac,.flac,.ogg"`
 	AllowedImage  []string `yaml:"allowed_image" env:"UPLOAD_ALLOWED_IMAGE" default:".jpg,.jpeg,.png,.webp,.tiff"`
 	KeepOriginals bool     `yaml:"keep_originals" env:"UPLOAD_KEEP_ORIGINALS" default:"true"` // false = delete original once preview is ready
+}
+
+// PaymentConfig configures the Stripe-backed unlock of a job's original
+// file. The feature is opt-in at runtime, not startup-fatal like Auth's
+// secrets: an empty StripeSecretKey just disables internals/app/payment (the
+// rest of the app - including the watermarked preview flow - is unaffected),
+// mirroring how a missing ffmpeg binary only disables the worker. An empty
+// StripeWebhookSecret disables webhook-driven confirmation specifically
+// (POST /api/payments/webhook refuses to process anything it cannot verify);
+// payment.Service.Status still reconciles a pending payment by asking Stripe
+// directly for the Checkout Session, so a single operator testing locally
+// without a public webhook URL still sees the unlock complete.
+type PaymentConfig struct {
+	StripeSecretKey     string `yaml:"stripe_secret_key" env:"STRIPE_SECRET_KEY"`
+	StripeWebhookSecret string `yaml:"stripe_webhook_secret" env:"STRIPE_WEBHOOK_SECRET"`
+	PriceCents          int64  `yaml:"price_cents" env:"PAYMENT_PRICE_CENTS" default:"4900"` // 49.00 in the default currency
+	Currency            string `yaml:"currency" env:"PAYMENT_CURRENCY" default:"eur"`        // lower-case ISO 4217, as Stripe expects
 }

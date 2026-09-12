@@ -66,7 +66,7 @@ func buildTestAppWithFrontend(t *testing.T) *httptest.Server {
 		Auth:    auth.NewHandler(authSvc, cfg.Auth, testutil.Logger()),
 		AuthSvc: authSvc,
 		User:    user.NewHandler(userSvc, testutil.Logger()),
-		Job:     job.NewHandler(jobSvc, cfg.Upload, testutil.Logger()),
+		Job:     job.NewHandler(jobSvc, store, cfg.Upload, testutil.Logger()),
 		Share:   share.NewHandler(signer, asset.NewRepo(db), store, testutil.Logger()),
 	})
 

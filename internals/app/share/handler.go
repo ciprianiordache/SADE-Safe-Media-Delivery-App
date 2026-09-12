@@ -46,16 +46,24 @@ func NewHandler(signer *token.Signer, assets Assets, blob Blob, log *slog.Logger
 
 // Preview handles GET /p/{token}: the watermarked preview, shown inline.
 func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
-	h.serve(w, r, "preview", "inline")
+	h.serve(w, r, "preview", asset.KindPreview, "inline")
 }
 
 // Download handles GET /d/{token}: the watermarked preview, as an attachment.
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
-	h.serve(w, r, "download", "attachment")
+	h.serve(w, r, "download", asset.KindPreview, "attachment")
 }
 
-func (h *Handler) serve(w http.ResponseWriter, r *http.Request, purpose, disposition string) {
-	a, err := h.resolve(r.PathValue("token"), purpose)
+// Original handles GET /o/{token}: the clean, un-watermarked original, as an
+// attachment. The token is minted by internals/app/payment.Service.Status
+// only once a Payment for the job is StatusPaid - unlike Preview/Download,
+// there is no free path to this purpose.
+func (h *Handler) Original(w http.ResponseWriter, r *http.Request) {
+	h.serve(w, r, "original", asset.KindOriginal, "attachment")
+}
+
+func (h *Handler) serve(w http.ResponseWriter, r *http.Request, purpose, wantKind, disposition string) {
+	a, err := h.resolve(r.PathValue("token"), purpose, wantKind)
 	switch {
 	case errors.Is(err, errGone):
 		httpx.Error(w, http.StatusGone, "this link has expired")
@@ -119,10 +127,10 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, purpose, disposi
 	}
 }
 
-// resolve verifies the token for purpose and returns the preview asset it
-// authorises. Every failure maps to errNotFound or errGone so a caller cannot
-// probe which token / asset exists.
-func (h *Handler) resolve(tok, purpose string) (*asset.Asset, error) {
+// resolve verifies the token for purpose and returns the asset it
+// authorises, provided it is of wantKind. Every failure maps to errNotFound
+// or errGone so a caller cannot probe which token / asset exists.
+func (h *Handler) resolve(tok, purpose, wantKind string) (*asset.Asset, error) {
 	if strings.TrimSpace(tok) == "" {
 		return nil, errNotFound
 	}
@@ -140,8 +148,8 @@ func (h *Handler) resolve(tok, purpose string) (*asset.Asset, error) {
 		}
 		return nil, fmt.Errorf("load asset %s: %w", subject, err)
 	}
-	if a.Kind != asset.KindPreview {
-		return nil, errNotFound // never expose an original through a share link
+	if a.Kind != wantKind {
+		return nil, errNotFound // e.g. a "preview" token pointed at an original row
 	}
 	return a, nil
 }

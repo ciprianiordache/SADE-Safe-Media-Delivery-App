@@ -13,6 +13,7 @@ import (
 	"sade/internals/app/auth"
 	"sade/internals/app/job"
 	"sade/internals/app/magic_token"
+	"sade/internals/app/payment"
 	"sade/internals/app/session"
 	"sade/internals/app/share"
 	"sade/internals/app/user"
@@ -24,6 +25,8 @@ import (
 	"sade/internals/storage"
 	"sade/internals/token"
 	"sade/internals/worker"
+
+	stripe "github.com/stripe/stripe-go/v82"
 )
 
 // App is the wired-together application: configuration, the shared logger,
@@ -117,13 +120,28 @@ func NewApp(ctx context.Context) (*App, error) {
 	authH := auth.NewHandler(authSvc, cfg.Auth, log)
 
 	jobSvc := job.NewService(jobRepo, assetRepo, store, cfg.Upload, log)
-	jobH := job.NewHandler(jobSvc, cfg.Upload, log)
+	jobH := job.NewHandler(jobSvc, store, cfg.Upload, log)
 
 	shareH := share.NewHandler(signer, assetRepo, store, log)
 
+	// The Stripe-backed original-file unlock. A missing key only disables
+	// this domain (Service.Checkout/Status report it, rather than the app
+	// failing to start) - mirrors ffmpeg's optionality below.
+	var stripeClient *stripe.Client
+	if cfg.Payment.StripeSecretKey != "" {
+		stripeClient = stripe.NewClient(cfg.Payment.StripeSecretKey)
+	} else {
+		log.Warn("payment unlock disabled", "reason", "no STRIPE_SECRET_KEY configured")
+	}
+	paymentSvc := payment.NewService(
+		payment.NewRepo(db), assetRepo, signer, stripeClient, cfg.Payment,
+		cfg.App.PublicURL, cfg.App.FrontendURL, cfg.Auth.ShareTokenTTL.Std(), log,
+	)
+	paymentH := payment.NewHandler(paymentSvc, log)
+
 	router := app.NewRouter(app.Deps{
 		Cfg: cfg, Log: log, Auth: authH, AuthSvc: authSvc,
-		User: userH, Job: jobH, Share: shareH,
+		User: userH, Job: jobH, Share: shareH, Payment: paymentH,
 	})
 
 	a := &App{cfg: cfg, log: log, logGC: logGC, db: db}

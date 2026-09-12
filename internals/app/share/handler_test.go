@@ -52,7 +52,7 @@ func harness(t *testing.T, seed *asset.Asset) (*httptest.Server, *token.Signer, 
 	t.Helper()
 	store := localStore(t)
 	content := []byte("WATERMARKED-PREVIEW-BYTES-0123456789-abcdefghij")
-	if seed != nil && seed.Kind == asset.KindPreview {
+	if seed != nil && (seed.Kind == asset.KindPreview || seed.Kind == asset.KindOriginal) {
 		if _, err := store.Put(context.Background(), seed.StorageKey, bytes.NewReader(content)); err != nil {
 			t.Fatalf("seed blob: %v", err)
 		}
@@ -70,6 +70,7 @@ func harness(t *testing.T, seed *asset.Asset) (*httptest.Server, *token.Signer, 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /p/{token}", h.Preview)
 	mux.HandleFunc("GET /d/{token}", h.Download)
+	mux.HandleFunc("GET /o/{token}", h.Original)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv, signer, content
@@ -80,6 +81,14 @@ func previewAsset() *asset.Asset {
 		ID: "prev1", JobID: "job1", Kind: asset.KindPreview,
 		StorageKey: "previews/job1/clip-preview.mp4",
 		Filename:   "clip-preview.mp4", MIME: "video/mp4", SizeBytes: 46,
+	}
+}
+
+func originalAsset() *asset.Asset {
+	return &asset.Asset{
+		ID: "orig1", JobID: "job1", Kind: asset.KindOriginal,
+		StorageKey: "originals/job1/original.mp4",
+		Filename:   "clip.mp4", MIME: "video/mp4", SizeBytes: 46,
 	}
 }
 
@@ -218,6 +227,53 @@ func TestOriginalAssetIsNeverServed(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("original served through /p: status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestOriginalServesAsAttachment(t *testing.T) {
+	srv, signer, content := harness(t, originalAsset())
+	tok, _ := signer.Sign("original", "orig1", time.Hour)
+
+	resp := get(t, srv.URL+"/o/"+tok, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !bytes.Equal(body, content) {
+		t.Errorf("body mismatch")
+	}
+	if cd := resp.Header.Get("Content-Disposition"); cd != `attachment; filename="clip.mp4"` {
+		t.Errorf("Content-Disposition = %q", cd)
+	}
+}
+
+func TestOriginalRejectsAPreviewAsset(t *testing.T) {
+	// An "original"-purpose token can only ever have been minted by
+	// payment.Service.Status for a KindOriginal asset - if it somehow points
+	// at a preview row instead, that must still 404, not serve it.
+	srv, signer, _ := harness(t, previewAsset())
+	tok, _ := signer.Sign("original", "prev1", time.Hour)
+
+	resp := get(t, srv.URL+"/o/"+tok, nil)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestPreviewAndDownloadTokensCannotOpenOriginal(t *testing.T) {
+	srv, signer, _ := harness(t, originalAsset())
+	pv, _ := signer.Sign("preview", "orig1", time.Hour)
+	dl, _ := signer.Sign("download", "orig1", time.Hour)
+
+	if resp := get(t, srv.URL+"/o/"+pv, nil); resp.StatusCode != http.StatusNotFound {
+		resp.Body.Close()
+		t.Errorf("preview token on /o = %d, want 404", resp.StatusCode)
+	}
+	if resp := get(t, srv.URL+"/o/"+dl, nil); resp.StatusCode != http.StatusNotFound {
+		resp.Body.Close()
+		t.Errorf("download token on /o = %d, want 404", resp.StatusCode)
 	}
 }
 

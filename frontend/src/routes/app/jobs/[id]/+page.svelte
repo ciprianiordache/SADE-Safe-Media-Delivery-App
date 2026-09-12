@@ -51,6 +51,19 @@
 				return 1;
 		}
 	});
+
+	// Preview card: play either the watermarked preview or the original,
+	// straight from the session-authenticated /api/jobs/.../content route
+	// (see src/lib/api.ts) - no signed /p token needed, this is the operator
+	// viewing their own upload.
+	let previewAsset = $derived(job?.assets?.find((a) => a.kind === 'preview'));
+	let originalAsset = $derived(job?.assets?.find((a) => a.kind === 'original'));
+	let selectedKind = $state<'preview' | 'original'>('preview');
+	let activeAsset = $derived(selectedKind === 'preview' ? previewAsset : originalAsset);
+
+	$effect(() => {
+		if (!previewAsset && originalAsset) selectedKind = 'original';
+	});
 </script>
 
 <div class="container page">
@@ -95,59 +108,102 @@
 		{/if}
 
 		<div class="detail-grid">
-			<section class="card">
-				<span class="section-label">{i18n.t('job.title')}</span>
-				<dl>
-					<dt>{i18n.t('job.mediaType')}</dt>
-					<dd>{job.mediaType}</dd>
-
-					<dt>{i18n.t('job.watermarkKind')}</dt>
-					<dd>{i18n.t(`dashboard.watermarkKind.${job.watermarkKind}`)}</dd>
-
-					{#if job.watermarkText}
-						<dt>{i18n.t('job.watermarkText')}</dt>
-						<dd>{job.watermarkText}</dd>
+			<section class="card preview-card">
+				<div class="preview-head">
+					<span class="section-label">{i18n.t('job.sectionPreview')}</span>
+					{#if previewAsset && originalAsset}
+						<div class="segmented small">
+							<button type="button" aria-pressed={selectedKind === 'preview'} onclick={() => (selectedKind = 'preview')}>
+								{i18n.t('job.tabPreview')}
+							</button>
+							<button type="button" aria-pressed={selectedKind === 'original'} onclick={() => (selectedKind = 'original')}>
+								{i18n.t('job.tabOriginal')}
+							</button>
+						</div>
 					{/if}
+				</div>
 
-					<dt>{i18n.t('job.attempts')}</dt>
-					<dd>{job.attempts}</dd>
-
-					{#if job.error}
-						<dt>{i18n.t('job.error')}</dt>
-						<dd class="error-text">{job.error}</dd>
-					{/if}
-
-					<dt>{i18n.t('job.createdAt')}</dt>
-					<dd>{new Date(job.createdAt).toLocaleString(i18n.locale)}</dd>
-
-					<dt>{i18n.t('job.updatedAt')}</dt>
-					<dd>{new Date(job.updatedAt).toLocaleString(i18n.locale)}</dd>
-				</dl>
-			</section>
-
-			<section class="card">
-				<span class="section-label">{i18n.t('job.assets')}</span>
-				{#if !job.assets || job.assets.length === 0}
-					<p class="muted">{i18n.t('job.assetsEmpty')}</p>
-				{:else}
-					<div class="asset-list">
-						{#each job.assets as asset (asset.id)}
-							<div class="asset-row">
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
-									><path
-										d="M14 3 H7 a2 2 0 0 0 -2 2 v14 a2 2 0 0 0 2 2 h10 a2 2 0 0 0 2 -2 V8 Z M14 3 v5 h5"
-									/></svg
-								>
-								<div class="asset-meta">
-									<span class="bold">{asset.kind}</span>
-									<span class="faint mono">{asset.filename} · {(asset.sizeBytes / (1024 * 1024)).toFixed(2)} MB</span>
-								</div>
-							</div>
-						{/each}
+				{#if activeAsset}
+					{#key activeAsset.id}
+						<div class="player">
+							{#if job.mediaType === 'video'}
+								<!-- svelte-ignore a11y_media_has_caption -->
+								<video controls preload="metadata" src={api.assetContentUrl(job.id, activeAsset.id)}></video>
+							{:else if job.mediaType === 'audio'}
+								<audio controls preload="metadata" src={api.assetContentUrl(job.id, activeAsset.id)}></audio>
+							{:else}
+								<img src={api.assetContentUrl(job.id, activeAsset.id)} alt="" />
+							{/if}
+						</div>
+					{/key}
+					<div class="player-actions">
+						<span class="faint mono">
+							{activeAsset.filename} · {(activeAsset.sizeBytes / (1024 * 1024)).toFixed(2)} MB
+						</span>
+						<a class="btn btn-ghost" href={api.assetContentUrl(job.id, activeAsset.id, { download: true })}>
+							{i18n.t('job.download')}
+						</a>
 					</div>
+				{:else}
+					<p class="muted">{i18n.t('job.previewNotReady')}</p>
 				{/if}
-				<p class="faint note">{i18n.t('job.assetsNote')}</p>
 			</section>
+
+			<div class="side-col">
+				<section class="card">
+					<span class="section-label">{i18n.t('job.title')}</span>
+					<dl>
+						<dt>{i18n.t('job.mediaType')}</dt>
+						<dd>{job.mediaType}</dd>
+
+						<dt>{i18n.t('job.watermarkKind')}</dt>
+						<dd>{i18n.t(`dashboard.watermarkKind.${job.watermarkKind}`)}</dd>
+
+						{#if job.watermarkText}
+							<dt>{i18n.t('job.watermarkText')}</dt>
+							<dd>{job.watermarkText}</dd>
+						{/if}
+
+						<dt>{i18n.t('job.attempts')}</dt>
+						<dd>{job.attempts}</dd>
+
+						{#if job.error}
+							<dt>{i18n.t('job.error')}</dt>
+							<dd class="error-text">{job.error}</dd>
+						{/if}
+
+						<dt>{i18n.t('job.createdAt')}</dt>
+						<dd>{new Date(job.createdAt).toLocaleString(i18n.locale)}</dd>
+
+						<dt>{i18n.t('job.updatedAt')}</dt>
+						<dd>{new Date(job.updatedAt).toLocaleString(i18n.locale)}</dd>
+					</dl>
+				</section>
+
+				<section class="card">
+					<span class="section-label">{i18n.t('job.assets')}</span>
+					{#if !job.assets || job.assets.length === 0}
+						<p class="muted">{i18n.t('job.assetsEmpty')}</p>
+					{:else}
+						<div class="asset-list">
+							{#each job.assets as asset (asset.id)}
+								<div class="asset-row">
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+										><path
+											d="M14 3 H7 a2 2 0 0 0 -2 2 v14 a2 2 0 0 0 2 2 h10 a2 2 0 0 0 2 -2 V8 Z M14 3 v5 h5"
+										/></svg
+									>
+									<div class="asset-meta">
+										<span class="bold">{asset.kind}</span>
+										<span class="faint mono">{asset.filename} · {(asset.sizeBytes / (1024 * 1024)).toFixed(2)} MB</span>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					<p class="faint note">{i18n.t('job.assetsNote')}</p>
+				</section>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -256,6 +312,59 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.9rem;
+	}
+
+	.side-col {
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+	}
+
+	.preview-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.segmented.small {
+		width: auto;
+		border-radius: 999px;
+		overflow: hidden;
+	}
+
+	.segmented.small button {
+		padding: 0.32rem 0.7rem;
+		font-size: 0.78rem;
+	}
+
+	.player {
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+		background: var(--text);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.player video,
+	.player img {
+		width: 100%;
+		max-height: 420px;
+		display: block;
+	}
+
+	.player audio {
+		width: 100%;
+		margin: 1.5rem;
+	}
+
+	.player-actions {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		flex-wrap: wrap;
 	}
 
 	.section-label {

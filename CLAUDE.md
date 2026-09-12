@@ -4,12 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**M1–M5 done. The whole app works end to end, backend and frontend:** an operator signs in via
-magic link, uploads a file from the SvelteKit dashboard → the job is stored → the worker
-watermarks it async → the preview is stored → the recipient is emailed signed `/p/<token>` (view)
-+ `/d/<token>` (download) links → the public `share` handlers stream the watermarked preview with
-Range support, no login → the recipient's `/preview/[token]` page embeds/downloads it. Only
-hardening (M6) remains (plus the `payment` backlog). Done and tested:
+**M1–M5 done, plus the `payment` unlock. The whole app works end to end, backend and frontend:**
+an operator signs in via magic link, uploads a file from the SvelteKit dashboard → the job is
+stored → the worker watermarks it async → the preview is stored → the recipient is emailed
+signed `/p/<token>` (view) + `/d/<token>` (download) links → the public `share` handlers stream
+the watermarked preview with Range support, no login → the recipient's `/preview/[token]` page
+embeds/downloads it, and can pay (Stripe Checkout) to unlock the clean original via a third
+signed purpose, `/o/<token>`. The operator's own dashboard can also play both the original and
+the preview of their own upload, session-authenticated, from the job detail page. Only hardening
+(M6) remains.
 
 - `config/` — full loader (defaults < YAML < env), `config.Duration`, secret generation, `Validate`.
   `Auth.ShareTokenTTL` (default 30d) bounds the signed `/p` and `/d` links.
@@ -31,7 +34,13 @@ hardening (M6) remains (plus the `payment` backlog). Done and tested:
   writes the `Job` row (`status=pending`) + the original `asset.Asset` row, and rolls both back
   (blob + row) on any later failure. `Get`/`List` are owner-scoped (a non-owner's job reads as 404).
   Handler: `POST /api/jobs` (multipart `file` + `recipientEmail`/`watermarkKind`/`watermarkText`/
-  `watermarkOpts`, `MaxBytesReader`-guarded), `GET /api/jobs`, `GET /api/jobs/{id}`.
+  `watermarkOpts`, `MaxBytesReader`-guarded), `GET /api/jobs`, `GET /api/jobs/{id}`,
+  `GET /api/jobs/{id}/assets/{assetId}/content` (`Service.Asset` owner-scopes it the same way as
+  `Get`, then the handler streams via `storage` — `http.ServeContent` when seekable, same Range/
+  nosniff treatment as `share`; `?dl=1` for `attachment` instead of `inline`). Unlike `/p`/`/d`,
+  this is session-authenticated and serves either asset kind, so the dashboard's job-detail page
+  can play the operator's own original *and* preview inline, side by side — no signed token
+  involved, since the operator already owns the job.
   `Repo` also carries the worker-facing state machine (raw SQL, dialect-aware via `db.Driver()`):
   `ClaimPending` (atomic `UPDATE … RETURNING`, `FOR UPDATE SKIP LOCKED` on Postgres, bumps
   `attempts`), `MarkDone` / `MarkFailed` / `MarkForRetry(nextAttemptAt)` / `ResetStuck(cutoff)`.
@@ -39,15 +48,41 @@ hardening (M6) remains (plus the `payment` backlog). Done and tested:
 - **`internals/app/asset/`** — repo only (`Create` / `GetByID` / `ListByJob` / `GetByJobAndKind` /
   `Delete`), like `magic_token`/`session`. Exported `ToResponse`/`ToResponses` so `job` renders
   asset rows in its detail response. No handler — assets reach clients via `share`.
-- **`internals/app/share/`** — the public, login-free preview links. `Handler.Preview` (`GET
-  /p/{token}`, `Content-Disposition: inline`) and `Handler.Download` (`GET /d/{token}`,
-  `attachment`) both: `signer.Verify(purpose, token)` (`"preview"` for `/p`, `"download"` for `/d`)
-  → subject is the preview asset id → `Assets.GetByID` → must be `KindPreview` → stream from
-  `Blob`. Local files go through `http.ServeContent` (Range / conditional GET, `Accept-Ranges`,
-  `nosniff`); a non-seekable backend falls back to a whole-object copy. Error map: `token.ErrExpired`
-  → 410, everything else (bad/again wrong-purpose token, unknown asset, original asset, missing
-  blob) → an indistinguishable 404; repo error → 500. Declares its own `Assets` + `Blob` ports
-  (`asset.Repo` and `storage.Storage` satisfy them directly — no adapters).
+- **`internals/app/share/`** — the public, login-free share links. `Handler.Preview` (`GET
+  /p/{token}`, `Content-Disposition: inline`), `Handler.Download` (`GET /d/{token}`,
+  `attachment`), and `Handler.Original` (`GET /o/{token}`, `attachment`) all funnel through one
+  `serve(w, r, purpose, wantKind, disposition)`: `signer.Verify(purpose, token)` (`"preview"` for
+  `/p`, `"download"` for `/d`, `"original"` for `/o`) → subject is an asset id → `Assets.GetByID`
+  → must be `wantKind` (`KindPreview` for `/p`+`/d`, `KindOriginal` for `/o` — a token minted for
+  one purpose can never open a route expecting a different kind) → stream from `Blob`. Local files
+  go through `http.ServeContent` (Range / conditional GET, `Accept-Ranges`, `nosniff`); a
+  non-seekable backend falls back to a whole-object copy. Error map: `token.ErrExpired` → 410,
+  everything else (bad/wrong-purpose token, unknown asset, wrong kind, missing blob) → an
+  indistinguishable 404; repo error → 500. Declares its own `Assets` + `Blob` ports (`asset.Repo`
+  and `storage.Storage` satisfy them directly — no adapters). The `"original"` purpose is never
+  minted by `share` itself — only `internals/app/payment.Service.Status`, once a job's `Payment`
+  is `StatusPaid`.
+- **`internals/app/payment/`** — full stack, backed by Stripe Checkout (`github.com/stripe/
+  stripe-go/v82`; never handles card data itself — the recipient is redirected to Stripe's hosted
+  page and back). Public routes, authorised by the same signed `"preview"` token the recipient's
+  `/preview/[token]` page already holds (never a session): `POST /api/payments/checkout` (body
+  `{token}` → resolves the preview asset → its job → its `KindOriginal` sibling via
+  `asset.Repo.GetByJobAndKind`, records a `Payment{Status: pending}`, creates a Stripe Checkout
+  Session for `config.PaymentConfig.PriceCents`/`Currency`, returns its hosted URL to redirect to),
+  `GET /api/payments/status?token=` (reports `{enabled, paid, originalUrl?, amountCents,
+  currency}` — the `/preview` page polls this on load and after the Stripe redirect back), and
+  `POST /api/payments/webhook` (Stripe-signature-verified `checkout.session.completed` handling).
+  **Two ways to reach `StatusPaid`, both idempotent, both landing on the same row**: the webhook
+  (needs `StripeWebhookSecret` + a publicly reachable URL — not true of a laptop in dev), or
+  `Service.Status` itself reconciling a still-`pending` payment by calling
+  `V1CheckoutSessions.Retrieve` on its own `ProviderRef` — so the recipient's *own page load*
+  completes the unlock even with no webhook wired, which is the common case locally. Once paid,
+  `Status` mints an `"original"`-purpose token via `internals/token` and hands back `/o/<token>`
+  (see the `share` bullet above). **Config is opt-in, not startup-fatal**: an empty
+  `StripeSecretKey` only disables this domain (`Checkout` returns `ErrDisabled` → 503; `Status`
+  reports `enabled: false` so the frontend hides the CTA) — mirrors ffmpeg's optionality, not
+  Auth's hard-fail secrets. An empty `StripeWebhookSecret` independently disables just the webhook
+  route (`ErrDisabled` → 501) rather than processing an event it cannot verify.
 - **`internals/app/magic_token/` + `internals/app/session/`** — repos (`Consume` is atomic
   delete-on-use; `GetByHash` / `Delete`).
 - **`internals/app/router.go` + `middleware.go`** — central mux, `Recover`/`RequestLog`/`CORS`/`Auth`
@@ -75,31 +110,61 @@ hardening (M6) remains (plus the `payment` backlog). Done and tested:
 - `internals/httpx/` — shared HTTP helpers. `internals/testutil/` — `DB(t, models...)` + `Logger()`.
 - `internals/storage/` (local disk, wired via `job` + `worker` + `share`), `internals/ffmpeg/`
   (`os/exec` engine + `-progress` parsing, wired via `worker`), `internals/mailer/`
-  (`smtp`/`log`/`noop`), `internals/token/` (HMAC share tokens, wired via `share` for verify and
-  `worker.EmailNotifier` for signing — `"preview"` and `"download"` purposes).
+  (`smtp`/`log`/`noop`), `internals/token/` (HMAC share tokens, wired via `share` for verify;
+  `worker.EmailNotifier` signs `"preview"`/`"download"`, `payment.Service` signs `"original"` —
+  three domain-separated purposes over the one `Auth.HMACSecret`).
 - `cmd/watermark/` — CLI that runs the engine on one file with a live progress bar.
 - `docker-compose.yml` — Postgres on host port 5433.
 - `internals/app/integration_test.go` (full-graph round-trip) + `router_test.go` (real
-  request→callback→cookie→`/api/me`→logout, the full job upload→list→detail flow, and a
-  seed-preview→sign→`/p`+`/d` fetch over `httptest`).
+  request→callback→cookie→`/api/me`→logout, the full job upload→list→detail flow, a
+  seed-preview→sign→`/p`+`/d` fetch, the session-authenticated job-asset-content route, and a full
+  Stripe-mocked checkout→reconcile→`/o/{token}` unlock, all over `httptest`).
 
-Not started: `repo.go` / `service.go` / `handler.go` for `payment` (backlog), and `frontend/`
-(default SvelteKit skeleton). `mailer` is wired via `auth` + `worker`; `storage` via `job` +
-`worker` + `share`; `ffmpeg` via `worker`; `token` via `share` + `worker`.
+Nothing left unstarted at the domain level — every table in the schema is wired end to end.
+`mailer` is wired via `auth` + `worker`; `storage` via `job` + `worker` + `share`; `ffmpeg` via
+`worker`; `token` via `share` + `worker` + `payment`; `stripe-go` via `payment` only.
 
 ### Resume here (if the session reset)
 
-**Last shipped:** M5, the SvelteKit frontend (`frontend/src/`), plus the Go-side static handler
-that serves it — then a full visual redesign of that same frontend against a Claude Design canvas
-the user directed (link in their local session history, not reproduced here). Backend + frontend
-now cover the whole flow M1–M5, restyled.
+**Last shipped:** the `payment` domain (Stripe Checkout unlock of the original file) end to end,
+plus a session-authenticated media player on the operator's own job-detail page. Both were built
+in the same session as a direct response to the user playing with the redesigned dashboard and
+asking, in order, "how do I know the watermark actually worked" (→ the job-asset-content route +
+player) and "let's build payment before M6" (→ the whole `payment` domain). See the `job`,
+`share` and new `payment` bullets above for the mechanics; this entry is the narrative/decision
+trail.
+
+- The job-detail media player closes half of the redesign's "adapted from the mockup" gap noted
+  below: the operator can now actually watch the watermarked preview (and the original) inline,
+  even though there is still no copyable `/p`/`/d` link or resend button on that page.
+- Payment's shape was a deliberate, asked-first set of calls, not a default: **Stripe** (not a
+  home-grown gateway) in **test mode** (the user already had test-mode keys), **fixed global
+  price** (`PaymentConfig.PriceCents`/`Currency`, not a per-upload price field — simpler, no
+  `job` model change). The Checkout-Session-retrieve reconciliation path in `Service.Status` (as
+  opposed to relying on the webhook alone) exists specifically because a local dev box has no
+  public URL for Stripe's webhook to reach — without it, the unlock would never complete outside
+  a deployment with a real domain and a configured webhook endpoint.
+- Not yet added: an env var actually holding real Stripe test keys in *this* checkout of the repo
+  (`.env` is gitignored, per-machine) - the feature is fully wired and tested against a mocked
+  Stripe backend (`internals/app/payment/service_test.go`, `internals/app/router_test.go`'s
+  `TestPaymentUnlockFlowEndToEnd`), but a live end-to-end run needs `STRIPE_SECRET_KEY` (and,
+  for webhook-driven confirmation specifically, `STRIPE_WEBHOOK_SECRET` — e.g. via `stripe
+  listen --forward-to localhost:8080/api/payments/webhook` locally) set before `go run .`.
+
+**Earlier in the same arc:** M5, the SvelteKit frontend (`frontend/src/`), plus the Go-side static
+handler that serves it — then a full visual redesign of that same frontend against a Claude
+Design canvas the user directed (link in their local session history, not reproduced here).
+Backend + frontend now cover the whole flow M1–M5, restyled.
 
 - Frontend routes built: `/` landing, `/login` (magic-link request + `?error=invalid_link`
   banner), `/app` (guarded layout + upload form + a searchable/filterable/sortable job list with
   list/grid views and comfortable/compact density), `/app/jobs/[id]` (detail with a status
-  stepper + assets, polls while pending/processing), `/preview/[token]` (public, no auth, mobile-
-  first — cascades `<video>` → `<audio>` → `<img>` → plain link against `GET /p/{token}`,
-  downloads via `GET /d/{token}`). See the "Design system" paragraph above for the palette/
+  stepper + a real inline player for both its assets, polls while pending/processing),
+  `/preview/[token]` (public, no auth, mobile-first — cascades `<video>` → `<audio>` → `<img>` →
+  plain link against `GET /p/{token}`, downloads via `GET /d/{token}`; now also polls
+  `GET /api/payments/status` and shows either the "Unlock the original — €X" CTA or, once paid,
+  a download link to `GET /o/{token}` - hidden entirely when `Payment.enabled` is `false`). See
+  the "Design system" paragraph above for the palette/
   component/scope details of the redesign. `src/lib/`: `api.ts` (typed fetch client,
   `credentials: 'include'`, `ApiError`), `types.ts` (hand-kept mirror of the Go `Response` DTOs +
   `isAllowedFile`), `format.ts` (`relativeTime`), `stores.svelte.ts` (`auth`, a class w/
@@ -125,7 +190,12 @@ now cover the whole flow M1–M5, restyled.
 (ffprobe the upload at `job.Service.Create` time, not just extension), retry/backoff review, a
 full-flow integration test, and a README. Also worth a pass: wire `APP_FRONTEND_DIR`/build into
 whatever deploys this (the frontend needs `npm run build` before the Go binary can serve it — no
-build step exists yet in `docker-compose.yml` or elsewhere).
+build step exists yet in `docker-compose.yml` or elsewhere). And now that `payment` is live: set
+real `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` in whatever deploys this, and register that
+deployment's `/api/payments/webhook` URL in the Stripe dashboard (local dev relies on `Status`'s
+own reconciliation instead, per the payment bullet above — fine for one person testing, not a
+substitute for the webhook in production, where a payment completed while nobody's page is open
+to trigger a status check would otherwise sit `pending` until someone happens to reload).
 
 - **Spec:** `Writerside/topics/` (`Default-topic.md` = product goal, `sever.md` = block components).
 - **Agreed build plan:** `docs/SADE-plan.pdf` — read it before starting any feature. It defines
@@ -136,7 +206,7 @@ build step exists yet in `docker-compose.yml` or elsewhere).
 
 SADE (Safe Media Delivery): an operator uploads a media file (video/audio/image), the backend
 applies a watermark asynchronously, then emails the recipient a signed link to the watermarked
-preview. Backlog: payments unlock the original file.
+preview. The recipient can pay (Stripe Checkout) to unlock the clean original.
 
 ## Commands
 
@@ -150,6 +220,10 @@ Go (from repo root):
 - `go run ./cmd/watermark -in FILE [-out FILE] [-kind logo|text|both] [-text "..."]` — apply the
   watermark to one file with a live progress bar. Manual test of `internals/ffmpeg`; needs
   `ffmpeg`/`ffprobe` on PATH.
+- To exercise the real Stripe unlock (not just the mocked-backend tests): set `STRIPE_SECRET_KEY`
+  (a `sk_test_...` key) before `go run .`. For webhook-driven confirmation too (`Service.Status`'s
+  own reconciliation covers a single local tester without this): `stripe listen --forward-to
+  localhost:8080/api/payments/webhook` prints a `whsec_...` value to set as `STRIPE_WEBHOOK_SECRET`.
 
 Frontend (from `frontend/`):
 - `npm run dev` — dev server
@@ -223,7 +297,7 @@ package-level string consts.
 | `session.Session` → `sessions` | `token_hash` unique (sha256 of the cookie), `expires_at` | `user_id` → `users` cascade |
 | `job.Job` → `jobs` | `status` indexed (`pending`→`processing`→`done`/`failed`), `media_type`, `recipient_email`, `watermark_kind`, `watermark_text`, `watermark_opts` (JSON string), `attempts`, `error`, `next_attempt_at` indexed (zero = ready now; worker retry-backoff gate) | `user_id` → `users` cascade |
 | `asset.Asset` → `assets` | `kind` (`original`/`preview`), `storage_key`, `filename`, `mime`, `size_bytes`, `checksum` | `job_id` → `jobs` cascade. **A job's files are asset rows keyed by `job_id`; `Job` holds no asset columns.** |
-| `payment.Payment` → `payments` | *(backlog, not wired)* `provider`, `provider_ref`, `status`, `amount_cents`, `currency` | `job_id` → `jobs` cascade |
+| `payment.Payment` → `payments` | `provider` (`stripe`), `provider_ref` (Checkout Session id, indexed), `status` (`pending`/`paid`/`failed`/`refunded`), `amount_cents`, `currency` | `job_id` → `jobs` cascade |
 
 **Every component that logs takes the shared `*slog.Logger` by injection** — `server.New` and
 `database.New` already do; feature packages follow the same rule. Do not create a second logger

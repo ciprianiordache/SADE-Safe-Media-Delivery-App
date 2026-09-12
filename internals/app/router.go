@@ -7,6 +7,7 @@ import (
 	"sade/config"
 	"sade/internals/app/auth"
 	"sade/internals/app/job"
+	"sade/internals/app/payment"
 	"sade/internals/app/share"
 	"sade/internals/app/user"
 	"sade/internals/httpx"
@@ -22,6 +23,7 @@ type Deps struct {
 	User    *user.Handler
 	Job     *job.Handler
 	Share   *share.Handler
+	Payment *payment.Handler
 }
 
 // NewRouter builds the application's HTTP handler: routes plus the global
@@ -40,6 +42,15 @@ func NewRouter(d Deps) http.Handler {
 	// a download. Authorised by the signed token in the path, not a cookie.
 	mux.HandleFunc("GET /p/{token}", d.Share.Preview)
 	mux.HandleFunc("GET /d/{token}", d.Share.Download)
+	// The clean original, once paid for - see internals/app/payment.
+	mux.HandleFunc("GET /o/{token}", d.Share.Original)
+
+	// Public payment endpoints: the recipient on /preview/[token] never has
+	// a session, so these are authorised by the same preview token, not a
+	// cookie (the webhook is authorised by Stripe's own request signature).
+	mux.HandleFunc("POST /api/payments/checkout", d.Payment.Checkout)
+	mux.HandleFunc("GET /api/payments/status", d.Payment.Status)
+	mux.HandleFunc("POST /api/payments/webhook", d.Payment.Webhook)
 
 	// Signed-in.
 	mux.Handle("GET /api/me", RequireUser(http.HandlerFunc(me)))
@@ -55,6 +66,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /api/jobs", operator(d.Job.Create))
 	mux.Handle("GET /api/jobs", operator(d.Job.List))
 	mux.Handle("GET /api/jobs/{id}", operator(d.Job.Get))
+	mux.Handle("GET /api/jobs/{id}/assets/{assetId}/content", operator(d.Job.Content))
 
 	// Admin only.
 	admin := func(h http.HandlerFunc) http.Handler {

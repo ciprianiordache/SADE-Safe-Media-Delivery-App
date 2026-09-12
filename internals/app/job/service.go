@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -30,6 +31,11 @@ type Service interface {
 	// Get returns one job with its assets, or ErrNotFound if it does not
 	// exist or belongs to another operator.
 	Get(userID, jobID string) (Response, error)
+	// Asset returns the raw asset row (storage key included) for one of the
+	// caller's own jobs, or ErrNotFound if the job doesn't exist, belongs to
+	// another operator, or assetID isn't one of that job's assets. Used by
+	// Handler.Content, which needs the storage key Get's Response omits.
+	Asset(userID, jobID, assetID string) (asset.Asset, error)
 	// List returns the caller's jobs newest-first (without assets).
 	List(userID string, offset, limit int) ([]Response, error)
 }
@@ -177,6 +183,27 @@ func (s *service) Get(userID, jobID string) (Response, error) {
 	resp := toResponse(*j)
 	resp.Assets = asset.ToResponses(as)
 	return resp, nil
+}
+
+func (s *service) Asset(userID, jobID, assetID string) (asset.Asset, error) {
+	j, err := s.repo.GetByID(jobID)
+	if err != nil {
+		return asset.Asset{}, err
+	}
+	if j.UserID != userID {
+		return asset.Asset{}, ErrNotFound // don't reveal another operator's job
+	}
+	a, err := s.assets.GetByID(assetID)
+	if err != nil {
+		if errors.Is(err, asset.ErrNotFound) {
+			return asset.Asset{}, ErrNotFound
+		}
+		return asset.Asset{}, err
+	}
+	if a.JobID != jobID {
+		return asset.Asset{}, ErrNotFound // asset exists, but not under this job
+	}
+	return *a, nil
 }
 
 func (s *service) List(userID string, offset, limit int) ([]Response, error) {

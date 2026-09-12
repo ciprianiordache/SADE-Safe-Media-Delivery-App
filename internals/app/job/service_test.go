@@ -272,6 +272,48 @@ func TestGetIsScopedToOwnerAndCarriesAssets(t *testing.T) {
 	}
 }
 
+func TestAssetIsScopedToOwnerAndJob(t *testing.T) {
+	svc, db, uid := newSvc(t, &memStore{}, nil, config.Defaults().Upload)
+	other, err := db.CRUD().Create(&user.User{Email: "other@example.com"})
+	if err != nil {
+		t.Fatalf("seed other user: %v", err)
+	}
+
+	created, err := svc.Create(context.Background(), uid, upload("clip.mp4", "bytes"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	assetID := created.Assets[0].ID
+
+	a, err := svc.Asset(uid, created.ID, assetID)
+	if err != nil {
+		t.Fatalf("Asset(owner): %v", err)
+	}
+	if a.ID != assetID || a.StorageKey == "" {
+		t.Errorf("Asset(owner) = %+v", a)
+	}
+
+	if _, err := svc.Asset(other, created.ID, assetID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Asset(non-owner) = %v, want ErrNotFound", err)
+	}
+	if _, err := svc.Asset(uid, "missing", assetID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Asset(missing job) = %v, want ErrNotFound", err)
+	}
+	if _, err := svc.Asset(uid, created.ID, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Asset(missing asset) = %v, want ErrNotFound", err)
+	}
+
+	// An asset that exists, but under a different job than the one asked
+	// for, is also not found - never leak it through the wrong job id.
+	other2, err := svc.Create(context.Background(), uid, upload("other.mp4", "more-bytes"))
+	if err != nil {
+		t.Fatalf("Create (second job): %v", err)
+	}
+	if _, err := svc.Asset(uid, other2.ID, assetID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Asset(wrong job) = %v, want ErrNotFound", err)
+	}
+}
+
 func TestListReturnsOwnJobsNewestFirst(t *testing.T) {
 	svc, db, uid := newSvc(t, &memStore{}, nil, config.Defaults().Upload)
 	other, _ := db.CRUD().Create(&user.User{Email: "other@example.com"})

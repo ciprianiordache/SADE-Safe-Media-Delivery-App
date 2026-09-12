@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -19,6 +21,7 @@ import (
 	"sade/internals/app/auth"
 	"sade/internals/app/job"
 	"sade/internals/app/magic_token"
+	"sade/internals/app/payment"
 	"sade/internals/app/session"
 	"sade/internals/app/share"
 	"sade/internals/app/user"
@@ -27,6 +30,8 @@ import (
 	"sade/internals/storage"
 	"sade/internals/testutil"
 	"sade/internals/token"
+
+	stripe "github.com/stripe/stripe-go/v82"
 )
 
 type capMailer struct {
@@ -101,14 +106,22 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer, *te
 	)
 	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, cfg.Upload, testutil.Logger())
 
+	// Disabled by default (no Stripe secret key) - tests that need a live
+	// payment flow build their own via buildTestAppWithPayment below.
+	paymentSvc := payment.NewService(
+		payment.NewRepo(db), asset.NewRepo(db), signer, nil, config.PaymentConfig{},
+		"http://APIBASE", "http://app.test", time.Hour, testutil.Logger(),
+	)
+
 	router := NewRouter(Deps{
 		Cfg:     cfg,
 		Log:     testutil.Logger(),
 		Auth:    auth.NewHandler(authSvc, cfg.Auth, testutil.Logger()),
 		AuthSvc: authSvc,
 		User:    user.NewHandler(userSvc, testutil.Logger()),
-		Job:     job.NewHandler(jobSvc, cfg.Upload, testutil.Logger()),
+		Job:     job.NewHandler(jobSvc, store, cfg.Upload, testutil.Logger()),
 		Share:   share.NewHandler(signer, asset.NewRepo(db), store, testutil.Logger()),
+		Payment: payment.NewHandler(paymentSvc, testutil.Logger()),
 	})
 
 	srv := httptest.NewServer(router)
@@ -406,6 +419,334 @@ func TestSharePreviewFlowEndToEnd(t *testing.T) {
 	// A tampered token is a 404.
 	if bad := get(t, noAuth, srv.URL+"/p/"+viewTok+"tampered"); bad != http.StatusNotFound {
 		t.Errorf("tampered /p token = %d, want 404", bad)
+	}
+}
+
+func TestJobAssetContentFlowEndToEnd(t *testing.T) {
+	srv, client, cm, ta := buildTestApp(t)
+
+	signIn(t, srv, client, cm, "op@example.com")
+	body, ct := multipartUpload(t, "clip.png", []byte("original-bytes"), map[string]string{
+		"recipientEmail": "client@example.com",
+	})
+	resp, err := client.Post(srv.URL+"/api/jobs", ct, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created job.Response
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	originalID := created.Assets[0].ID
+
+	// The owning operator streams the original inline, authenticated by the
+	// session cookie alone - no signed token involved.
+	oc, err := client.Get(srv.URL + "/api/jobs/" + created.ID + "/assets/" + originalID + "/content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer oc.Body.Close()
+	if oc.StatusCode != http.StatusOK {
+		t.Fatalf("content(original) = %d, want 200", oc.StatusCode)
+	}
+	if got, _ := io.ReadAll(oc.Body); string(got) != "original-bytes" {
+		t.Errorf("content(original) body = %q", got)
+	}
+	if cd := oc.Header.Get("Content-Disposition"); !strings.HasPrefix(cd, "inline;") {
+		t.Errorf("content(original) Content-Disposition = %q, want inline", cd)
+	}
+
+	// Simulate what the worker would produce: a preview blob + asset row.
+	previewBytes := []byte("WATERMARKED-PREVIEW-CONTENT")
+	previewKey := "previews/" + created.ID + "/clip-preview.png"
+	if _, err := ta.store.Put(context.Background(), previewKey, bytes.NewReader(previewBytes)); err != nil {
+		t.Fatalf("put preview blob: %v", err)
+	}
+	previewID, err := asset.NewRepo(ta.db).Create(&asset.Asset{
+		JobID: created.ID, Kind: asset.KindPreview, StorageKey: previewKey,
+		Filename: "clip-preview.png", MIME: "image/png", SizeBytes: int64(len(previewBytes)),
+	})
+	if err != nil {
+		t.Fatalf("create preview asset: %v", err)
+	}
+
+	// The same authenticated route also serves the preview (unlike the
+	// public /p/{token}, which only ever serves KindPreview).
+	pc, err := client.Get(srv.URL + "/api/jobs/" + created.ID + "/assets/" + previewID + "/content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Body.Close()
+	if got, _ := io.ReadAll(pc.Body); string(got) != string(previewBytes) {
+		t.Errorf("content(preview) body = %q", got)
+	}
+
+	// ?dl=1 asks for an attachment instead of inline.
+	dl, err := client.Get(srv.URL + "/api/jobs/" + created.ID + "/assets/" + previewID + "/content?dl=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dl.Body.Close()
+	if cd := dl.Header.Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment;") {
+		t.Errorf("content?dl=1 Content-Disposition = %q, want attachment", cd)
+	}
+
+	// Signed out entirely: 401.
+	noAuth := &http.Client{}
+	if s := get(t, noAuth, srv.URL+"/api/jobs/"+created.ID+"/assets/"+originalID+"/content"); s != http.StatusUnauthorized {
+		t.Errorf("signed-out content = %d, want 401", s)
+	}
+
+	// Another operator gets a 404, not the first operator's bytes.
+	jar2, _ := cookiejar.New(nil)
+	client2 := &http.Client{Jar: jar2, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	signIn(t, srv, client2, cm, "other@example.com")
+	if s := get(t, client2, srv.URL+"/api/jobs/"+created.ID+"/assets/"+originalID+"/content"); s != http.StatusNotFound {
+		t.Errorf("other operator content = %d, want 404", s)
+	}
+
+	// An asset id that exists but under a different job: also 404, not the
+	// wrong job's file.
+	body, ct = multipartUpload(t, "other.png", []byte("other-original"), map[string]string{
+		"recipientEmail": "client2@example.com",
+	})
+	resp2, err := client.Post(srv.URL+"/api/jobs", ct, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created2 job.Response
+	json.NewDecoder(resp2.Body).Decode(&created2)
+	resp2.Body.Close()
+	if s := get(t, client, srv.URL+"/api/jobs/"+created2.ID+"/assets/"+originalID+"/content"); s != http.StatusNotFound {
+		t.Errorf("asset under wrong job = %d, want 404", s)
+	}
+}
+
+// --- payment ---------------------------------------------------------------
+
+// fakePaymentBackend is a minimal stripe.Backend answering checkout-session
+// create/retrieve calls with canned JSON - see the identical helper in
+// internals/app/payment/service_test.go for why (no network call, no real
+// Stripe account needed). Small enough to duplicate rather than export a
+// cross-package test double.
+type fakePaymentBackend struct {
+	paymentStatus stripe.CheckoutSessionPaymentStatus
+	n             int
+}
+
+func (f *fakePaymentBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
+	var body map[string]any
+	switch {
+	case method == "POST" && path == "/v1/checkout/sessions":
+		f.n++
+		body = map[string]any{
+			"id": fmt.Sprintf("cs_test_%d", f.n), "object": "checkout.session",
+			"url": fmt.Sprintf("https://checkout.stripe.test/%d", f.n), "payment_status": "unpaid",
+		}
+	case method == "GET":
+		body = map[string]any{
+			"id": path[len("/v1/checkout/sessions/"):], "object": "checkout.session",
+			"payment_status": string(f.paymentStatus),
+		}
+	default:
+		return fmt.Errorf("fakePaymentBackend: unhandled %s %s", method, path)
+	}
+	b, _ := json.Marshal(body)
+	if err := json.Unmarshal(b, v); err != nil {
+		return err
+	}
+	v.SetLastResponse(&stripe.APIResponse{})
+	return nil
+}
+func (f *fakePaymentBackend) CallStreaming(string, string, string, stripe.ParamsContainer, stripe.StreamingLastResponseSetter) error {
+	return errors.New("fakePaymentBackend: not implemented")
+}
+func (f *fakePaymentBackend) CallRaw(string, string, string, []byte, *stripe.Params, stripe.LastResponseSetter) error {
+	return errors.New("fakePaymentBackend: not implemented")
+}
+func (f *fakePaymentBackend) CallMultipart(string, string, string, string, *bytes.Buffer, *stripe.Params, stripe.LastResponseSetter) error {
+	return errors.New("fakePaymentBackend: not implemented")
+}
+func (f *fakePaymentBackend) SetMaxNetworkRetries(int64) {}
+
+// buildTestAppWithPayment is buildTestApp plus a Stripe-enabled payment
+// service backed by fakePaymentBackend, so the checkout/status/webhook
+// routes and the /o/{token} original download can be exercised end to end.
+func buildTestAppWithPayment(t *testing.T) (*httptest.Server, *http.Client, *capMailer, *testApp, *fakePaymentBackend) {
+	t.Helper()
+	db := testutil.DB(t, user.User{}, magic_token.MagicToken{}, session.Session{}, job.Job{}, asset.Asset{}, payment.Payment{})
+	cm := &capMailer{}
+
+	cfg := &config.Config{}
+	cfg.Server.CORSAllowedOrigins = []string{"http://localhost:5173"}
+	cfg.Auth = config.AuthConfig{
+		MagicLinkTTL: config.Duration(15 * time.Minute), SessionTTL: config.Duration(24 * time.Hour),
+		SessionCookieName: "sade_session", HMACSecret: testShareSecret,
+	}
+	cfg.Upload = config.Defaults().Upload
+
+	store, err := storage.New(config.StorageConfig{Driver: "local", LocalPath: t.TempDir()}, testutil.Logger())
+	if err != nil {
+		t.Fatalf("storage.New: %v", err)
+	}
+	signer, err := token.New(cfg.Auth.HMACSecret)
+	if err != nil {
+		t.Fatalf("token.New: %v", err)
+	}
+
+	userSvc := user.NewService(user.NewRepo(db), testutil.Logger())
+	authSvc := auth.NewService(
+		userSvc, magic_token.NewRepo(db), session.NewRepo(db), cm,
+		cfg.Auth, "http://APIBASE", "http://app.test", testutil.Logger(),
+	)
+	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, cfg.Upload, testutil.Logger())
+
+	// Unlike the other test apps, payment.Service.Status mints an /o/{token}
+	// URL against its own configured publicURL and this test then actually
+	// dereferences that URL - it has to be the real httptest address, not a
+	// placeholder. NewUnstartedServer gives us that address before the
+	// handler (and so the router, and so paymentSvc) has to exist.
+	srv := httptest.NewUnstartedServer(nil)
+	publicURL := "http://" + srv.Listener.Addr().String()
+
+	backend := &fakePaymentBackend{}
+	stripeClient := stripe.NewClient("sk_test_fake", stripe.WithBackends(&stripe.Backends{API: backend}))
+	paymentCfg := config.PaymentConfig{StripeSecretKey: "sk_test_fake", StripeWebhookSecret: "whsec_test", PriceCents: 4900, Currency: "eur"}
+	paymentSvc := payment.NewService(
+		payment.NewRepo(db), asset.NewRepo(db), signer, stripeClient, paymentCfg,
+		publicURL, "http://app.test", time.Hour, testutil.Logger(),
+	)
+
+	router := NewRouter(Deps{
+		Cfg:     cfg,
+		Log:     testutil.Logger(),
+		Auth:    auth.NewHandler(authSvc, cfg.Auth, testutil.Logger()),
+		AuthSvc: authSvc,
+		User:    user.NewHandler(userSvc, testutil.Logger()),
+		Job:     job.NewHandler(jobSvc, store, cfg.Upload, testutil.Logger()),
+		Share:   share.NewHandler(signer, asset.NewRepo(db), store, testutil.Logger()),
+		Payment: payment.NewHandler(paymentSvc, testutil.Logger()),
+	})
+
+	srv.Config.Handler = router
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return srv, client, cm, &testApp{db: db, store: store, signer: signer}, backend
+}
+
+func TestPaymentUnlockFlowEndToEnd(t *testing.T) {
+	srv, client, cm, ta, backend := buildTestAppWithPayment(t)
+
+	// An operator uploads a job (no worker runs in the test).
+	signIn(t, srv, client, cm, "op@example.com")
+	body, ct := multipartUpload(t, "clip.png", []byte("clean-original-bytes"), map[string]string{
+		"recipientEmail": "client@example.com",
+	})
+	resp, err := client.Post(srv.URL+"/api/jobs", ct, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created job.Response
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+
+	// Simulate what the worker would produce: a preview asset.
+	previewBytes := []byte("WATERMARKED-PREVIEW")
+	previewKey := "previews/" + created.ID + "/clip-preview.png"
+	if _, err := ta.store.Put(context.Background(), previewKey, bytes.NewReader(previewBytes)); err != nil {
+		t.Fatalf("put preview blob: %v", err)
+	}
+	previewID, err := asset.NewRepo(ta.db).Create(&asset.Asset{
+		JobID: created.ID, Kind: asset.KindPreview, StorageKey: previewKey,
+		Filename: "clip-preview.png", MIME: "image/png", SizeBytes: int64(len(previewBytes)),
+	})
+	if err != nil {
+		t.Fatalf("create preview asset: %v", err)
+	}
+	previewTok, err := ta.signer.Sign("preview", previewID, time.Hour)
+	if err != nil {
+		t.Fatalf("sign preview token: %v", err)
+	}
+
+	noAuth := &http.Client{}
+
+	// Mirrors the unexported JSON shapes internals/app/payment.Handler
+	// writes (payment is a different package; this test only cares about
+	// the wire format).
+	type paymentStatus struct {
+		Enabled     bool   `json:"enabled"`
+		Paid        bool   `json:"paid"`
+		OriginalURL string `json:"originalUrl"`
+	}
+	type paymentCheckout struct {
+		CheckoutURL string `json:"checkoutUrl"`
+	}
+
+	// Before paying: status reports enabled, unpaid.
+	sresp, err := noAuth.Get(srv.URL + "/api/payments/status?token=" + previewTok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status paymentStatus
+	json.NewDecoder(sresp.Body).Decode(&status)
+	sresp.Body.Close()
+	if !status.Enabled || status.Paid {
+		t.Fatalf("status before paying = %+v", status)
+	}
+
+	// Start a checkout.
+	checkoutBody, _ := json.Marshal(map[string]string{"token": previewTok})
+	cresp, err := noAuth.Post(srv.URL+"/api/payments/checkout", "application/json", bytes.NewReader(checkoutBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cresp.StatusCode != http.StatusOK {
+		t.Fatalf("checkout = %d, want 200", cresp.StatusCode)
+	}
+	var checkout paymentCheckout
+	json.NewDecoder(cresp.Body).Decode(&checkout)
+	cresp.Body.Close()
+	if checkout.CheckoutURL == "" {
+		t.Fatal("checkout returned an empty URL")
+	}
+
+	// Stripe now reports the session paid - status should reconcile and
+	// hand back a working /o/{token} link, with no webhook involved.
+	backend.paymentStatus = stripe.CheckoutSessionPaymentStatusPaid
+	sresp, err = noAuth.Get(srv.URL + "/api/payments/status?token=" + previewTok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	json.NewDecoder(sresp.Body).Decode(&status)
+	sresp.Body.Close()
+	if !status.Paid || status.OriginalURL == "" {
+		t.Fatalf("status after paying = %+v", status)
+	}
+
+	oresp, err := noAuth.Get(status.OriginalURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer oresp.Body.Close()
+	if oresp.StatusCode != http.StatusOK {
+		t.Fatalf("GET originalUrl = %d, want 200", oresp.StatusCode)
+	}
+	got, _ := io.ReadAll(oresp.Body)
+	if string(got) != "clean-original-bytes" {
+		t.Errorf("original content = %q", got)
+	}
+	if cd := oresp.Header.Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment;") {
+		t.Errorf("original Content-Disposition = %q, want attachment", cd)
+	}
+
+	// A preview token can never reach the original through /o/ - wrong
+	// purpose entirely.
+	if s := get(t, noAuth, srv.URL+"/o/"+previewTok); s != http.StatusNotFound {
+		t.Errorf("/o/ with a preview token = %d, want 404", s)
 	}
 }
 
