@@ -125,8 +125,8 @@ func NewApp(ctx context.Context) (*App, error) {
 	shareH := share.NewHandler(signer, assetRepo, store, log)
 
 	// The Stripe-backed original-file unlock. A missing key only disables
-	// this domain (Service.Checkout/Status report it, rather than the app
-	// failing to start) - mirrors ffmpeg's optionality below.
+	// this domain (Service.CreateIntent/Status report it, rather than the
+	// app failing to start) - mirrors ffmpeg's optionality below.
 	var stripeClient *stripe.Client
 	if cfg.Payment.StripeSecretKey != "" {
 		stripeClient = stripe.NewClient(cfg.Payment.StripeSecretKey)
@@ -135,7 +135,7 @@ func NewApp(ctx context.Context) (*App, error) {
 	}
 	paymentSvc := payment.NewService(
 		payment.NewRepo(db), assetRepo, signer, stripeClient, cfg.Payment,
-		cfg.App.PublicURL, cfg.App.FrontendURL, cfg.Auth.ShareTokenTTL.Std(), log,
+		cfg.App.PublicURL, cfg.Auth.ShareTokenTTL.Std(), log,
 	)
 	paymentH := payment.NewHandler(paymentSvc, log)
 

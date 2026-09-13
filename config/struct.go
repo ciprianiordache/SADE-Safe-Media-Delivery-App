@@ -236,18 +236,23 @@ type UploadConfig struct {
 }
 
 // PaymentConfig configures the Stripe-backed unlock of a job's original
-// file. The feature is opt-in at runtime, not startup-fatal like Auth's
-// secrets: an empty StripeSecretKey just disables internals/app/payment (the
-// rest of the app - including the watermarked preview flow - is unaffected),
+// file. Card entry uses Stripe Elements (a PaymentIntent + the client-side
+// Payment Element), not a redirect to Stripe's own hosted Checkout page, so
+// the surrounding page stays SADE's own design - StripePublishableKey is
+// what internals/app/payment.Handler.Status hands the frontend to mount it.
+// The feature is opt-in at runtime, not startup-fatal like Auth's secrets:
+// an empty StripeSecretKey just disables internals/app/payment (the rest of
+// the app - including the watermarked preview flow - is unaffected),
 // mirroring how a missing ffmpeg binary only disables the worker. An empty
 // StripeWebhookSecret disables webhook-driven confirmation specifically
 // (POST /api/payments/webhook refuses to process anything it cannot verify);
 // payment.Service.Status still reconciles a pending payment by asking Stripe
-// directly for the Checkout Session, so a single operator testing locally
+// directly for the PaymentIntent, so a single operator testing locally
 // without a public webhook URL still sees the unlock complete.
 type PaymentConfig struct {
-	StripeSecretKey     string `yaml:"stripe_secret_key" env:"STRIPE_SECRET_KEY"`
-	StripeWebhookSecret string `yaml:"stripe_webhook_secret" env:"STRIPE_WEBHOOK_SECRET"`
-	PriceCents          int64  `yaml:"price_cents" env:"PAYMENT_PRICE_CENTS" default:"4900"` // 49.00 in the default currency
-	Currency            string `yaml:"currency" env:"PAYMENT_CURRENCY" default:"eur"`        // lower-case ISO 4217, as Stripe expects
+	StripeSecretKey      string `yaml:"stripe_secret_key" env:"STRIPE_SECRET_KEY"`
+	StripePublishableKey string `yaml:"stripe_publishable_key" env:"STRIPE_PUBLISHABLE_KEY"`
+	StripeWebhookSecret  string `yaml:"stripe_webhook_secret" env:"STRIPE_WEBHOOK_SECRET"`
+	PriceCents           int64  `yaml:"price_cents" env:"PAYMENT_PRICE_CENTS" default:"4900"` // 49.00 in the default currency
+	Currency             string `yaml:"currency" env:"PAYMENT_CURRENCY" default:"eur"`        // lower-case ISO 4217, as Stripe expects
 }

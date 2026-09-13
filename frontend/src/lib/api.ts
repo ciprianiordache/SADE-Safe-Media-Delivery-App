@@ -105,7 +105,10 @@ export const api = {
 		return request(`/api/payments/status?token=${encodeURIComponent(previewToken)}`);
 	},
 
-	paymentCheckout(previewToken: string): Promise<{ checkoutUrl: string }> {
+	// Starts (or resumes) paying for the job behind previewToken. Despite the
+	// route's name, this mints a Stripe PaymentIntent for the Payment
+	// Element form (PaymentForm.svelte), not a hosted Checkout redirect.
+	paymentIntent(previewToken: string): Promise<{ clientSecret: string }> {
 		return request('/api/payments/checkout', {
 			method: 'POST',
 			body: JSON.stringify({ token: previewToken })

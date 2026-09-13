@@ -9,8 +9,9 @@ an operator signs in via magic link, uploads a file from the SvelteKit dashboard
 stored → the worker watermarks it async → the preview is stored → the recipient is emailed
 signed `/p/<token>` (view) + `/d/<token>` (download) links → the public `share` handlers stream
 the watermarked preview with Range support, no login → the recipient's `/preview/[token]` page
-embeds/downloads it, and can pay (Stripe Checkout) to unlock the clean original via a third
-signed purpose, `/o/<token>`. The operator's own dashboard can also play both the original and
+embeds/downloads it, and can pay (Stripe, via an embedded Payment Element - SADE's own design,
+not a Stripe-hosted page) to unlock the clean original via a third signed purpose, `/o/<token>`.
+The operator's own dashboard can also play both the original and
 the preview of their own upload, session-authenticated, from the job detail page. Only hardening
 (M6) remains.
 
@@ -62,27 +63,36 @@ the preview of their own upload, session-authenticated, from the job detail page
   and `storage.Storage` satisfy them directly — no adapters). The `"original"` purpose is never
   minted by `share` itself — only `internals/app/payment.Service.Status`, once a job's `Payment`
   is `StatusPaid`.
-- **`internals/app/payment/`** — full stack, backed by Stripe Checkout (`github.com/stripe/
-  stripe-go/v82`; never handles card data itself — the recipient is redirected to Stripe's hosted
-  page and back). Public routes, authorised by the same signed `"preview"` token the recipient's
-  `/preview/[token]` page already holds (never a session): `POST /api/payments/checkout` (body
-  `{token}` → resolves the preview asset → its job → its `KindOriginal` sibling via
-  `asset.Repo.GetByJobAndKind`, records a `Payment{Status: pending}`, creates a Stripe Checkout
-  Session for `config.PaymentConfig.PriceCents`/`Currency`, returns its hosted URL to redirect to),
-  `GET /api/payments/status?token=` (reports `{enabled, paid, originalUrl?, amountCents,
-  currency}` — the `/preview` page polls this on load and after the Stripe redirect back), and
-  `POST /api/payments/webhook` (Stripe-signature-verified `checkout.session.completed` handling).
+- **`internals/app/payment/`** — full stack, backed by Stripe **Elements** (`github.com/stripe/
+  stripe-go/v82`), not Stripe's hosted Checkout page: card entry happens client-side against a
+  `PaymentIntent`'s client secret, via the Payment Element mounted directly into
+  `/preview/[token]` (`PaymentForm.svelte`), so the surrounding page — and, via the Element's
+  `appearance` API, the form itself — stays SADE's own design rather than a Stripe-branded
+  redirect. `internals/app/payment` itself never sees card data; it only ever handles a
+  PaymentIntent id and its status. Public routes, authorised by the same signed `"preview"` token
+  the recipient's `/preview/[token]` page already holds (never a session): `POST
+  /api/payments/checkout` (route name kept for stability; body `{token}` → resolves the preview
+  asset → its job → its `KindOriginal` sibling via `asset.Repo.GetByJobAndKind`, records a
+  `Payment{Status: pending}`, creates a Stripe PaymentIntent for `config.PaymentConfig.PriceCents`/
+  `Currency` with `AutomaticPaymentMethods` enabled, returns `{clientSecret}`), `GET
+  /api/payments/status?token=` (reports `{enabled, paid, originalUrl?, amountCents, currency,
+  publishableKey?}` — the `/preview` page calls this on load, to decide whether to fetch a
+  PaymentIntent and mount the form at all, and again after `PaymentForm` confirms), and `POST
+  /api/payments/webhook` (Stripe-signature-verified `payment_intent.succeeded` handling).
   **Two ways to reach `StatusPaid`, both idempotent, both landing on the same row**: the webhook
   (needs `StripeWebhookSecret` + a publicly reachable URL — not true of a laptop in dev), or
   `Service.Status` itself reconciling a still-`pending` payment by calling
-  `V1CheckoutSessions.Retrieve` on its own `ProviderRef` — so the recipient's *own page load*
-  completes the unlock even with no webhook wired, which is the common case locally. Once paid,
-  `Status` mints an `"original"`-purpose token via `internals/token` and hands back `/o/<token>`
-  (see the `share` bullet above). **Config is opt-in, not startup-fatal**: an empty
-  `StripeSecretKey` only disables this domain (`Checkout` returns `ErrDisabled` → 503; `Status`
-  reports `enabled: false` so the frontend hides the CTA) — mirrors ffmpeg's optionality, not
-  Auth's hard-fail secrets. An empty `StripeWebhookSecret` independently disables just the webhook
-  route (`ErrDisabled` → 501) rather than processing an event it cannot verify.
+  `V1PaymentIntents.Retrieve` on its own `ProviderRef` — so the recipient's *own page load*
+  completes the unlock even with no webhook wired (or even without waiting for `PaymentForm`'s
+  `confirmPayment` to resolve, for a redirect-based method), which is the common case locally.
+  Once paid, `Status` mints an `"original"`-purpose token via `internals/token` and hands back
+  `/o/<token>` (see the `share` bullet above). **Config is opt-in, not startup-fatal**: an empty
+  `StripeSecretKey` only disables this domain (`CreateIntent` returns `ErrDisabled` → 503;
+  `Status` reports `enabled: false` so the frontend hides the whole unlock section) — mirrors
+  ffmpeg's optionality, not Auth's hard-fail secrets. An empty `StripeWebhookSecret` independently
+  disables just the webhook route (`ErrDisabled` → 501) rather than processing an event it cannot
+  verify. `StripePublishableKey` is not a secret (Stripe's own naming) — `Status` hands it to the
+  frontend outright, which is what `PaymentForm.svelte` needs to call `loadStripe(...)`.
 - **`internals/app/magic_token/` + `internals/app/session/`** — repos (`Consume` is atomic
   delete-on-use; `GetByHash` / `Delete`).
 - **`internals/app/router.go` + `middleware.go`** — central mux, `Recover`/`RequestLog`/`CORS`/`Auth`
@@ -140,16 +150,34 @@ trail.
 - Payment's shape was a deliberate, asked-first set of calls, not a default: **Stripe** (not a
   home-grown gateway) in **test mode** (the user already had test-mode keys), **fixed global
   price** (`PaymentConfig.PriceCents`/`Currency`, not a per-upload price field — simpler, no
-  `job` model change). The Checkout-Session-retrieve reconciliation path in `Service.Status` (as
+  `job` model change). The PaymentIntent-retrieve reconciliation path in `Service.Status` (as
   opposed to relying on the webhook alone) exists specifically because a local dev box has no
   public URL for Stripe's webhook to reach — without it, the unlock would never complete outside
   a deployment with a real domain and a configured webhook endpoint.
+- **Switched from Stripe's hosted Checkout to Stripe Elements mid-session**, on the user's
+  explicit ask after seeing the first version redirect to a Stripe-branded page: "is it possible
+  to use our own design at the card-payment step?" Hosted Checkout (`stripe.CheckoutSession`,
+  a redirect) cannot be restyled beyond a logo/color in the Stripe Dashboard; Elements' Payment
+  Element embeds the actual (PCI-scoped, still Stripe-controlled) input fields *inside* SADE's own
+  page, themeable via its `appearance` API to track `app.css`'s live CSS custom properties
+  (including dark mode) - see `PaymentForm.svelte`. This is a real API surface change, not a
+  restyle: `payment.Service.Checkout` → `CreateIntent` (`stripe.CheckoutSession` →
+  `stripe.PaymentIntent`, `checkoutUrl` → `clientSecret` in the wire response), the webhook
+  listens for `payment_intent.succeeded` instead of `checkout.session.completed`, and
+  `config.PaymentConfig` gained `StripePublishableKey` (not secret - Stripe's own naming - handed
+  to the frontend via `GET /api/payments/status`'s response, not a separate config-exposing
+  endpoint). `frontendURL` dropped out of `payment.NewService`'s signature entirely: Checkout's
+  success/cancel URLs don't exist for a PaymentIntent, and `confirmPayment`'s `return_url` (still
+  needed for a redirect-based method, e.g. 3-D Secure) is built client-side in
+  `/preview/[token]/+page.svelte` from `window.location.origin` - the backend has nothing to add.
 - Not yet added: an env var actually holding real Stripe test keys in *this* checkout of the repo
   (`.env` is gitignored, per-machine) - the feature is fully wired and tested against a mocked
   Stripe backend (`internals/app/payment/service_test.go`, `internals/app/router_test.go`'s
-  `TestPaymentUnlockFlowEndToEnd`), but a live end-to-end run needs `STRIPE_SECRET_KEY` (and,
-  for webhook-driven confirmation specifically, `STRIPE_WEBHOOK_SECRET` — e.g. via `stripe
-  listen --forward-to localhost:8080/api/payments/webhook` locally) set before `go run .`.
+  `TestPaymentUnlockFlowEndToEnd`), but a live end-to-end run needs `STRIPE_SECRET_KEY` +
+  `STRIPE_PUBLISHABLE_KEY` (and, for webhook-driven confirmation specifically,
+  `STRIPE_WEBHOOK_SECRET` — e.g. via `stripe listen --forward-to
+  localhost:8080/api/payments/webhook` locally) set before `go run .`. Verified live end to end
+  this session with the user's own Stripe test-mode keys and the `4242 4242 4242 4242` test card.
 
 **Earlier in the same arc:** M5, the SvelteKit frontend (`frontend/src/`), plus the Go-side static
 handler that serves it — then a full visual redesign of that same frontend against a Claude
@@ -160,17 +188,22 @@ Backend + frontend now cover the whole flow M1–M5, restyled.
   banner), `/app` (guarded layout + upload form + a searchable/filterable/sortable job list with
   list/grid views and comfortable/compact density), `/app/jobs/[id]` (detail with a status
   stepper + a real inline player for both its assets, polls while pending/processing),
-  `/preview/[token]` (public, no auth, mobile-first — cascades `<video>` → `<audio>` → `<img>` →
-  plain link against `GET /p/{token}`, downloads via `GET /d/{token}`; now also polls
-  `GET /api/payments/status` and shows either the "Unlock the original — €X" CTA or, once paid,
-  a download link to `GET /o/{token}` - hidden entirely when `Payment.enabled` is `false`). See
-  the "Design system" paragraph above for the palette/
-  component/scope details of the redesign. `src/lib/`: `api.ts` (typed fetch client,
-  `credentials: 'include'`, `ApiError`), `types.ts` (hand-kept mirror of the Go `Response` DTOs +
-  `isAllowedFile`), `format.ts` (`relativeTime`), `stores.svelte.ts` (`auth`, a class w/
-  `$state`), `theme.svelte.ts` + `i18n.svelte.ts` (ditto — Svelte 5 runes only work in
-  `.svelte`/`.svelte.ts` files, so anything stateful is named `*.svelte.ts`, not the plain `.ts`
-  the plan sketched), `components/` (`LangThemeToggle`, `MarkBar`, `StatusBadge`, `StatusDot`).
+  `/preview/[token]` (public, no auth — cascades `<video>` → `<audio>` → `<img>` → plain link
+  against `GET /p/{token}`, downloads via `GET /d/{token}`; single column under 860px, a
+  two-column `media | unlock` grid above it, with a taller/wider player - see "Design system"
+  above; calls `GET /api/payments/status` on load and, when unpaid, `POST /api/payments/checkout`
+  for a PaymentIntent to mount `PaymentForm.svelte`'s Payment Element; once paid, shows a download
+  link to `GET /o/{token}` instead - the whole section is hidden when `Payment.enabled` is
+  `false`). `src/lib/`: `api.ts` (typed fetch client, `credentials: 'include'`, `ApiError`),
+  `types.ts` (hand-kept mirror of the Go `Response` DTOs + `isAllowedFile`), `format.ts`
+  (`relativeTime`), `stores.svelte.ts` (`auth`, a class w/ `$state`), `theme.svelte.ts` +
+  `i18n.svelte.ts` (ditto — Svelte 5 runes only work in `.svelte`/`.svelte.ts` files, so anything
+  stateful is named `*.svelte.ts`, not the plain `.ts` the plan sketched), `components/`
+  (`LangThemeToggle`, `MarkBar`, `StatusBadge`, `StatusDot`, `PaymentForm` — loads
+  `@stripe/stripe-js`'s `loadStripe()`, themes the Payment Element from `app.css`'s live custom
+  properties so it tracks light/dark mode, and calls `stripe.confirmPayment({ redirect:
+  'if_required' })` so a card that needs no extra authentication resolves in-page instead of
+  round-tripping through Stripe).
   `adapter-static` (`fallback: 'index.html'`) + root `+layout.ts` (`ssr = false`) make it a pure
   client-rendered SPA. `npm run check` is clean; `npm run build` produces `frontend/build`
   (gitignored, matches `internals/app/static.go`'s default `Cfg.App.FrontendDir`).
@@ -206,7 +239,7 @@ to trigger a status check would otherwise sit `pending` until someone happens to
 
 SADE (Safe Media Delivery): an operator uploads a media file (video/audio/image), the backend
 applies a watermark asynchronously, then emails the recipient a signed link to the watermarked
-preview. The recipient can pay (Stripe Checkout) to unlock the clean original.
+preview. The recipient can pay (Stripe) to unlock the clean original.
 
 ## Commands
 
@@ -297,7 +330,7 @@ package-level string consts.
 | `session.Session` → `sessions` | `token_hash` unique (sha256 of the cookie), `expires_at` | `user_id` → `users` cascade |
 | `job.Job` → `jobs` | `status` indexed (`pending`→`processing`→`done`/`failed`), `media_type`, `recipient_email`, `watermark_kind`, `watermark_text`, `watermark_opts` (JSON string), `attempts`, `error`, `next_attempt_at` indexed (zero = ready now; worker retry-backoff gate) | `user_id` → `users` cascade |
 | `asset.Asset` → `assets` | `kind` (`original`/`preview`), `storage_key`, `filename`, `mime`, `size_bytes`, `checksum` | `job_id` → `jobs` cascade. **A job's files are asset rows keyed by `job_id`; `Job` holds no asset columns.** |
-| `payment.Payment` → `payments` | `provider` (`stripe`), `provider_ref` (Checkout Session id, indexed), `status` (`pending`/`paid`/`failed`/`refunded`), `amount_cents`, `currency` | `job_id` → `jobs` cascade |
+| `payment.Payment` → `payments` | `provider` (`stripe`), `provider_ref` (PaymentIntent id, indexed), `status` (`pending`/`paid`/`failed`/`refunded`), `amount_cents`, `currency` | `job_id` → `jobs` cascade |
 
 **Every component that logs takes the shared `*slog.Logger` by injection** — `server.New` and
 `database.New` already do; feature packages follow the same rule. Do not create a second logger

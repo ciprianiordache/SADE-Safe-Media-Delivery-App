@@ -24,33 +24,33 @@ import (
 
 // --- fake Stripe backend ---------------------------------------------------
 
-// fakeStripeBackend answers checkout-session create/retrieve calls with
+// fakeStripeBackend answers payment-intent create/retrieve calls with
 // canned JSON, so payment.Service can be exercised without a network call or
 // a real Stripe account. It fills v the same way the real backend does:
 // unmarshal the JSON body into it, then SetLastResponse.
 type fakeStripeBackend struct {
-	paymentStatus stripe.CheckoutSessionPaymentStatus // what Retrieve reports
-	createErr     error
-	sessions      int
+	intentStatus stripe.PaymentIntentStatus // what Retrieve reports
+	createErr    error
+	intents      int
 }
 
 func (f *fakeStripeBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
 	var body map[string]any
 	switch {
-	case method == "POST" && path == "/v1/checkout/sessions":
+	case method == "POST" && path == "/v1/payment_intents":
 		if f.createErr != nil {
 			return f.createErr
 		}
-		f.sessions++
+		f.intents++
 		body = map[string]any{
-			"id": fmt.Sprintf("cs_test_%d", f.sessions), "object": "checkout.session",
-			"url":            fmt.Sprintf("https://checkout.stripe.test/%d", f.sessions),
-			"payment_status": "unpaid",
+			"id": fmt.Sprintf("pi_test_%d", f.intents), "object": "payment_intent",
+			"client_secret": fmt.Sprintf("pi_test_%d_secret_fake", f.intents),
+			"status":        "requires_payment_method",
 		}
 	case method == "GET":
 		body = map[string]any{
-			"id": path[len("/v1/checkout/sessions/"):], "object": "checkout.session",
-			"payment_status": string(f.paymentStatus),
+			"id": path[len("/v1/payment_intents/"):], "object": "payment_intent",
+			"status": string(f.intentStatus),
 		}
 	default:
 		return fmt.Errorf("fakeStripeBackend: unhandled %s %s", method, path)
@@ -134,7 +134,7 @@ func newFixture(t *testing.T, backend stripe.Backend, cfg config.PaymentConfig) 
 	}
 
 	repo := NewRepo(db)
-	svc := NewService(repo, assets, signer, client, cfg, "http://api.test", "http://app.test", time.Hour, testutil.Logger())
+	svc := NewService(repo, assets, signer, client, cfg, "http://api.test", time.Hour, testutil.Logger())
 	return &paymentFixture{
 		svc: svc, repo: repo, db: db, signer: signer,
 		previewTok: previewTok, originalID: originalID, jobID: jobID,
@@ -151,30 +151,30 @@ func testCfg(overrides ...func(*config.PaymentConfig)) config.PaymentConfig {
 
 // --- tests ---------------------------------------------------------------
 
-func TestCheckoutDisabledWithoutStripeKey(t *testing.T) {
+func TestCreateIntentDisabledWithoutStripeKey(t *testing.T) {
 	fx := newFixture(t, nil, config.PaymentConfig{}) // no StripeSecretKey
-	if _, err := fx.svc.Checkout(context.Background(), fx.previewTok); !errors.Is(err, ErrDisabled) {
-		t.Fatalf("Checkout(disabled) = %v, want ErrDisabled", err)
+	if _, err := fx.svc.CreateIntent(context.Background(), fx.previewTok); !errors.Is(err, ErrDisabled) {
+		t.Fatalf("CreateIntent(disabled) = %v, want ErrDisabled", err)
 	}
 }
 
-func TestCheckoutRejectsInvalidToken(t *testing.T) {
+func TestCreateIntentRejectsInvalidToken(t *testing.T) {
 	fx := newFixture(t, &fakeStripeBackend{}, testCfg())
-	if _, err := fx.svc.Checkout(context.Background(), "not-a-real-token"); !errors.Is(err, ErrInvalidToken) {
-		t.Fatalf("Checkout(bad token) = %v, want ErrInvalidToken", err)
+	if _, err := fx.svc.CreateIntent(context.Background(), "not-a-real-token"); !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("CreateIntent(bad token) = %v, want ErrInvalidToken", err)
 	}
 }
 
-func TestCheckoutCreatesPendingPaymentAndSession(t *testing.T) {
+func TestCreateIntentCreatesPendingPaymentAndIntent(t *testing.T) {
 	backend := &fakeStripeBackend{}
 	fx := newFixture(t, backend, testCfg())
 
-	url, err := fx.svc.Checkout(context.Background(), fx.previewTok)
+	clientSecret, err := fx.svc.CreateIntent(context.Background(), fx.previewTok)
 	if err != nil {
-		t.Fatalf("Checkout: %v", err)
+		t.Fatalf("CreateIntent: %v", err)
 	}
-	if url == "" {
-		t.Fatal("Checkout returned an empty URL")
+	if clientSecret == "" {
+		t.Fatal("CreateIntent returned an empty client secret")
 	}
 
 	p, err := fx.repo.LatestByJob(fx.jobID)
@@ -187,11 +187,11 @@ func TestCheckoutCreatesPendingPaymentAndSession(t *testing.T) {
 }
 
 func TestStatusReportsUnpaidThenReconcilesOnceStripeConfirms(t *testing.T) {
-	backend := &fakeStripeBackend{paymentStatus: stripe.CheckoutSessionPaymentStatusUnpaid}
+	backend := &fakeStripeBackend{intentStatus: stripe.PaymentIntentStatusRequiresPaymentMethod}
 	fx := newFixture(t, backend, testCfg())
 
-	if _, err := fx.svc.Checkout(context.Background(), fx.previewTok); err != nil {
-		t.Fatalf("Checkout: %v", err)
+	if _, err := fx.svc.CreateIntent(context.Background(), fx.previewTok); err != nil {
+		t.Fatalf("CreateIntent: %v", err)
 	}
 
 	res, err := fx.svc.Status(context.Background(), fx.previewTok)
@@ -202,9 +202,10 @@ func TestStatusReportsUnpaidThenReconcilesOnceStripeConfirms(t *testing.T) {
 		t.Errorf("Status(unpaid) = %+v", res)
 	}
 
-	// Stripe now reports the Checkout Session as paid (as if the recipient
-	// completed it) - Status should reconcile without a webhook.
-	backend.paymentStatus = stripe.CheckoutSessionPaymentStatusPaid
+	// Stripe now reports the PaymentIntent as succeeded (as if the recipient
+	// completed the Payment Element form) - Status should reconcile without
+	// a webhook.
+	backend.intentStatus = stripe.PaymentIntentStatusSucceeded
 	res, err = fx.svc.Status(context.Background(), fx.previewTok)
 	if err != nil {
 		t.Fatalf("Status (after pay): %v", err)
@@ -240,6 +241,19 @@ func TestStatusOnJobWithNoPaymentYet(t *testing.T) {
 	}
 }
 
+func TestStatusCarriesThePublishableKey(t *testing.T) {
+	fx := newFixture(t, &fakeStripeBackend{}, testCfg(func(c *config.PaymentConfig) {
+		c.StripePublishableKey = "pk_test_fake"
+	}))
+	res, err := fx.svc.Status(context.Background(), fx.previewTok)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if res.PublishableKey != "pk_test_fake" {
+		t.Errorf("Status.PublishableKey = %q, want pk_test_fake", res.PublishableKey)
+	}
+}
+
 func TestWebhookDisabledWithoutSigningSecret(t *testing.T) {
 	fx := newFixture(t, &fakeStripeBackend{}, testCfg()) // no StripeWebhookSecret
 	err := fx.svc.Webhook(context.Background(), []byte(`{}`), "t=0,v1=deadbeef")
@@ -254,8 +268,8 @@ func TestWebhookMarksPaymentPaid(t *testing.T) {
 		c.StripeWebhookSecret = whSecret
 	}))
 
-	if _, err := fx.svc.Checkout(context.Background(), fx.previewTok); err != nil {
-		t.Fatalf("Checkout: %v", err)
+	if _, err := fx.svc.CreateIntent(context.Background(), fx.previewTok); err != nil {
+		t.Fatalf("CreateIntent: %v", err)
 	}
 	p, err := fx.repo.LatestByJob(fx.jobID)
 	if err != nil {
@@ -263,7 +277,7 @@ func TestWebhookMarksPaymentPaid(t *testing.T) {
 	}
 
 	payload := []byte(fmt.Sprintf(
-		`{"id":"evt_1","object":"event","type":"checkout.session.completed","data":{"object":{"id":%q,"object":"checkout.session","payment_status":"paid"}}}`,
+		`{"id":"evt_1","object":"event","type":"payment_intent.succeeded","data":{"object":{"id":%q,"object":"payment_intent","status":"succeeded"}}}`,
 		p.ProviderRef,
 	))
 	now := time.Now()

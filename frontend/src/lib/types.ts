@@ -49,13 +49,14 @@ export interface NewJobInput {
 	watermarkText?: string;
 }
 
-// Mirrors internals/app/payment.statusResponse / checkoutResponse.
+// Mirrors internals/app/payment.statusResponse.
 export interface PaymentStatus {
 	enabled: boolean; // false when the server has no Stripe key configured
 	paid: boolean;
 	originalUrl?: string; // set only when paid - a signed GET /o/{token} link
 	amountCents: number;
 	currency: string;
+	publishableKey?: string; // set whenever enabled - mounts Stripe.js client-side
 }
 
 // Mirrors config.UploadConfig's default Allowed* extensions

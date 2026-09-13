@@ -103,14 +103,17 @@ const dict = {
 		'preview.download': 'Descarcă originalul cu filigran',
 		'preview.unsupported': 'Nu putem afișa acest fișier direct în browser.',
 		'preview.openDirect': 'Deschide previzualizarea',
-		'preview.unlockCta': 'Deblochează originalul',
-		'preview.unlockDisclaimer':
+		'preview.unlockIntro':
 			'Această previzualizare are un filigran vizibil și audibil. Deblocarea îl elimină și îți trimite fișierul original curat.',
 		'preview.unlocked': 'Original deblocat',
 		'preview.downloadOriginal': 'Descarcă originalul',
 		'preview.checkingPayment': 'Se verifică plata…',
 		'preview.unlockError': 'Nu am putut porni plata. Încearcă din nou.',
 		'preview.keepsWorking': 'Link-ul rămâne valabil — revino oricând ca să descarci din nou.',
+		'preview.payWithCard': 'Plată cu cardul',
+		'preview.payButton': 'Plătește',
+		'preview.processingPayment': 'Se procesează…',
+		'preview.cardDisclaimer': 'Cardul e procesat de Stripe — SADE nu vede niciodată numărul.',
 		'common.loading': 'Se încarcă…',
 		'common.signOut': 'Deconectare'
 	},
@@ -214,14 +217,17 @@ const dict = {
 		'preview.download': 'Download the watermarked file',
 		'preview.unsupported': "We can't display this file directly in the browser.",
 		'preview.openDirect': 'Open the preview',
-		'preview.unlockCta': 'Unlock the original',
-		'preview.unlockDisclaimer':
+		'preview.unlockIntro':
 			'This preview carries a visible and audible watermark. Unlocking removes it and sends you the clean original.',
 		'preview.unlocked': 'Original unlocked',
 		'preview.downloadOriginal': 'Download the original',
 		'preview.checkingPayment': 'Checking payment…',
 		'preview.unlockError': 'Could not start checkout. Please try again.',
 		'preview.keepsWorking': 'The link keeps working — come back anytime to download again.',
+		'preview.payWithCard': 'Pay with card',
+		'preview.payButton': 'Pay',
+		'preview.processingPayment': 'Processing…',
+		'preview.cardDisclaimer': 'Card handled by Stripe — SADE never sees the number.',
 		'common.loading': 'Loading…',
 		'common.signOut': 'Sign out'
 	}

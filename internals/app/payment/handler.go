@@ -27,23 +27,26 @@ func NewHandler(svc Service, log *slog.Logger) *Handler {
 	return &Handler{svc: svc, log: log}
 }
 
-type checkoutRequest struct {
+type intentRequest struct {
 	Token string `json:"token"`
 }
 
-type checkoutResponse struct {
-	CheckoutURL string `json:"checkoutUrl"`
+type intentResponse struct {
+	ClientSecret string `json:"clientSecret"`
 }
 
 // Checkout handles POST /api/payments/checkout with body {"token": "..."} -
 // the preview token from the /preview/[token] URL the recipient is on.
+// Despite the route's name (kept for API stability), this mints a
+// PaymentIntent for the frontend's Stripe Elements form, not a hosted
+// Checkout Session - see Service.CreateIntent's doc comment for why.
 func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
-	var body checkoutRequest
+	var body intentRequest
 	if err := httpx.DecodeJSON(w, r, &body, 4<<10); err != nil {
 		httpx.Error(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	url, err := h.svc.Checkout(r.Context(), body.Token)
+	clientSecret, err := h.svc.CreateIntent(r.Context(), body.Token)
 	switch {
 	case errors.Is(err, ErrDisabled):
 		httpx.Error(w, http.StatusServiceUnavailable, "payment is not configured")
@@ -53,21 +56,24 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("payment checkout", "error", err)
 		httpx.Error(w, http.StatusInternalServerError, "could not start checkout")
 	default:
-		httpx.WriteJSON(w, http.StatusOK, checkoutResponse{CheckoutURL: url})
+		httpx.WriteJSON(w, http.StatusOK, intentResponse{ClientSecret: clientSecret})
 	}
 }
 
 type statusResponse struct {
-	Enabled     bool   `json:"enabled"`
-	Paid        bool   `json:"paid"`
-	OriginalURL string `json:"originalUrl,omitempty"`
-	AmountCents int64  `json:"amountCents"`
-	Currency    string `json:"currency"`
+	Enabled        bool   `json:"enabled"`
+	Paid           bool   `json:"paid"`
+	OriginalURL    string `json:"originalUrl,omitempty"`
+	AmountCents    int64  `json:"amountCents"`
+	Currency       string `json:"currency"`
+	PublishableKey string `json:"publishableKey,omitempty"`
 }
 
 // Status handles GET /api/payments/status?token=... - the /preview/[token]
-// page calls this on load (and after returning from Stripe Checkout) to
-// decide between showing the "Unlock" CTA and the unlocked download state.
+// page calls this on load (and after confirming a payment) to decide
+// between showing the Stripe Elements "Unlock" form and the unlocked
+// download state. When enabled, it also carries the Stripe publishable key
+// the frontend needs to mount Stripe.js - not a secret, safe to hand out.
 func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	result, err := h.svc.Status(r.Context(), r.URL.Query().Get("token"))
 	switch {
@@ -79,7 +85,7 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	default:
 		httpx.WriteJSON(w, http.StatusOK, statusResponse{
 			Enabled: result.Enabled, Paid: result.Paid, OriginalURL: result.OriginalURL,
-			AmountCents: result.AmountCents, Currency: result.Currency,
+			AmountCents: result.AmountCents, Currency: result.Currency, PublishableKey: result.PublishableKey,
 		})
 	}
 }

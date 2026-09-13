@@ -110,7 +110,7 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer, *te
 	// payment flow build their own via buildTestAppWithPayment below.
 	paymentSvc := payment.NewService(
 		payment.NewRepo(db), asset.NewRepo(db), signer, nil, config.PaymentConfig{},
-		"http://APIBASE", "http://app.test", time.Hour, testutil.Logger(),
+		"http://APIBASE", time.Hour, testutil.Logger(),
 	)
 
 	router := NewRouter(Deps{
@@ -525,29 +525,29 @@ func TestJobAssetContentFlowEndToEnd(t *testing.T) {
 
 // --- payment ---------------------------------------------------------------
 
-// fakePaymentBackend is a minimal stripe.Backend answering checkout-session
+// fakePaymentBackend is a minimal stripe.Backend answering payment-intent
 // create/retrieve calls with canned JSON - see the identical helper in
 // internals/app/payment/service_test.go for why (no network call, no real
 // Stripe account needed). Small enough to duplicate rather than export a
 // cross-package test double.
 type fakePaymentBackend struct {
-	paymentStatus stripe.CheckoutSessionPaymentStatus
-	n             int
+	intentStatus stripe.PaymentIntentStatus
+	n            int
 }
 
 func (f *fakePaymentBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
 	var body map[string]any
 	switch {
-	case method == "POST" && path == "/v1/checkout/sessions":
+	case method == "POST" && path == "/v1/payment_intents":
 		f.n++
 		body = map[string]any{
-			"id": fmt.Sprintf("cs_test_%d", f.n), "object": "checkout.session",
-			"url": fmt.Sprintf("https://checkout.stripe.test/%d", f.n), "payment_status": "unpaid",
+			"id": fmt.Sprintf("pi_test_%d", f.n), "object": "payment_intent",
+			"client_secret": fmt.Sprintf("pi_test_%d_secret_fake", f.n), "status": "requires_payment_method",
 		}
 	case method == "GET":
 		body = map[string]any{
-			"id": path[len("/v1/checkout/sessions/"):], "object": "checkout.session",
-			"payment_status": string(f.paymentStatus),
+			"id": path[len("/v1/payment_intents/"):], "object": "payment_intent",
+			"status": string(f.intentStatus),
 		}
 	default:
 		return fmt.Errorf("fakePaymentBackend: unhandled %s %s", method, path)
@@ -615,7 +615,7 @@ func buildTestAppWithPayment(t *testing.T) (*httptest.Server, *http.Client, *cap
 	paymentCfg := config.PaymentConfig{StripeSecretKey: "sk_test_fake", StripeWebhookSecret: "whsec_test", PriceCents: 4900, Currency: "eur"}
 	paymentSvc := payment.NewService(
 		payment.NewRepo(db), asset.NewRepo(db), signer, stripeClient, paymentCfg,
-		publicURL, "http://app.test", time.Hour, testutil.Logger(),
+		publicURL, time.Hour, testutil.Logger(),
 	)
 
 	router := NewRouter(Deps{
@@ -682,8 +682,8 @@ func TestPaymentUnlockFlowEndToEnd(t *testing.T) {
 		Paid        bool   `json:"paid"`
 		OriginalURL string `json:"originalUrl"`
 	}
-	type paymentCheckout struct {
-		CheckoutURL string `json:"checkoutUrl"`
+	type paymentIntent struct {
+		ClientSecret string `json:"clientSecret"`
 	}
 
 	// Before paying: status reports enabled, unpaid.
@@ -698,7 +698,8 @@ func TestPaymentUnlockFlowEndToEnd(t *testing.T) {
 		t.Fatalf("status before paying = %+v", status)
 	}
 
-	// Start a checkout.
+	// Start a payment intent (what the frontend's Stripe Elements form does
+	// on mount).
 	checkoutBody, _ := json.Marshal(map[string]string{"token": previewTok})
 	cresp, err := noAuth.Post(srv.URL+"/api/payments/checkout", "application/json", bytes.NewReader(checkoutBody))
 	if err != nil {
@@ -707,16 +708,17 @@ func TestPaymentUnlockFlowEndToEnd(t *testing.T) {
 	if cresp.StatusCode != http.StatusOK {
 		t.Fatalf("checkout = %d, want 200", cresp.StatusCode)
 	}
-	var checkout paymentCheckout
-	json.NewDecoder(cresp.Body).Decode(&checkout)
+	var intent paymentIntent
+	json.NewDecoder(cresp.Body).Decode(&intent)
 	cresp.Body.Close()
-	if checkout.CheckoutURL == "" {
-		t.Fatal("checkout returned an empty URL")
+	if intent.ClientSecret == "" {
+		t.Fatal("checkout returned an empty client secret")
 	}
 
-	// Stripe now reports the session paid - status should reconcile and
+	// Stripe now reports the payment intent succeeded (as if the recipient
+	// completed the Payment Element form) - status should reconcile and
 	// hand back a working /o/{token} link, with no webhook involved.
-	backend.paymentStatus = stripe.CheckoutSessionPaymentStatusPaid
+	backend.intentStatus = stripe.PaymentIntentStatusSucceeded
 	sresp, err = noAuth.Get(srv.URL + "/api/payments/status?token=" + previewTok)
 	if err != nil {
 		t.Fatal(err)
