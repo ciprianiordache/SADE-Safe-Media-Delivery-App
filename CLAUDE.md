@@ -164,7 +164,9 @@ by tests (`internals/ratelimit/limiter_test.go`, `router_test.go`'s
 `TestAuthRequestIsRateLimited`, `job/service_test.go`'s `TestCreateVerifiesMediaAgainstExtension`
 - the latter skips like `ffmpeg`'s own integration test when `ffmpeg`/`ffprobe` aren't on PATH,
 which they weren't in the dev container this was written in, so it hasn't actually run green
-against real binaries yet, only compiled and skip-tested). Remaining M6 work below.
+against real binaries yet, only compiled and skip-tested). Followed in the same session by the
+rest of M6's punch list - the retry/backoff review, a real full-worker-flow test, and a root
+README - see the "M6 (hardening) status" entry further down for the details.
 
 **Earlier in the same arc:** the `payment` domain (Stripe Checkout unlock of the original file)
 end to end, plus a session-authenticated media player on the operator's own job-detail page. Both
@@ -249,9 +251,22 @@ Backend + frontend now cover the whole flow M1–M5, restyled.
   `PublicURL/preview/<token>` — intentionally, per the plan ("frontend preview page may just
   embed/redirect to those"). Revisit only if a wrapped player page in the email is wanted later.
 
-**Next — M6 (hardening):** rate-limit on `POST /api/auth/request` and ffprobe-based upload
-validation are done (see "Resume here" above). Remaining: retry/backoff review, a full-flow
-integration test, and a README. Also worth a pass: wire `APP_FRONTEND_DIR`/build into
+**M6 (hardening) status:** rate-limit on `POST /api/auth/request`, ffprobe-based upload
+validation, the retry/backoff review, a full-flow integration test, and a README are all done
+(see "Resume here" above and the entry right below it). The retry/backoff review
+(`internals/worker/worker.go` + `internals/app/job/repo.go`'s `ClaimPending`/`MarkForRetry`/
+`ResetStuck`) found the existing design already sound and made no changes: atomic claim via
+`UPDATE ... RETURNING` (`FOR UPDATE SKIP LOCKED` on Postgres) so concurrent workers/processes
+never double-claim a row, exponential backoff (`RetryBackoff<<(attempts-1)`, shift capped at 16 to
+guard against overflow) gated by `MaxRetries`, and `ResetStuck` as a crash-recovery net for a row
+left `processing` past `StuckJobTimeout`. `internals/app/worker_flow_test.go`'s
+`TestWorkerFlowEndToEndThroughRouter` is the new full-flow test: it runs a real `worker.Pool`
+(against a `fakeWatermarkEngine`, so no `ffmpeg` binary is required) claiming a job created
+through the real HTTP upload route, then fetches the resulting `/p`/`/d` links - the one gap the
+existing `httptest` suite had (every other share-link test seeds the preview asset directly
+rather than letting a worker produce it). Root `README.md` covers quick start, config, commands,
+and testing for a newcomer; `CLAUDE.md` (this file) stays the deeper architecture/decision record.
+Also worth a pass: wire `APP_FRONTEND_DIR`/build into
 whatever deploys this (the frontend needs `npm run build` before the Go binary can serve it — no
 build step exists yet in `docker-compose.yml` or elsewhere). And now that `payment` is live: set
 real `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` in whatever deploys this, and register that
