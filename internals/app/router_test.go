@@ -27,6 +27,7 @@ import (
 	"sade/internals/app/user"
 	"sade/internals/database"
 	"sade/internals/mailer"
+	"sade/internals/ratelimit"
 	"sade/internals/storage"
 	"sade/internals/testutil"
 	"sade/internals/token"
@@ -104,7 +105,7 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer, *te
 		userSvc, magic_token.NewRepo(db), session.NewRepo(db), cm,
 		cfg.Auth, "http://APIBASE", "http://app.test", testutil.Logger(),
 	)
-	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, cfg.Upload, testutil.Logger())
+	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, nil, cfg.Upload, testutil.Logger())
 
 	// Disabled by default (no Stripe secret key) - tests that need a live
 	// payment flow build their own via buildTestAppWithPayment below.
@@ -600,7 +601,7 @@ func buildTestAppWithPayment(t *testing.T) (*httptest.Server, *http.Client, *cap
 		userSvc, magic_token.NewRepo(db), session.NewRepo(db), cm,
 		cfg.Auth, "http://APIBASE", "http://app.test", testutil.Logger(),
 	)
-	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, cfg.Upload, testutil.Logger())
+	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, nil, cfg.Upload, testutil.Logger())
 
 	// Unlike the other test apps, payment.Service.Status mints an /o/{token}
 	// URL against its own configured publicURL and this test then actually
@@ -781,6 +782,50 @@ func TestCORSPreflight(t *testing.T) {
 	}
 	if resp.Header.Get("Access-Control-Allow-Credentials") != "true" {
 		t.Errorf("missing allow-credentials")
+	}
+}
+
+func TestAuthRequestIsRateLimited(t *testing.T) {
+	db := testutil.DB(t, user.User{}, magic_token.MagicToken{}, session.Session{})
+	cfg := &config.Config{}
+	cfg.Auth = config.AuthConfig{
+		MagicLinkTTL: config.Duration(15 * time.Minute), SessionTTL: config.Duration(24 * time.Hour),
+		SessionCookieName: "sade_session", HMACSecret: testShareSecret,
+	}
+	userSvc := user.NewService(user.NewRepo(db), testutil.Logger())
+	authSvc := auth.NewService(
+		userSvc, magic_token.NewRepo(db), session.NewRepo(db), &capMailer{},
+		cfg.Auth, "http://APIBASE", "http://app.test", testutil.Logger(),
+	)
+
+	router := NewRouter(Deps{
+		Cfg: cfg, Log: testutil.Logger(), Auth: auth.NewHandler(authSvc, cfg.Auth, testutil.Logger()),
+		AuthSvc: authSvc, AuthRateLimiter: ratelimit.New(2, time.Minute),
+	})
+	srv := httptest.NewServer(router)
+	t.Cleanup(srv.Close)
+	client := &http.Client{}
+
+	post := func(email string) int {
+		body, _ := json.Marshal(map[string]string{"email": email})
+		resp, err := client.Post(srv.URL+"/api/auth/request", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	// The limit is per client IP, not per email - two different addresses
+	// from the same (test) client still share the budget.
+	if s := post("a@example.com"); s != http.StatusAccepted {
+		t.Fatalf("request 1 = %d, want 202", s)
+	}
+	if s := post("b@example.com"); s != http.StatusAccepted {
+		t.Fatalf("request 2 = %d, want 202", s)
+	}
+	if s := post("c@example.com"); s != http.StatusTooManyRequests {
+		t.Fatalf("request 3 = %d, want 429", s)
 	}
 }
 

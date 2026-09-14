@@ -21,6 +21,7 @@ import (
 	"sade/internals/ffmpeg"
 	"sade/internals/logger"
 	"sade/internals/mailer"
+	"sade/internals/ratelimit"
 	"sade/internals/server"
 	"sade/internals/storage"
 	"sade/internals/token"
@@ -118,8 +119,19 @@ func NewApp(ctx context.Context) (*App, error) {
 		cfg.Auth, cfg.App.PublicURL, cfg.App.FrontendURL, log,
 	)
 	authH := auth.NewHandler(authSvc, cfg.Auth, log)
+	authRateLimiter := ratelimit.New(cfg.Auth.RequestRateLimit, cfg.Auth.RequestRateWindow.Std())
 
-	jobSvc := job.NewService(jobRepo, assetRepo, store, cfg.Upload, log)
+	// The watermark engine also backs job.Service's upload validation (an
+	// ffprobe pass confirming the stored file's actual stream kind matches
+	// the extension it was accepted under) - both uses share one Engine, and
+	// both degrade gracefully to nil when ffmpeg/ffprobe are missing.
+	engine, engineErr := ffmpeg.New(cfg.FFmpeg, log)
+	if engineErr != nil {
+		log.Warn("watermark worker disabled", "reason", engineErr)
+		engine = nil
+	}
+
+	jobSvc := job.NewService(jobRepo, assetRepo, store, engine, cfg.Upload, log)
 	jobH := job.NewHandler(jobSvc, store, cfg.Upload, log)
 
 	shareH := share.NewHandler(signer, assetRepo, store, log)
@@ -142,16 +154,16 @@ func NewApp(ctx context.Context) (*App, error) {
 	router := app.NewRouter(app.Deps{
 		Cfg: cfg, Log: log, Auth: authH, AuthSvc: authSvc,
 		User: userH, Job: jobH, Share: shareH, Payment: paymentH,
+		AuthRateLimiter: authRateLimiter,
 	})
 
 	a := &App{cfg: cfg, log: log, logGC: logGC, db: db}
 	a.server = server.New(cfg.Server, log, router)
 
-	// The watermark worker. If ffmpeg/ffprobe are missing the app still runs
-	// (uploads queue as pending); the pool just does not start.
-	if engine, eErr := ffmpeg.New(cfg.FFmpeg, log); eErr != nil {
-		log.Warn("watermark worker disabled", "reason", eErr)
-	} else {
+	// The watermark worker. If ffmpeg/ffprobe are missing (engine == nil,
+	// above) the app still runs (uploads queue as pending); the pool just
+	// does not start.
+	if engine != nil {
 		a.worker = worker.New(
 			worker.Config{
 				Concurrency:     cfg.Worker.Concurrency,

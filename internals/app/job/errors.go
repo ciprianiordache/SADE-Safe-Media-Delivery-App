@@ -17,4 +17,11 @@ var (
 	ErrFileTooLarge = errors.New("job: file too large")
 	// ErrEmptyFile is returned when the upload part carries no bytes.
 	ErrEmptyFile = errors.New("job: empty file")
+	// ErrCorruptMedia is returned when the upload's extension claims a media
+	// type ffprobe cannot back up - either the file isn't decodable at all,
+	// or its actual stream kind (video/audio/image) doesn't match the
+	// extension's allow-list. Only returned when ffmpeg is available; a
+	// missing/unavailable ffprobe leaves extension-based detection as the
+	// only check, same as before this existed.
+	ErrCorruptMedia = errors.New("job: file content does not match its extension")
 )

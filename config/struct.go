@@ -177,6 +177,11 @@ type AuthConfig struct {
 	ShareTokenTTL       Duration `yaml:"share_token_ttl" env:"AUTH_SHARE_TOKEN_TTL" default:"720h"` // 30 days; signed /p and /d links
 	SessionCookieName   string   `yaml:"session_cookie_name" env:"AUTH_SESSION_COOKIE_NAME" default:"sade_session"`
 	SessionCookieSecure bool     `yaml:"session_cookie_secure" env:"AUTH_SESSION_COOKIE_SECURE" default:"false"` // true behind HTTPS
+	// RequestRateLimit bounds POST /api/auth/request per client IP within
+	// RequestRateWindow, so an attacker can't spam the mailer or brute-force
+	// account discovery. 0 disables the limiter entirely.
+	RequestRateLimit  int      `yaml:"request_rate_limit" env:"AUTH_REQUEST_RATE_LIMIT" default:"5"`
+	RequestRateWindow Duration `yaml:"request_rate_window" env:"AUTH_REQUEST_RATE_WINDOW" default:"15m"`
 }
 
 // FFmpegConfig configures the watermark engine. It owns binary locations, the

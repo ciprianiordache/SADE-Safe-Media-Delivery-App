@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"sade/internals/app/auth"
 	"sade/internals/app/user"
 	"sade/internals/httpx"
+	"sade/internals/ratelimit"
 )
 
 // middleware is the standard "wrap a handler" shape.
@@ -140,6 +142,35 @@ func CORS(allowed []string) middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// RateLimit rejects a request with 429 once clientIP has hit limiter's cap
+// within its window - wraps a single route (POST /api/auth/request), not
+// the global chain, since it's the one endpoint that both emails someone
+// and reveals account existence via timing/side effects otherwise.
+func RateLimit(limiter *ratelimit.Limiter) middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !limiter.Allow(clientIP(r)) {
+				httpx.Error(w, http.StatusTooManyRequests, "too many requests, try again later")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// clientIP extracts the host portion of r.RemoteAddr, falling back to the
+// raw value if it isn't a host:port pair. SADE isn't deployed behind a
+// reverse proxy yet, so there's no X-Forwarded-For to trust (and trusting
+// one from an untrusted client would defeat the limiter entirely) - revisit
+// if that changes.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // statusWriter records the status code and byte count for RequestLog.

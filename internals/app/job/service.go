@@ -16,6 +16,7 @@ import (
 
 	"sade/config"
 	"sade/internals/app/asset"
+	"sade/internals/ffmpeg"
 	"sade/internals/storage"
 )
 
@@ -60,15 +61,21 @@ type service struct {
 	repo   Repo
 	assets asset.Repo
 	store  storage.Storage
+	engine *ffmpeg.Engine
 	cfg    config.UploadConfig
 	log    *slog.Logger
 }
 
 // NewService wires the job service. store is the blob backend for originals;
 // assets is the asset repository (composed here the way auth composes
-// magic_token). Mutations are logged; reads are not.
-func NewService(repo Repo, assets asset.Repo, store storage.Storage, cfg config.UploadConfig, log *slog.Logger) Service {
-	return &service{repo: repo, assets: assets, store: store, cfg: cfg, log: log}
+// magic_token). engine is optional (nil when ffmpeg/ffprobe are unavailable,
+// mirroring the worker's own optionality - see app.go): when set, Create
+// ffprobes the stored upload and rejects it if its actual stream kind
+// doesn't match the extension it was accepted under; when nil, Create falls
+// back to the extension-only check it always did. Mutations are logged;
+// reads are not.
+func NewService(repo Repo, assets asset.Repo, store storage.Storage, engine *ffmpeg.Engine, cfg config.UploadConfig, log *slog.Logger) Service {
+	return &service{repo: repo, assets: assets, store: store, engine: engine, cfg: cfg, log: log}
 }
 
 func (s *service) Create(ctx context.Context, userID string, in NewUpload) (Response, error) {
@@ -128,6 +135,11 @@ func (s *service) Create(ctx context.Context, userID string, in NewUpload) (Resp
 	case maxBytes > 0 && fi.Size > maxBytes:
 		s.rollback(ctx, id, key)
 		return Response{}, ErrFileTooLarge
+	}
+
+	if err := s.verifyMedia(ctx, key, media); err != nil {
+		s.rollback(ctx, id, key)
+		return Response{}, err
 	}
 
 	mimeType := mime.TypeByExtension(ext)
@@ -216,6 +228,30 @@ func (s *service) List(userID string, offset, limit int) ([]Response, error) {
 		out[i] = toResponse(jobs[i])
 	}
 	return out, nil
+}
+
+// verifyMedia ffprobes the just-stored blob and confirms its actual stream
+// kind matches media (the extension-based classification detectMedia already
+// made). It is a no-op when the engine is unavailable or the storage backend
+// can't hand back a local path (S3, not implemented yet) - extension-based
+// detection is the only signal in that case, same as before this check
+// existed.
+func (s *service) verifyMedia(ctx context.Context, key, media string) error {
+	if s.engine == nil {
+		return nil
+	}
+	path, ok := s.store.LocalPath(key)
+	if !ok {
+		return nil
+	}
+	res, err := s.engine.Probe(ctx, path)
+	if err != nil {
+		return ErrCorruptMedia
+	}
+	if res.Media != media {
+		return ErrCorruptMedia
+	}
+	return nil
 }
 
 // detectMedia classifies an upload by its filename extension against the

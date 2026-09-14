@@ -103,6 +103,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusRequestEntityTooLarge, "file exceeds the size limit")
 	case errors.Is(err, ErrEmptyFile):
 		httpx.Error(w, http.StatusBadRequest, "the uploaded file is empty")
+	case errors.Is(err, ErrCorruptMedia):
+		httpx.Error(w, http.StatusUnsupportedMediaType, "file content does not match its extension")
 	case err != nil:
 		h.log.Error("create job", "user", uid, "error", err)
 		httpx.Error(w, http.StatusInternalServerError, "could not create the job")

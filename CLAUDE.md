@@ -16,7 +16,9 @@ the preview of their own upload, session-authenticated, from the job detail page
 (M6) remains.
 
 - `config/` — full loader (defaults < YAML < env), `config.Duration`, secret generation, `Validate`.
-  `Auth.ShareTokenTTL` (default 30d) bounds the signed `/p` and `/d` links.
+  `Auth.ShareTokenTTL` (default 30d) bounds the signed `/p` and `/d` links. `Auth.RequestRateLimit`/
+  `RequestRateWindow` (default 5 per 15m) bound `POST /api/auth/request` per client IP - `0`
+  disables the limiter.
 - `internals/logger/` — `slog` + lumberjack; `internals/database/` — pool + `Connect` + `Migrate` +
   shared `CRUD()` + `Driver()`; `internals/server/` — synchronous-bind HTTP lifecycle.
 - Root `main.go` + `app.go` — `NewApp` → `Run` → `Close`; builds logger, connects+migrates the DB,
@@ -32,8 +34,13 @@ the preview of their own upload, session-authenticated, from the job detail page
 - **`internals/app/job/`** — full stack. `Service.Create` validates the recipient/kind, detects
   media type from the filename extension against `config.Upload.Allowed*`, streams the upload into
   `storage` (`originals/<jobID>/original<ext>`) with a sha256 + size-cap `io.TeeReader`/`LimitReader`,
-  writes the `Job` row (`status=pending`) + the original `asset.Asset` row, and rolls both back
-  (blob + row) on any later failure. `Get`/`List` are owner-scoped (a non-owner's job reads as 404).
+  then (given an `*ffmpeg.Engine` - optional, wired the same way as the worker's, nil when
+  ffmpeg/ffprobe are missing) ffprobes the stored blob via `storage.LocalPath` and rejects a
+  mismatch between the extension's media type and ffprobe's own classification as
+  `ErrCorruptMedia` (a renamed/corrupt file that cleared the extension check but isn't actually
+  decodable, or decodes to a different stream kind), writes the `Job` row (`status=pending`) + the
+  original `asset.Asset` row, and rolls both back (blob + row) on any later failure - including a
+  failed `verifyMedia`. `Get`/`List` are owner-scoped (a non-owner's job reads as 404).
   Handler: `POST /api/jobs` (multipart `file` + `recipientEmail`/`watermarkKind`/`watermarkText`/
   `watermarkOpts`, `MaxBytesReader`-guarded), `GET /api/jobs`, `GET /api/jobs/{id}`,
   `GET /api/jobs/{id}/assets/{assetId}/content` (`Service.Asset` owner-scopes it the same way as
@@ -100,6 +107,11 @@ the preview of their own upload, session-authenticated, from the job detail page
   guards the `/api/jobs*` routes with `RequireUser` and passes the operator id down via
   `job.WithUserID(ctx, id)` (keeps `job` from importing the auth layer). `GET /p/{token}` and
   `GET /d/{token}` are public (no cookie) — the signed token in the path is the whole authz.
+  `POST /api/auth/request` alone is wrapped in `RateLimit(d.AuthRateLimiter)` (per-route, not the
+  global chain - it's the one endpoint that emails on every well-formed address, so it's the one
+  an attacker could use to spam a mailbox or hammer the DB): `middleware.clientIP` reads
+  `r.RemoteAddr`'s host (no `X-Forwarded-For` trust - SADE isn't behind a reverse proxy yet) and a
+  cap hit returns 429.
   `internals/app/static.go` (`spaFileServer` + `hasFrontendBuild`) registers `mux.Handle("/", …)`
   last, serving `Cfg.App.FrontendDir` (default `./frontend/build`) with adapter-static's
   `index.html` fallback for client-side routes; it 404s (never the shell) for an unmatched path
@@ -118,6 +130,11 @@ the preview of their own upload, session-authenticated, from the job detail page
   (bounded by `JobTimeout`); `Stop` waits out `ShutdownGrace`. Only the local storage backend is
   supported (needs `LocalPath`); S3 staging is a TODO.
 - `internals/httpx/` — shared HTTP helpers. `internals/testutil/` — `DB(t, models...)` + `Logger()`.
+- `internals/ratelimit/` — a small in-process, per-key sliding-window `Limiter` (`New(limit,
+  window)` / `Allow(key) bool`, no Redis - fine for SADE's single process). `limit <= 0` or a nil
+  `*Limiter` disables it (`Allow` always `true`), so wiring code builds one straight from config
+  with no branch. Only consumer so far: `app.go`'s `authRateLimiter`, guarding
+  `POST /api/auth/request` via `RateLimit` in `internals/app/middleware.go`.
 - `internals/storage/` (local disk, wired via `job` + `worker` + `share`), `internals/ffmpeg/`
   (`os/exec` engine + `-progress` parsing, wired via `worker`), `internals/mailer/`
   (`smtp`/`log`/`noop`), `internals/token/` (HMAC share tokens, wired via `share` for verify;
@@ -136,13 +153,26 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Last shipped:** the `payment` domain (Stripe Checkout unlock of the original file) end to end,
-plus a session-authenticated media player on the operator's own job-detail page. Both were built
-in the same session as a direct response to the user playing with the redesigned dashboard and
-asking, in order, "how do I know the watermark actually worked" (→ the job-asset-content route +
-player) and "let's build payment before M6" (→ the whole `payment` domain). See the `job`,
-`share` and new `payment` bullets above for the mechanics; this entry is the narrative/decision
-trail.
+**Last shipped:** the first two items of M6's punch list - a per-client-IP rate limit on `POST
+/api/auth/request` (`internals/ratelimit.Limiter`, wired as `app.go`'s `authRateLimiter` and
+applied only to that one route via `RateLimit` in `middleware.go`; see the `router.go` and
+`internals/ratelimit` bullets above) and ffprobe-backed upload validation in `job.Service.Create`
+(`verifyMedia`, gated on an optional `*ffmpeg.Engine` the same way the worker's is - see the `job`
+bullet above, `ErrCorruptMedia` → 415). `app.go` now builds the `ffmpeg.Engine` once, before
+`job.NewService`, and reuses it for the worker instead of constructing it twice. Both are covered
+by tests (`internals/ratelimit/limiter_test.go`, `router_test.go`'s
+`TestAuthRequestIsRateLimited`, `job/service_test.go`'s `TestCreateVerifiesMediaAgainstExtension`
+- the latter skips like `ffmpeg`'s own integration test when `ffmpeg`/`ffprobe` aren't on PATH,
+which they weren't in the dev container this was written in, so it hasn't actually run green
+against real binaries yet, only compiled and skip-tested). Remaining M6 work below.
+
+**Earlier in the same arc:** the `payment` domain (Stripe Checkout unlock of the original file)
+end to end, plus a session-authenticated media player on the operator's own job-detail page. Both
+were built in the same session as a direct response to the user playing with the redesigned
+dashboard and asking, in order, "how do I know the watermark actually worked" (→ the
+job-asset-content route + player) and "let's build payment before M6" (→ the whole `payment`
+domain). See the `job`, `share` and `payment` bullets above for the mechanics; this entry is the
+narrative/decision trail.
 
 - The job-detail media player closes half of the redesign's "adapted from the mockup" gap noted
   below: the operator can now actually watch the watermarked preview (and the original) inline,
@@ -179,7 +209,7 @@ trail.
   localhost:8080/api/payments/webhook` locally) set before `go run .`. Verified live end to end
   this session with the user's own Stripe test-mode keys and the `4242 4242 4242 4242` test card.
 
-**Earlier in the same arc:** M5, the SvelteKit frontend (`frontend/src/`), plus the Go-side static
+**Further back:** M5, the SvelteKit frontend (`frontend/src/`), plus the Go-side static
 handler that serves it — then a full visual redesign of that same frontend against a Claude
 Design canvas the user directed (link in their local session history, not reproduced here).
 Backend + frontend now cover the whole flow M1–M5, restyled.
@@ -219,9 +249,9 @@ Backend + frontend now cover the whole flow M1–M5, restyled.
   `PublicURL/preview/<token>` — intentionally, per the plan ("frontend preview page may just
   embed/redirect to those"). Revisit only if a wrapped player page in the email is wanted later.
 
-**Next — M6 (hardening):** rate-limit on `POST /api/auth/request`, deeper upload validation
-(ffprobe the upload at `job.Service.Create` time, not just extension), retry/backoff review, a
-full-flow integration test, and a README. Also worth a pass: wire `APP_FRONTEND_DIR`/build into
+**Next — M6 (hardening):** rate-limit on `POST /api/auth/request` and ffprobe-based upload
+validation are done (see "Resume here" above). Remaining: retry/backoff review, a full-flow
+integration test, and a README. Also worth a pass: wire `APP_FRONTEND_DIR`/build into
 whatever deploys this (the frontend needs `npm run build` before the Go binary can serve it — no
 build step exists yet in `docker-compose.yml` or elsewhere). And now that `payment` is live: set
 real `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` in whatever deploys this, and register that

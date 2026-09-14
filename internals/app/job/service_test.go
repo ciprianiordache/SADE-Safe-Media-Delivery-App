@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +16,7 @@ import (
 	"sade/internals/app/asset"
 	"sade/internals/app/user"
 	"sade/internals/database"
+	"sade/internals/ffmpeg"
 	"sade/internals/storage"
 	"sade/internals/testutil"
 )
@@ -98,7 +102,7 @@ func newSvc(t *testing.T, store storage.Storage, assets asset.Repo, cfg config.U
 	if assets == nil {
 		assets = asset.NewRepo(db)
 	}
-	return NewService(NewRepo(db), assets, store, cfg, testutil.Logger()), db, uid
+	return NewService(NewRepo(db), assets, store, nil, cfg, testutil.Logger()), db, uid
 }
 
 func upload(name, body string) NewUpload {
@@ -222,6 +226,61 @@ func TestCreateRejectsEmptyFile(t *testing.T) {
 	}
 }
 
+// TestCreateVerifiesMediaAgainstExtension exercises the ffprobe check added
+// on top of the always-on extension check: when a real ffmpeg.Engine is
+// wired in, a file whose extension lies about its content is rejected, and a
+// genuine one still passes. Skipped when ffmpeg/ffprobe are not installed.
+func TestCreateVerifiesMediaAgainstExtension(t *testing.T) {
+	bin, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed")
+	}
+
+	store, err := storage.New(config.StorageConfig{Driver: "local", LocalPath: t.TempDir()}, testutil.Logger())
+	if err != nil {
+		t.Fatalf("storage.New: %v", err)
+	}
+	engine, err := ffmpeg.New(config.FFmpegConfig{BinPath: bin, ProbePath: "ffprobe"}, testutil.Logger())
+	if err != nil {
+		t.Fatalf("ffmpeg.New: %v", err)
+	}
+	db := testutil.DB(t, user.User{}, Job{}, asset.Asset{})
+	uid, err := db.CRUD().Create(&user.User{Email: "op@example.com"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	svc := NewService(NewRepo(db), asset.NewRepo(db), store, engine, config.Defaults().Upload, testutil.Logger())
+
+	// Plain text renamed to .mp4 clears the extension check but has no
+	// decodable stream ffprobe can find.
+	if _, err := svc.Create(context.Background(), uid, upload("clip.mp4", "not actually a video")); !errors.Is(err, ErrCorruptMedia) {
+		t.Fatalf("Create(fake .mp4) = %v, want ErrCorruptMedia", err)
+	}
+	var jobs []Job
+	_ = db.CRUD().Read(Job{}, "user_id", uid, &jobs)
+	if len(jobs) != 0 {
+		t.Errorf("job row survived a corrupt upload: %+v", jobs)
+	}
+
+	src := filepath.Join(t.TempDir(), "src.mp4")
+	gen := exec.Command(bin, "-y",
+		"-f", "lavfi", "-i", "testsrc=size=320x240:rate=15:duration=1",
+		"-c:v", "libx264", src)
+	if out, err := gen.CombinedOutput(); err != nil {
+		t.Skipf("could not generate test clip: %v: %s", err, out)
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("read generated clip: %v", err)
+	}
+	if _, err := svc.Create(context.Background(), uid, upload("real.mp4", string(data))); err != nil {
+		t.Fatalf("Create(real .mp4) = %v, want nil", err)
+	}
+}
+
 func TestCreateRollsBackWhenAssetWriteFails(t *testing.T) {
 	store := &memStore{}
 	db := testutil.DB(t, user.User{}, Job{}, asset.Asset{})
@@ -229,7 +288,7 @@ func TestCreateRollsBackWhenAssetWriteFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	svc := NewService(NewRepo(db), failCreateAssets{asset.NewRepo(db)}, store, config.Defaults().Upload, testutil.Logger())
+	svc := NewService(NewRepo(db), failCreateAssets{asset.NewRepo(db)}, store, nil, config.Defaults().Upload, testutil.Logger())
 
 	if _, err := svc.Create(context.Background(), uid, upload("clip.mp4", "bytes")); err == nil {
 		t.Fatal("Create succeeded despite a failing asset write")

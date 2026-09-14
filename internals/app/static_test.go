@@ -58,7 +58,7 @@ func buildTestAppWithFrontend(t *testing.T) *httptest.Server {
 		userSvc, magic_token.NewRepo(db), session.NewRepo(db), &capMailer{},
 		cfg.Auth, "http://APIBASE", "http://app.test", testutil.Logger(),
 	)
-	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, cfg.Upload, testutil.Logger())
+	jobSvc := job.NewService(job.NewRepo(db), asset.NewRepo(db), store, nil, cfg.Upload, testutil.Logger())
 
 	router := NewRouter(Deps{
 		Cfg:     cfg,

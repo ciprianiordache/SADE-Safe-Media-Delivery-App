@@ -11,19 +11,21 @@ import (
 	"sade/internals/app/share"
 	"sade/internals/app/user"
 	"sade/internals/httpx"
+	"sade/internals/ratelimit"
 )
 
 // Deps is everything NewRouter needs: the config, the shared logger, the
 // per-domain handlers, and the auth service the Auth middleware calls.
 type Deps struct {
-	Cfg     *config.Config
-	Log     *slog.Logger
-	Auth    *auth.Handler
-	AuthSvc *auth.Service
-	User    *user.Handler
-	Job     *job.Handler
-	Share   *share.Handler
-	Payment *payment.Handler
+	Cfg             *config.Config
+	Log             *slog.Logger
+	Auth            *auth.Handler
+	AuthSvc         *auth.Service
+	User            *user.Handler
+	Job             *job.Handler
+	Share           *share.Handler
+	Payment         *payment.Handler
+	AuthRateLimiter *ratelimit.Limiter // bounds POST /api/auth/request; nil/limit<=0 disables it
 }
 
 // NewRouter builds the application's HTTP handler: routes plus the global
@@ -33,8 +35,10 @@ func NewRouter(d Deps) http.Handler {
 
 	mux.HandleFunc("GET /healthz", healthz)
 
-	// Public auth endpoints.
-	mux.HandleFunc("POST /api/auth/request", d.Auth.RequestLink)
+	// Public auth endpoints. /request is rate-limited per client IP - it
+	// emails a link on every well-formed address, so it's the one route an
+	// attacker could otherwise use to spam a mailbox or hammer the DB.
+	mux.Handle("POST /api/auth/request", RateLimit(d.AuthRateLimiter)(http.HandlerFunc(d.Auth.RequestLink)))
 	mux.HandleFunc("GET /api/auth/callback", d.Auth.Callback)
 	mux.HandleFunc("POST /api/auth/logout", d.Auth.Logout)
 
