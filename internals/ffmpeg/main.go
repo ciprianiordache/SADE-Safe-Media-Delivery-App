@@ -98,7 +98,7 @@ func (e *Engine) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 	}
 
 	switch {
-	case res.HasVideo && res.DurationSec == 0:
+	case res.HasVideo && (res.DurationSec == 0 || isStillImageFormat(raw.Format.FormatName)):
 		res.Media = MediaImage
 	case res.HasVideo:
 		res.Media = MediaVideo
@@ -108,6 +108,17 @@ func (e *Engine) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 		return nil, fmt.Errorf("ffmpeg: %q has no video or audio stream", path)
 	}
 	return res, nil
+}
+
+// isStillImageFormat reports whether ffprobe's format_name identifies one of
+// its single-image demuxers. ffprobe assigns these a fake per-frame duration
+// derived from an assumed frame rate (25fps by default) rather than leaving
+// duration at zero - notably "image2", the demuxer JPEG/MJPEG stills go
+// through - so DurationSec == 0 alone misclassifies a plain .jpg as video.
+// Every Probe call here is against a single already-stored file, never an
+// actual image-sequence pattern, so this name always means "still image".
+func isStillImageFormat(name string) bool {
+	return name == "image2" || strings.HasSuffix(name, "_pipe")
 }
 
 // Watermark applies the configured watermark to req.SourcePath and writes the

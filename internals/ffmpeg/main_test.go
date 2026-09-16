@@ -45,6 +45,29 @@ func argAfter(args []string, flag string) string {
 	return ""
 }
 
+// TestIsStillImageFormat guards against a real regression: ffprobe's image2
+// demuxer (what a plain .jpg goes through) reports a nonzero duration - one
+// frame at an assumed 25fps - unlike png_pipe/webp_pipe/tiff_pipe, which
+// report none. Probe's classifier used to key on DurationSec == 0 alone, so
+// a valid .jpg was misread as video and rejected by job.Service's
+// extension-vs-content check.
+func TestIsStillImageFormat(t *testing.T) {
+	cases := map[string]bool{
+		"image2":                  true, // jpg/mjpeg stills
+		"png_pipe":                true,
+		"webp_pipe":               true,
+		"tiff_pipe":               true,
+		"mov,mp4,m4a,3gp,3g2,mj2": false,
+		"matroska,webm":           false,
+		"avi":                     false,
+	}
+	for name, want := range cases {
+		if got := isStillImageFormat(name); got != want {
+			t.Errorf("isStillImageFormat(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
 func TestBuildArgsVideoLogo(t *testing.T) {
 	e := testEngine()
 	args, err := e.buildArgs(Request{

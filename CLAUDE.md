@@ -153,7 +153,34 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Last shipped:** the first two items of M6's punch list - a per-client-IP rate limit on `POST
+**Last shipped:** ran the app for the first time this session against real `ffmpeg`/`ffprobe`
+binaries (present on this machine's PATH, unlike the dev container M6 was written in - see the
+"Earlier" paragraph below), which surfaced a real bug in `internals/ffmpeg.Engine.Probe`'s
+video/image classification: ffprobe's `image2` demuxer (what a plain `.jpg`/`.jpeg` goes through)
+reports a nonzero `format.duration` - one frame at an assumed 25fps - unlike `png_pipe`/
+`webp_pipe`/`tiff_pipe`, which report none. `Probe` classified on `DurationSec == 0` alone, so a
+valid JPEG was misread as video, tripped `job.Service.verifyMedia`'s extension-vs-content check,
+and every JPEG upload was rejected with `ErrCorruptMedia` (415, "file content does not match its
+extension") - reported by the user after trying to upload one. Fixed by also accepting
+`format_name` values that identify one of ffprobe's single-image demuxers (`isStillImageFormat`:
+exactly `"image2"`, or any `"*_pipe"` name) as an image regardless of duration - safe because
+`Probe` is only ever called on an already-stored single file, never an actual image-sequence
+pattern. New unit test `TestIsStillImageFormat` (pure, no binary needed) pins the mapping for all
+five of `UploadConfig.AllowedImage`'s extensions plus three common video container format names.
+`TestCreateVerifiesMediaAgainstExtension` and `TestIsStillImageFormat` now both actually pass
+against real binaries (previously only compiled/skip-tested, per the "Earlier" paragraph below).
+`TestWatermarkIntegration` still fails on this particular Windows box specifically (`Fontconfig
+error: Cannot load default config file`, an access violation from ffmpeg's own font loading with
+no `FontPath` given) - an environment gap unrelated to this fix, not investigated further.
+Separately, the user also reported a preview-ready email that never arrived despite the dashboard
+showing the job `done`: not a bug - `Mailer.Transport` was still `log` (the dev default, per
+`config.yaml`), so every prior "preview ready" notification, including the user's own earlier
+manual tests, was only ever logged, never sent (a failed/skipped send is deliberately non-fatal -
+see the `worker` bullet above - so it never blocks the job reaching `done`). Resolved by pointing
+this machine's `.env` at real Gmail SMTP (`MAILER_TRANSPORT=smtp`, an app-password login) and
+confirmed both the magic-link and preview-ready emails now actually send.
+
+**Earlier in the same arc:** the first two items of M6's punch list - a per-client-IP rate limit on `POST
 /api/auth/request` (`internals/ratelimit.Limiter`, wired as `app.go`'s `authRateLimiter` and
 applied only to that one route via `RateLimit` in `middleware.go`; see the `router.go` and
 `internals/ratelimit` bullets above) and ffprobe-backed upload validation in `job.Service.Create`
