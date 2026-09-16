@@ -26,6 +26,7 @@ import (
 	"sade/internals/app/magic_token"
 	"sade/internals/app/session"
 	"sade/internals/app/user"
+	"sade/internals/emailtmpl"
 	"sade/internals/mailer"
 )
 
@@ -82,13 +83,27 @@ func (s *Service) RequestLink(ctx context.Context, email string) error {
 	}
 
 	link := s.publicURL + "/api/auth/callback?token=" + url.QueryEscape(raw)
+	human := emailtmpl.HumanDuration(ttl)
 	body := fmt.Sprintf(
 		"Use this link to sign in to SADE. It is valid for %s and can be used once:\n\n%s\n\n"+
 			"If you did not request this, you can ignore this email.",
 		ttl, link,
 	)
+	html, err := emailtmpl.Render(emailtmpl.Data{
+		PublicURL:   s.publicURL,
+		Subject:     "Sign in to SADE",
+		Preheader:   "Your sign-in link - valid for " + human,
+		Heading:     "Sign in to SADE",
+		Intro:       "Click the button below to sign in. This link is valid for " + human + " and can be used once.",
+		Buttons:     []emailtmpl.Button{{Label: "Sign in", URL: link, Primary: true}},
+		FallbackURL: link,
+	})
+	if err != nil {
+		s.log.Error("render magic link email", "user", u.ID, "error", err)
+		return fmt.Errorf("auth: render email: %w", err)
+	}
 	if err := s.mail.Send(ctx, mailer.Message{
-		To: u.Email, Subject: "Sign in to SADE", Text: body,
+		To: u.Email, Subject: "Sign in to SADE", Text: body, HTML: html,
 	}); err != nil {
 		s.log.Error("send magic link", "user", u.ID, "error", err)
 		return fmt.Errorf("auth: send link: %w", err)

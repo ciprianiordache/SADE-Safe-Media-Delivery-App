@@ -153,7 +153,35 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Last shipped:** fixed the emailed preview link. `worker.EmailNotifier.PreviewReady`
+**Last shipped:** both transactional emails (magic-link, preview-ready) now send a branded HTML
+body alongside the existing plain-text one, instead of plain text only - the user's explicit ask
+("faceti aceste email-uri sa arate bine, nu plain text"). New package **`internals/emailtmpl`**
+(`emailtmpl.go` + `emailtmpl_test.go`) is a small shared HTML layer - `Render(Data) (string,
+error)` wraps a heading/intro/buttons/note into one branded, table-based, Outlook-safe layout
+(`html/template`, so every dynamic value - watermark text, tokens - is auto-escaped), plus
+`HumanDuration(time.Duration) string` to turn `15m0s`/`720h0m0s` into "15 minutes"/"30 days" for
+the copy. It's a new shared package rather than duplicated per-domain (like `internals/httpx`,
+`internals/token`) because `auth` (magic-link) and `worker` (preview-ready) both need the exact
+same card/button chrome and shouldn't import each other. Palette/type/radius are copied verbatim
+from `frontend/src/app.css`'s light tokens (warm parchment `#fbf8f4`, orange accent `#e8631c`, IBM
+Plex Sans, `11px`-ish radius) - deliberately **not** theme-aware like the app itself: mail-client
+dark-mode support is inconsistent enough to auto-invert a hand-tuned palette badly, so every email
+ships one fixed light design (`<meta name="color-scheme" content="light">`), the same choice
+transactional mail from Stripe/GitHub/etc. makes. The logo needed a stable, unhashed URL unlike
+its Vite-bundled copy in the frontend, so it's now also copied to `frontend/static/logo.png` (ships
+at `PublicURL/logo.png` once `npm run build` runs - the same build step already required to update
+the frontend at all). `internals/app/auth/service.go`'s `RequestLink` and
+`internals/worker/notify.go`'s `PreviewReady` both now build `mailer.Message.HTML` via
+`emailtmpl.Render` next to their existing `Text` body (the mailer already supported
+`multipart/alternative` - see the `mailer` bullet below - just nothing populated `HTML` before
+this). New throwaway dev tool `cmd/emailpreview` (`go run ./cmd/emailpreview -out DIR`) renders
+both templates with sample data to local `.html` files without sending real mail, for iterating on
+the design; not wired into the app. Verified: real emails sent through the now-live Gmail SMTP
+account (see two entries below) and a published Artifact preview
+(https://claude.ai/artifact/UC5GavccwNPbfS4Se5DA8P) embedding the actual rendered output via
+iframe, both against the exact HTML the server sends - not a separate mockup.
+
+**Earlier in the same arc:** fixed the emailed preview link. `worker.EmailNotifier.PreviewReady`
 (`internals/worker/notify.go`) used to mail the recipient the bare `PublicURL/p/<token>` asset
 stream as the "View it" link - a gap CLAUDE.md itself had flagged as deliberate ("frontend
 preview page may just embed/redirect to those") but the user, testing the app, flagged as wrong:

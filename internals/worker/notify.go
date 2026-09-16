@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"sade/internals/emailtmpl"
 	"sade/internals/mailer"
 	"sade/internals/token"
 )
@@ -46,17 +47,36 @@ func (n *EmailNotifier) PreviewReady(ctx context.Context, recipient, previewID s
 	if err != nil {
 		return fmt.Errorf("sign download token: %w", err)
 	}
+	viewLink := n.publicURL + "/preview/" + viewTok
+	dlLink := n.publicURL + "/d/" + dlTok
+	human := emailtmpl.HumanDuration(n.ttl)
 	body := fmt.Sprintf(
 		"Your watermarked preview is ready.\n\n"+
-			"View it:     %s/preview/%s\n"+
-			"Download it: %s/d/%s\n\n"+
+			"View it:     %s\n"+
+			"Download it: %s\n\n"+
 			"The links are valid for %s.\n"+
 			"If you were not expecting this, you can ignore this email.\n",
-		n.publicURL, viewTok, n.publicURL, dlTok, n.ttl,
+		viewLink, dlLink, n.ttl,
 	)
+	html, err := emailtmpl.Render(emailtmpl.Data{
+		PublicURL: n.publicURL,
+		Subject:   "Your preview is ready",
+		Preheader: "Your watermarked preview is ready to view",
+		Heading:   "Your preview is ready",
+		Intro:     "Someone shared a watermarked media preview with you through SADE. View it in your browser, or download it directly.",
+		Buttons: []emailtmpl.Button{
+			{Label: "View preview", URL: viewLink, Primary: true},
+			{Label: "Download", URL: dlLink},
+		},
+		Note: "These links are valid for " + human + ".",
+	})
+	if err != nil {
+		return fmt.Errorf("render preview email: %w", err)
+	}
 	return n.mail.Send(ctx, mailer.Message{
 		To:      recipient,
 		Subject: "Your preview is ready",
 		Text:    body,
+		HTML:    html,
 	})
 }
