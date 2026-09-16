@@ -153,8 +153,38 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Last shipped:** both transactional emails (magic-link, preview-ready) now send a branded HTML
-body alongside the existing plain-text one, instead of plain text only - the user's explicit ask
+**Last shipped:** fixed the emailed logo not loading, reported right after the HTML-email work
+below shipped. Cause: the `<img>` pointed at `PublicURL/logo.png` (`PublicURL` is currently this
+dev machine's LAN address, `192.168.1.179:8080` - see the LAN-access entry further down), and
+Gmail (like most webmail) never fetches a remote image directly - it routes every one through
+Google's own image-proxying servers, which run on the public internet and have no route to a
+private/LAN address. No amount of "display images" trust would have fixed that; the URL was
+categorically unreachable. Fixed by embedding the logo in the message itself instead of linking
+to it: `internals/mailer.Message` gained an `Inline []Inline` field (`CID`, `ContentType`,
+`Data`), and `build()` now wraps the existing `multipart/alternative` (text/html) inside an outer
+`multipart/related` when `Inline` is set, with each image as a sibling part carrying a
+`Content-ID` and base64 body (RFC 2045 76-column wrapping via new `writeBase64Lines`) - the
+standard way transactional mail ships a logo, and immune to this failure mode in dev *or*
+production. `internals/emailtmpl` now embeds the PNG directly (`//go:embed logo.png` -> exported
+`LogoPNG []byte`, `LogoCID = "sade-logo"`) and the template references it as `cid:sade-logo`;
+`Data.PublicURL` was dropped entirely (nothing else used it - every button/fallback URL was
+already absolute, passed in by the caller). Both `auth.Service.RequestLink` and
+`worker.EmailNotifier.PreviewReady` now attach `mailer.Inline{CID: emailtmpl.LogoCID, ...,
+Data: emailtmpl.LogoPNG}` alongside the HTML body. `frontend/static/logo.png` (added for the
+abandoned URL approach, in the same session) is removed again - nothing else referenced it, the
+app's own UI uses the separate Vite-bundled copy at `frontend/src/lib/assets/logo.png`.
+`cmd/emailpreview` still renders to plain `.html` files for browser viewing, where a `cid:` URI
+can't resolve, so it now post-processes the rendered HTML to swap `cid:sade-logo` for a `data:`
+URI of the same embedded bytes - real mail never takes this path, it's just so the preview tool
+(and the published Artifact preview below, republished after this fix) stays viewable outside a
+mail client. New tests: `internals/mailer`'s `TestBuildRelatedWhenInline` (asserts the
+`multipart/related`/`Content-ID`/base64 shape and round-trips the encoded bytes back to the
+original), `internals/emailtmpl`'s existing render tests updated for `cid:` instead of a URL.
+Verified live: both emails resent through Gmail SMTP with the fix in place.
+
+**Earlier in the same arc:** both transactional emails (magic-link, preview-ready) now send a
+branded HTML body alongside the existing plain-text one, instead of plain text only - the user's
+explicit ask
 ("faceti aceste email-uri sa arate bine, nu plain text"). New package **`internals/emailtmpl`**
 (`emailtmpl.go` + `emailtmpl_test.go`) is a small shared HTML layer - `Render(Data) (string,
 error)` wraps a heading/intro/buttons/note into one branded, table-based, Outlook-safe layout
@@ -167,10 +197,10 @@ from `frontend/src/app.css`'s light tokens (warm parchment `#fbf8f4`, orange acc
 Plex Sans, `11px`-ish radius) - deliberately **not** theme-aware like the app itself: mail-client
 dark-mode support is inconsistent enough to auto-invert a hand-tuned palette badly, so every email
 ships one fixed light design (`<meta name="color-scheme" content="light">`), the same choice
-transactional mail from Stripe/GitHub/etc. makes. The logo needed a stable, unhashed URL unlike
-its Vite-bundled copy in the frontend, so it's now also copied to `frontend/static/logo.png` (ships
-at `PublicURL/logo.png` once `npm run build` runs - the same build step already required to update
-the frontend at all). `internals/app/auth/service.go`'s `RequestLink` and
+transactional mail from Stripe/GitHub/etc. makes. (The logo first shipped as a `PublicURL/logo.png`
+URL reference here - fixed to an embedded `cid:` inline part instead two entries up, once that
+turned out unreachable from a LAN address; see that entry.) `internals/app/auth/service.go`'s
+`RequestLink` and
 `internals/worker/notify.go`'s `PreviewReady` both now build `mailer.Message.HTML` via
 `emailtmpl.Render` next to their existing `Text` body (the mailer already supported
 `multipart/alternative` - see the `mailer` bullet below - just nothing populated `HTML` before
@@ -532,7 +562,18 @@ Two libraries operate on the *same* `db`-tagged structs, both reached through `i
   set), `log` (renders to the logger — the local magic-link path; body at Info, full RFC 5322 at
   Debug), `noop` (discard). `build()` assembles the message once (quoted-printable,
   `multipart/alternative` when `Message.HTML` is set, RFC 2047 subject); templating is the
-  caller's job.
+  caller's job. `Message.Inline` (`CID`/`ContentType`/`Data`) nests that `multipart/alternative`
+  inside an outer `multipart/related` and adds each as a base64 sibling part with a `Content-ID` -
+  an image the HTML references as `cid:<CID>` instead of a URL, so nothing outside the message
+  itself has to be reachable for it to render (`internals/emailtmpl`'s logo is the one user so
+  far).
+- `internals/emailtmpl/` — shared branded HTML layer for transactional email, used by `auth`
+  (magic-link) and `worker` (preview-ready). `Render(Data) (string, error)` (heading, intro,
+  buttons, fallback link, note) and `HumanDuration(time.Duration) string` ("15 minutes" instead of
+  `15m0s`). Palette/type mirror `frontend/src/app.css`'s light tokens verbatim; deliberately not
+  theme-aware, unlike the app - mail-client dark-mode support is inconsistent enough to auto-invert
+  a hand-tuned palette badly, so the email ships one fixed light design. `LogoPNG` (`//go:embed
+  logo.png`) + `LogoCID` are sent as a `mailer.Inline` alongside the HTML by both callers.
 - `internals/token/` — `token.New(secret)` → `Signer.Sign(purpose, subject, ttl)` /
   `Verify(purpose, tok)`. Stateless HMAC-SHA256 capability tokens for the public `/p/{token}`
   (purpose `"preview"`) and `/d/{token}` (`"download"`) links — no DB row, no login. Signed

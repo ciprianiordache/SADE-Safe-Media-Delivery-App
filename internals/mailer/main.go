@@ -69,17 +69,44 @@ func build(cfg config.MailerConfig, msg Message) ([]byte, error) {
 		return b.Bytes(), nil
 	}
 
-	boundary := randToken(24)
-	header("Content-Type", "multipart/alternative; boundary="+boundary)
-	b.WriteString("\r\n")
-
 	text := msg.Text
 	if text == "" {
 		text = "This message needs an HTML-capable email client."
 	}
-	writePart(&b, boundary, "text/plain; charset=utf-8", text)
-	writePart(&b, boundary, "text/html; charset=utf-8", msg.HTML)
-	fmt.Fprintf(&b, "--%s--\r\n", boundary)
+	altBoundary := randToken(24)
+
+	if len(msg.Inline) == 0 {
+		header("Content-Type", "multipart/alternative; boundary="+altBoundary)
+		b.WriteString("\r\n")
+		writePart(&b, altBoundary, "text/plain; charset=utf-8", text)
+		writePart(&b, altBoundary, "text/html; charset=utf-8", msg.HTML)
+		fmt.Fprintf(&b, "--%s--\r\n", altBoundary)
+		return b.Bytes(), nil
+	}
+
+	// HTML references its images as cid:<CID>, so the alternative part (the
+	// text/html and text/plain choice) nests inside an outer multipart/related
+	// (the HTML plus the assets it points to).
+	relBoundary := randToken(24)
+	header("Content-Type", fmt.Sprintf(`multipart/related; type="multipart/alternative"; boundary=%s`, relBoundary))
+	b.WriteString("\r\n")
+
+	fmt.Fprintf(&b, "--%s\r\n", relBoundary)
+	fmt.Fprintf(&b, "Content-Type: multipart/alternative; boundary=%s\r\n\r\n", altBoundary)
+	writePart(&b, altBoundary, "text/plain; charset=utf-8", text)
+	writePart(&b, altBoundary, "text/html; charset=utf-8", msg.HTML)
+	fmt.Fprintf(&b, "--%s--\r\n\r\n", altBoundary)
+
+	for _, img := range msg.Inline {
+		fmt.Fprintf(&b, "--%s\r\n", relBoundary)
+		fmt.Fprintf(&b, "Content-Type: %s\r\n", img.ContentType)
+		b.WriteString("Content-Transfer-Encoding: base64\r\n")
+		fmt.Fprintf(&b, "Content-ID: <%s>\r\n", img.CID)
+		fmt.Fprintf(&b, "Content-Disposition: inline; filename=%q\r\n\r\n", img.CID)
+		writeBase64Lines(&b, img.Data)
+		b.WriteString("\r\n")
+	}
+	fmt.Fprintf(&b, "--%s--\r\n", relBoundary)
 	return b.Bytes(), nil
 }
 
@@ -95,6 +122,19 @@ func writeQP(b *bytes.Buffer, s string) {
 	w := quotedprintable.NewWriter(b)
 	_, _ = w.Write([]byte(s))
 	_ = w.Close()
+}
+
+// writeBase64Lines base64-encodes data and wraps it at RFC 2045's 76-column
+// limit for encoded body content - a stricter mail server can reject or
+// mangle longer lines.
+func writeBase64Lines(b *bytes.Buffer, data []byte) {
+	const lineLen = 76
+	enc := base64.StdEncoding.EncodeToString(data)
+	for i := 0; i < len(enc); i += lineLen {
+		end := min(i+lineLen, len(enc))
+		b.WriteString(enc[i:end])
+		b.WriteString("\r\n")
+	}
 }
 
 func messageID(fromAddr string) string {

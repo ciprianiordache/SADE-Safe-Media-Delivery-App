@@ -5,10 +5,12 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"sade/internals/emailtmpl"
 )
@@ -18,7 +20,6 @@ func main() {
 	flag.Parse()
 
 	magicLink, err := emailtmpl.Render(emailtmpl.Data{
-		PublicURL:   "http://192.168.1.179:8080",
 		Subject:     "Sign in to SADE",
 		Preheader:   "Your sign-in link - valid for 15 minutes",
 		Heading:     "Sign in to SADE",
@@ -31,7 +32,6 @@ func main() {
 	}
 
 	previewReady, err := emailtmpl.Render(emailtmpl.Data{
-		PublicURL: "http://192.168.1.179:8080",
 		Subject:   "Your preview is ready",
 		Preheader: "Your watermarked preview is ready to view",
 		Heading:   "Your preview is ready",
@@ -46,10 +46,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(*out, "magic-link.html"), []byte(magicLink), 0o644); err != nil {
+	// The real message embeds the logo as a cid: inline part, which only
+	// resolves inside an actual mail client. Swap in a data: URI so the
+	// file opens correctly in a plain browser too.
+	dataURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(emailtmpl.LogoPNG)
+	forBrowser := func(html string) []byte {
+		return []byte(strings.ReplaceAll(html, "cid:"+emailtmpl.LogoCID, dataURI))
+	}
+
+	if err := os.WriteFile(filepath.Join(*out, "magic-link.html"), forBrowser(magicLink), 0o644); err != nil {
 		log.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(*out, "preview-ready.html"), []byte(previewReady), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(*out, "preview-ready.html"), forBrowser(previewReady), 0o644); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("wrote magic-link.html and preview-ready.html to", *out)

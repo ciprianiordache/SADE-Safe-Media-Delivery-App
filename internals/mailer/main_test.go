@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -99,6 +100,43 @@ func TestBuildMultipartWhenHTML(t *testing.T) {
 	}
 	if strings.Count(s, "Content-Type: text/plain") != 1 || strings.Count(s, "Content-Type: text/html") != 1 {
 		t.Errorf("expected one text and one html part:\n%s", s)
+	}
+}
+
+func TestBuildRelatedWhenInline(t *testing.T) {
+	logo := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a} // PNG magic bytes, enough to round-trip
+	raw, err := build(baseCfg(), Message{
+		To: "c@example.com", Subject: "Your preview is ready",
+		Text: "plain", HTML: `<img src="cid:sade-logo">`,
+		Inline: []Inline{{CID: "sade-logo", ContentType: "image/png", Data: logo}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, `Content-Type: multipart/related; type="multipart/alternative"; boundary=`) {
+		t.Errorf("expected multipart/related as the top-level type:\n%s", s)
+	}
+	if !strings.Contains(s, "Content-Type: multipart/alternative; boundary=") {
+		t.Errorf("expected a nested multipart/alternative:\n%s", s)
+	}
+	if !strings.Contains(s, "Content-ID: <sade-logo>") || !strings.Contains(s, "Content-Disposition: inline") {
+		t.Errorf("expected an inline part with the given Content-ID:\n%s", s)
+	}
+	if !strings.Contains(s, "Content-Transfer-Encoding: base64") {
+		t.Errorf("expected the inline part to be base64-encoded:\n%s", s)
+	}
+
+	// The base64 body must round-trip back to the original bytes.
+	_, after, _ := strings.Cut(s, "Content-ID: <sade-logo>\r\n")
+	_, b64Body, _ := strings.Cut(after, "\r\n\r\n")
+	b64Body, _, _ = strings.Cut(b64Body, "\r\n--")
+	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(b64Body, "\r\n", ""))
+	if err != nil {
+		t.Fatalf("decode inline part: %v", err)
+	}
+	if !bytes.Equal(decoded, logo) {
+		t.Errorf("inline part = %x, want %x", decoded, logo)
 	}
 }
 

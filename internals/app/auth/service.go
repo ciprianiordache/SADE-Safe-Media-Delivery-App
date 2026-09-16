@@ -90,7 +90,6 @@ func (s *Service) RequestLink(ctx context.Context, email string) error {
 		ttl, link,
 	)
 	html, err := emailtmpl.Render(emailtmpl.Data{
-		PublicURL:   s.publicURL,
 		Subject:     "Sign in to SADE",
 		Preheader:   "Your sign-in link - valid for " + human,
 		Heading:     "Sign in to SADE",
@@ -104,6 +103,7 @@ func (s *Service) RequestLink(ctx context.Context, email string) error {
 	}
 	if err := s.mail.Send(ctx, mailer.Message{
 		To: u.Email, Subject: "Sign in to SADE", Text: body, HTML: html,
+		Inline: []mailer.Inline{{CID: emailtmpl.LogoCID, ContentType: "image/png", Data: emailtmpl.LogoPNG}},
 	}); err != nil {
 		s.log.Error("send magic link", "user", u.ID, "error", err)
 		return fmt.Errorf("auth: send link: %w", err)

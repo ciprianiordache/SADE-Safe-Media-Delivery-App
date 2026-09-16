@@ -21,11 +21,26 @@ package emailtmpl
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"html/template"
 	"math"
 	"time"
 )
+
+// LogoPNG is SADE's mark, embedded in the binary and sent as an inline
+// (Content-ID) part rather than referenced by URL - see LogoCID. A remote
+// URL would have to be fetched by the recipient's mail provider (Gmail and
+// most webmail proxy every remote image through their own servers), which
+// fails outright while SADE runs on a private/LAN address with no public
+// domain; an inline part has no such dependency, in dev or in production.
+//
+//go:embed logo.png
+var LogoPNG []byte
+
+// LogoCID is the Content-ID the logo is attached under; the template below
+// references it as "cid:sade-logo" literally; keep the two in sync.
+const LogoCID = "sade-logo"
 
 // Button is one call to action in an email body.
 type Button struct {
@@ -36,7 +51,6 @@ type Button struct {
 
 // Data is what Render assembles the branded shell around.
 type Data struct {
-	PublicURL   string // config.App.PublicURL; the logo is served from here at /logo.png
 	Subject     string
 	Preheader   string // hidden preview text most inboxes show next to the subject
 	Heading     string
@@ -110,7 +124,7 @@ const layoutTmpl = `<!doctype html>
 <tr><td align="center" style="padding:48px 16px;">
 <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px;max-width:560px;">
 <tr><td align="center" style="padding-bottom:28px;">
-<img src="{{.PublicURL}}/logo.png" width="44" height="44" alt="SADE" style="display:block;border-radius:10px;">
+<img src="cid:sade-logo" width="44" height="44" alt="SADE" style="display:block;border-radius:10px;">
 <div style="font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:600;letter-spacing:.06em;color:#9c9287;text-transform:uppercase;margin-top:10px;">Safe Media Delivery</div>
 </td></tr>
 <tr><td class="sade-card sade-pad" style="background-color:#ffffff;border:1px solid #ebe3d7;border-radius:14px;padding:40px 44px;">

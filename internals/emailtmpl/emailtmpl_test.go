@@ -8,7 +8,6 @@ import (
 
 func TestRenderIncludesDynamicValues(t *testing.T) {
 	html, err := Render(Data{
-		PublicURL:   "https://sade.example",
 		Subject:     "Sign in to SADE",
 		Preheader:   "Your sign-in link",
 		Heading:     "Sign in to SADE",
@@ -25,7 +24,7 @@ func TestRenderIncludesDynamicValues(t *testing.T) {
 		"Sign in to SADE",
 		"Click below to sign in.",
 		">Sign in</a>",
-		"https://sade.example/logo.png",
+		"cid:" + LogoCID,
 		"This link expires in 15 minutes.",
 	} {
 		if !strings.Contains(html, want) {
@@ -42,7 +41,7 @@ func TestRenderIncludesDynamicValues(t *testing.T) {
 
 func TestRenderEscapesUserSuppliedText(t *testing.T) {
 	html, err := Render(Data{
-		Subject: "s", Heading: `<script>alert(1)</script>`, PublicURL: "https://sade.example",
+		Subject: "s", Heading: `<script>alert(1)</script>`,
 	})
 	if err != nil {
 		t.Fatalf("Render: %v", err)

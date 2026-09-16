@@ -59,7 +59,6 @@ func (n *EmailNotifier) PreviewReady(ctx context.Context, recipient, previewID s
 		viewLink, dlLink, n.ttl,
 	)
 	html, err := emailtmpl.Render(emailtmpl.Data{
-		PublicURL: n.publicURL,
 		Subject:   "Your preview is ready",
 		Preheader: "Your watermarked preview is ready to view",
 		Heading:   "Your preview is ready",
@@ -78,5 +77,6 @@ func (n *EmailNotifier) PreviewReady(ctx context.Context, recipient, previewID s
 		Subject: "Your preview is ready",
 		Text:    body,
 		HTML:    html,
+		Inline:  []mailer.Inline{{CID: emailtmpl.LogoCID, ContentType: "image/png", Data: emailtmpl.LogoPNG}},
 	})
 }
