@@ -11,8 +11,10 @@ import (
 )
 
 // EmailNotifier is the production Notifier: it signs "preview" and "download"
-// capability tokens for the preview asset and emails the recipient the public
-// /p/<token> (view) and /d/<token> (download) links. It holds no state beyond
+// capability tokens for the preview asset and emails the recipient the
+// frontend's /preview/<token> page (the embedded player + Stripe unlock,
+// backed by the same signed token /p/<token> itself would verify) as the
+// primary link, plus a direct /d/<token> download. It holds no state beyond
 // its dependencies, so one instance is shared by every worker goroutine.
 type EmailNotifier struct {
 	mail      mailer.Mailer
@@ -33,8 +35,8 @@ func NewEmailNotifier(m mailer.Mailer, signer *token.Signer, publicURL string, t
 	}
 }
 
-// PreviewReady emails recipient signed view + download links for the preview
-// asset.
+// PreviewReady emails recipient the frontend preview page (view + unlock)
+// plus a direct download link for the preview asset.
 func (n *EmailNotifier) PreviewReady(ctx context.Context, recipient, previewID string) error {
 	viewTok, err := n.signer.Sign("preview", previewID, n.ttl)
 	if err != nil {
@@ -46,7 +48,7 @@ func (n *EmailNotifier) PreviewReady(ctx context.Context, recipient, previewID s
 	}
 	body := fmt.Sprintf(
 		"Your watermarked preview is ready.\n\n"+
-			"View it:     %s/p/%s\n"+
+			"View it:     %s/preview/%s\n"+
 			"Download it: %s/d/%s\n\n"+
 			"The links are valid for %s.\n"+
 			"If you were not expecting this, you can ignore this email.\n",

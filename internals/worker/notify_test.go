@@ -34,8 +34,8 @@ func TestEmailNotifierSendsSignedViewAndDownloadLinks(t *testing.T) {
 	}
 	body := cm.last.Text
 
-	view := extractLink(t, body, "https://sade.example/p/")
-	if sub, err := signer.Verify("preview", strings.TrimPrefix(view, "https://sade.example/p/")); err != nil || sub != "prev-42" {
+	view := extractLink(t, body, "https://sade.example/preview/")
+	if sub, err := signer.Verify("preview", strings.TrimPrefix(view, "https://sade.example/preview/")); err != nil || sub != "prev-42" {
 		t.Errorf("view token: subject=%q err=%v", sub, err)
 	}
 

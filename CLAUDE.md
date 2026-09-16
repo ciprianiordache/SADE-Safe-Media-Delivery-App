@@ -153,7 +153,24 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Last shipped:** ran the app for the first time this session against real `ffmpeg`/`ffprobe`
+**Last shipped:** fixed the emailed preview link. `worker.EmailNotifier.PreviewReady`
+(`internals/worker/notify.go`) used to mail the recipient the bare `PublicURL/p/<token>` asset
+stream as the "View it" link - a gap CLAUDE.md itself had flagged as deliberate ("frontend
+preview page may just embed/redirect to those") but the user, testing the app, flagged as wrong:
+the recipient should land on the frontend's `/preview/<token>` page (the embedded player +
+Stripe-unlock section), not the raw watermarked file. Changed the "View it" link to
+`PublicURL/preview/<token>`, kept `PublicURL/d/<token>` for a direct download - no backend
+route or token-purpose change needed, since `/preview/[token]` already builds its own `/p/` and
+`/d/` calls client-side from the same "preview"-purpose token in the URL. Updated
+`TestEmailNotifierSendsSignedViewAndDownloadLinks` (`internals/worker/notify_test.go`) and
+`TestWorkerFlowEndToEndThroughRouter` (`internals/app/worker_flow_test.go`, which has no
+frontend build in its test harness to actually render the view link, so it now resolves the
+view link's token against `/p/{token}` directly to prove it's genuine, rather than fetching the
+view link itself) to match. Verified live: uploaded a job, the resulting email's link opened the
+SvelteKit preview page on another device on the LAN (see the two entries below for that LAN-access
+and real-SMTP setup).
+
+**Earlier in the same arc:** ran the app for the first time this session against real `ffmpeg`/`ffprobe`
 binaries (present on this machine's PATH, unlike the dev container M6 was written in - see the
 "Earlier" paragraph below), which surfaced a real bug in `internals/ffmpeg.Engine.Probe`'s
 video/image classification: ffprobe's `image2` demuxer (what a plain `.jpg`/`.jpeg` goes through)
@@ -274,9 +291,9 @@ Backend + frontend now cover the whole flow M1–M5, restyled.
   pagination done client-side) are deliberate: adapt-to-the-API-as-is was the chosen default
   rather than expanding the API to match the mockup. Revisit if the client-side-200-jobs ceiling
   or the missing operator-facing links become real problems.
-- Not wired: the worker's `EmailNotifier` still mails the raw `PublicURL/p/<token>` link, not
-  `PublicURL/preview/<token>` — intentionally, per the plan ("frontend preview page may just
-  embed/redirect to those"). Revisit only if a wrapped player page in the email is wanted later.
+- ~~Not wired: the worker's `EmailNotifier` still mails the raw `PublicURL/p/<token>` link~~ —
+  fixed; see the `worker` bullet above and the "Resume here" entry below. The recipient now lands
+  on the frontend page (player + Stripe unlock), not the bare media stream.
 
 **M6 (hardening) status:** rate-limit on `POST /api/auth/request`, ffprobe-based upload
 validation, the retry/backoff review, a full-flow integration test, and a README are all done
@@ -478,8 +495,10 @@ Two libraries operate on the *same* `db`-tagged structs, both reached through `i
   while `attempts <= MaxRetries`) / `MarkFailed`. `Start` first runs `ResetStuck` (requeue rows
   stuck `processing` past `StuckJobTimeout`). Per-job context is detached from shutdown, bounded
   by `JobTimeout`; `Stop` waits out `ShutdownGrace`. `worker.EmailNotifier` signs a `token`
-  `"preview"` capability for the preview asset id and mails `PublicURL/p/<token>`. DB row is the
-  source of truth. Local storage only (needs `LocalPath`); S3 staging is a TODO.
+  `"preview"` capability for the preview asset id and mails `PublicURL/preview/<token>` (the
+  frontend page - player + Stripe unlock, itself backed by the same token against `/p/<token>`)
+  as the primary link, plus `PublicURL/d/<token>` for a direct download. DB row is the source of
+  truth. Local storage only (needs `LocalPath`); S3 staging is a TODO.
 - `internals/mailer/` — `mailer.New(cfg, log)` → `Mailer.Send(ctx, Message)`. Transport from
   `Mailer.Transport`: `smtp` (STARTTLS on 587, implicit TLS on 465, PLAIN auth when a user is
   set), `log` (renders to the logger — the local magic-link path; body at Info, full RFC 5322 at

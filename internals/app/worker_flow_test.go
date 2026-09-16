@@ -83,7 +83,8 @@ func (f *fakeWatermarkEngine) Watermark(_ context.Context, req ffmpeg.Request) e
 }
 
 // linksFromBody pulls every http:// link out of an email body, in order (the
-// EmailNotifier writes "View it: .../p/<tok>" then "Download it: .../d/<tok>").
+// EmailNotifier writes "View it: .../preview/<tok>" then "Download it:
+// .../d/<tok>").
 func linksFromBody(body string) []string {
 	var links []string
 	for _, line := range strings.Split(body, "\n") {
@@ -173,8 +174,11 @@ func TestWorkerFlowEndToEndThroughRouter(t *testing.T) {
 		t.Fatalf("expected original+preview assets, got %+v", detail.Assets)
 	}
 
-	// The notifier really emailed the recipient a working view + download
-	// link - fetch both through the public, cookie-less routes.
+	// The notifier really emailed the recipient a working view (frontend
+	// page) + download link. There's no frontend build in this test harness
+	// to render the view link itself, so verify its token is genuine by
+	// resolving it against the same public /p/{token} route the frontend
+	// page would call, then fetch the download link directly.
 	cm.mu.Lock()
 	lastBody := cm.sent[len(cm.sent)-1].Text
 	cm.mu.Unlock()
@@ -182,9 +186,16 @@ func TestWorkerFlowEndToEndThroughRouter(t *testing.T) {
 	if len(links) != 2 {
 		t.Fatalf("expected 2 links (view, download) in notifier email, got %v", links)
 	}
+	viewLink, dlLink := links[0], links[1]
+
+	viewPrefix := srv.URL + "/preview/"
+	if !strings.HasPrefix(viewLink, viewPrefix) {
+		t.Fatalf("view link = %q, want prefix %q", viewLink, viewPrefix)
+	}
+	viewTok := strings.TrimPrefix(viewLink, viewPrefix)
 
 	anon := &http.Client{}
-	for _, link := range links {
+	for _, link := range []string{srv.URL + "/p/" + viewTok, dlLink} {
 		r, err := anon.Get(link)
 		if err != nil {
 			t.Fatalf("GET %s: %v", link, err)
