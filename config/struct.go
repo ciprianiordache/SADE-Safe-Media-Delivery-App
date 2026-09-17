@@ -93,6 +93,15 @@ type ServerConfig struct {
 	MaxHeaderBytes     int       `yaml:"max_header_bytes" env:"SERVER_MAX_HEADER_BYTES" default:"1048576"` // 1 MiB
 	CORSAllowedOrigins []string  `yaml:"cors_allowed_origins" env:"SERVER_CORS_ALLOWED_ORIGINS" default:"http://localhost:5173"`
 	TLS                TLSConfig `yaml:"tls"`
+	// TrustedProxies lists the CIDRs (or bare IPs) whose X-Forwarded-For and
+	// X-Forwarded-Proto headers may be believed. It only ever applies to the
+	// immediate peer: a request arriving straight from the internet is read
+	// from RemoteAddr no matter what headers it carries, so an attacker
+	// cannot forge a client IP past the auth rate limiter. The default is
+	// loopback only, which is what a local terminator - cloudflared, nginx,
+	// Caddy - connects from; a process on this machine is the only thing it
+	// lets spoof, and that process already has the config and the database.
+	TrustedProxies []string `yaml:"trusted_proxies" env:"SERVER_TRUSTED_PROXIES" default:"127.0.0.1/32,::1/128"`
 }
 
 // TLSConfig configures optional inbound TLS. None of these are secret values

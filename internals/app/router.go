@@ -29,8 +29,13 @@ type Deps struct {
 }
 
 // NewRouter builds the application's HTTP handler: routes plus the global
-// middleware chain (Recover -> RequestLog -> CORS -> Auth -> routes).
+// middleware chain (Recover -> RequestLog -> SecurityHeaders -> CORS ->
+// Auth -> routes).
 func NewRouter(d Deps) http.Handler {
+	// Who to believe about the client's IP and scheme when a TLS terminator
+	// sits in front of us - see proxy.go.
+	trust := newProxyTrust(d.Cfg.Server.TrustedProxies)
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", healthz)
@@ -38,7 +43,7 @@ func NewRouter(d Deps) http.Handler {
 	// Public auth endpoints. /request is rate-limited per client IP - it
 	// emails a link on every well-formed address, so it's the one route an
 	// attacker could otherwise use to spam a mailbox or hammer the DB.
-	mux.Handle("POST /api/auth/request", RateLimit(d.AuthRateLimiter)(http.HandlerFunc(d.Auth.RequestLink)))
+	mux.Handle("POST /api/auth/request", RateLimit(d.AuthRateLimiter, trust)(http.HandlerFunc(d.Auth.RequestLink)))
 	mux.HandleFunc("GET /api/auth/callback", d.Auth.Callback)
 	mux.HandleFunc("POST /api/auth/logout", d.Auth.Logout)
 
@@ -88,7 +93,8 @@ func NewRouter(d Deps) http.Handler {
 
 	return chain(mux,
 		Recover(d.Log),
-		RequestLog(d.Log),
+		RequestLog(d.Log, trust),
+		SecurityHeaders(trust),
 		CORS(d.Cfg.Server.CORSAllowedOrigins),
 		Auth(d.AuthSvc, d.Cfg.Auth.SessionCookieName),
 	)

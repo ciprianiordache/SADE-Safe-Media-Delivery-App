@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
 	"runtime/debug"
 	"slices"
@@ -87,7 +86,7 @@ func RequireRole(roles ...string) middleware {
 }
 
 // RequestLog logs one line per request with status and duration.
-func RequestLog(log *slog.Logger) middleware {
+func RequestLog(log *slog.Logger, trust proxyTrust) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -97,7 +96,7 @@ func RequestLog(log *slog.Logger) middleware {
 				"method", r.Method, "path", r.URL.Path,
 				"status", sw.status, "bytes", sw.bytes,
 				"duration_ms", time.Since(start).Milliseconds(),
-				"remote", r.RemoteAddr,
+				"remote", trust.clientIP(r),
 			)
 		})
 	}
@@ -144,14 +143,18 @@ func CORS(allowed []string) middleware {
 	}
 }
 
-// RateLimit rejects a request with 429 once clientIP has hit limiter's cap
+// RateLimit rejects a request with 429 once its client has hit limiter's cap
 // within its window - wraps a single route (POST /api/auth/request), not
 // the global chain, since it's the one endpoint that both emails someone
 // and reveals account existence via timing/side effects otherwise.
-func RateLimit(limiter *ratelimit.Limiter) middleware {
+//
+// trust resolves who "its client" is: behind a TLS terminator every request
+// arrives from loopback, so without it the per-IP cap would be one global
+// bucket shared by the whole internet.
+func RateLimit(limiter *ratelimit.Limiter, trust proxyTrust) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !limiter.Allow(clientIP(r)) {
+			if !limiter.Allow(trust.clientIP(r)) {
 				httpx.Error(w, http.StatusTooManyRequests, "too many requests, try again later")
 				return
 			}
@@ -160,17 +163,24 @@ func RateLimit(limiter *ratelimit.Limiter) middleware {
 	}
 }
 
-// clientIP extracts the host portion of r.RemoteAddr, falling back to the
-// raw value if it isn't a host:port pair. SADE isn't deployed behind a
-// reverse proxy yet, so there's no X-Forwarded-For to trust (and trusting
-// one from an untrusted client would defeat the limiter entirely) - revisit
-// if that changes.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+// SecurityHeaders sets the response headers that are the same on every
+// route. HSTS is conditional: it is only meaningful - and only safe - once
+// the client actually reached us over HTTPS, so it is keyed on the
+// forwarded scheme rather than sent unconditionally, which would otherwise
+// pin a plain-HTTP dev host to a scheme it cannot serve.
+func SecurityHeaders(trust proxyTrust) middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := w.Header()
+			h.Set("X-Content-Type-Options", "nosniff")
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			if trust.scheme(r) == "https" {
+				h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
-	return host
 }
 
 // statusWriter records the status code and byte count for RequestLog.

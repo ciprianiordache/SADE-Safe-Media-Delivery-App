@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -357,6 +358,13 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Server.TLS.Enabled && (cfg.Server.TLS.CertFile == "" || cfg.Server.TLS.KeyFile == "") {
 		add("server.tls.enabled is true but cert_file/key_file are not both set")
+	}
+	for _, p := range cfg.Server.TrustedProxies {
+		if _, err := netip.ParsePrefix(p); err != nil {
+			if _, aerr := netip.ParseAddr(p); aerr != nil {
+				add("server.trusted_proxies entry %q is not an IP or CIDR", p)
+			}
+		}
 	}
 	if !oneOf(cfg.Database.Driver, "pgx", "postgres") {
 		add("database.driver %q must be pgx or postgres", cfg.Database.Driver)

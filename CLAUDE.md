@@ -102,16 +102,18 @@ the preview of their own upload, session-authenticated, from the job detail page
   frontend outright, which is what `PaymentForm.svelte` needs to call `loadStripe(...)`.
 - **`internals/app/magic_token/` + `internals/app/session/`** — repos (`Consume` is atomic
   delete-on-use; `GetByHash` / `Delete`).
-- **`internals/app/router.go` + `middleware.go`** — central mux, `Recover`/`RequestLog`/`CORS`/`Auth`
-  chain, `RequireUser` / `RequireRole`, `UserFrom(ctx)`, `GET /api/me`. The `operator` wrapper
+- **`internals/app/router.go` + `middleware.go`** — central mux, `Recover`/`RequestLog`/
+  `SecurityHeaders`/`CORS`/`Auth` chain, `RequireUser` / `RequireRole`, `UserFrom(ctx)`, `GET /api/me`. The `operator` wrapper
   guards the `/api/jobs*` routes with `RequireUser` and passes the operator id down via
   `job.WithUserID(ctx, id)` (keeps `job` from importing the auth layer). `GET /p/{token}` and
   `GET /d/{token}` are public (no cookie) — the signed token in the path is the whole authz.
   `POST /api/auth/request` alone is wrapped in `RateLimit(d.AuthRateLimiter)` (per-route, not the
   global chain - it's the one endpoint that emails on every well-formed address, so it's the one
-  an attacker could use to spam a mailbox or hammer the DB): `middleware.clientIP` reads
-  `r.RemoteAddr`'s host (no `X-Forwarded-For` trust - SADE isn't behind a reverse proxy yet) and a
-  cap hit returns 429.
+  an attacker could use to spam a mailbox or hammer the DB): the client is resolved by
+  `proxy.go`'s `proxyTrust.clientIP` (the forwarded client when the peer is one of
+  `Server.TrustedProxies`, the raw `r.RemoteAddr` host otherwise) and a cap hit returns 429. The
+  global chain also carries `SecurityHeaders` (nosniff / `X-Frame-Options` / `Referrer-Policy`,
+  plus HSTS only when the forwarded scheme is https).
   `internals/app/static.go` (`spaFileServer` + `hasFrontendBuild`) registers `mux.Handle("/", …)`
   last, serving `Cfg.App.FrontendDir` (default `./frontend/build`) with adapter-static's
   `index.html` fallback for client-side routes; it 404s (never the shell) for an unmatched path
@@ -153,7 +155,69 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Last shipped:** fixed the emailed logo not loading, reported right after the HTML-email work
+**Last shipped:** HTTPS. The user's report was the browser's "conexiune nesecurizată" on
+`http://192.168.1.179:8080` (the LAN address the app had been demoed from). The TLS listener
+itself already existed and was never the gap - `config.ServerConfig.TLS` +
+`internals/server.Start`'s `tls.NewListener` (`internals/server/main.go:62`) have been there since
+M0. What was missing was a *certificate* anyone would trust and, more importantly, correct
+behaviour once something else terminates TLS in front of the app. Chosen approach, asked first and
+picked by the user out of {Cloudflare tunnel, self-signed LAN cert, Let's Encrypt on a real
+domain}: **a Cloudflare tunnel**. A self-signed cert for a LAN IP fixes "insecure" only
+technically - every device still warns until its CA store is edited by hand, which on a phone is
+the worst possible dev loop; a tunnel gets a real, publicly trusted cert on every device with
+nothing installed on them, and as a bonus gives Stripe's webhook a reachable URL (see the
+`payment` bullet: local dev has been leaning on `Status`'s own reconciliation for exactly this
+reason).
+
+The code work is the proxy-awareness that a terminator forces, not the TLS:
+
+- **`internals/app/proxy.go`** (new) - `proxyTrust`, parsed once in `NewRouter` from
+  `Server.TrustedProxies`. `clientIP(r)` returns the forwarded client when the *immediate peer* is
+  a trusted proxy and the raw peer otherwise; the `X-Forwarded-For` chain is walked right to left
+  and stops at the first hop that isn't itself a trusted proxy. `scheme(r)` does the same for
+  `X-Forwarded-Proto` (and `r.TLS != nil` when SADE terminates TLS itself). Trust is never
+  extended past the peer, so headers are never a way to forge an identity.
+- **The bug this fixes**: `middleware.clientIP` read `r.RemoteAddr` and explicitly said "SADE
+  isn't deployed behind a reverse proxy yet". Behind any terminator every request arrives from
+  loopback, so the per-IP cap on `POST /api/auth/request` would have collapsed into a single
+  global bucket - 5 requests per 15 minutes for the entire internet. `RateLimit` and `RequestLog`
+  now both take a `proxyTrust`.
+- **`config.ServerConfig.TrustedProxies`** (`SERVER_TRUSTED_PROXIES`, default
+  `127.0.0.1/32,::1/128`). Defaulting to loopback rather than empty is deliberate: the only thing
+  that can exploit it is a process on this machine, which already has the config and the database,
+  and it makes every tunnel/nginx/Caddy deployment correct with no extra step. `config.Validate`
+  rejects an entry that is neither an IP nor a CIDR.
+- **`SecurityHeaders` middleware** (in the global chain, between `RequestLog` and `CORS`):
+  `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, and HSTS
+  **only when `trust.scheme(r) == "https"`** - sending it unconditionally would pin a plain-HTTP
+  dev host to a scheme it cannot serve. Deliberately no CSP yet: Stripe Elements needs
+  `js.stripe.com` in `script-src`/`frame-src` and getting that wrong silently breaks card entry,
+  so it wants its own pass.
+- **`scripts/tunnel.ps1`** (new) starts `cloudflared tunnel --url`, waits for the assigned
+  `*.trycloudflare.com` hostname, and writes it into `.env` as `APP_PUBLIC_URL` /
+  `APP_FRONTEND_URL` / `SERVER_CORS_ALLOWED_ORIGINS` plus `AUTH_SESSION_COOKIE_SECURE=true`,
+  updating those keys in place and leaving every other line (the secrets) untouched. Ordering
+  matters and the script's doc comment says so: `APP_PUBLIC_URL` is baked into every emailed
+  magic-link and share link, so it has to be right *before* the app starts, not after.
+- Nothing changed in the frontend: `api.ts`'s `API_BASE` is already `''` in the production build
+  (same origin), which is exactly what the tunnel serves.
+
+New tests in `internals/app/proxy_test.go`: spoofed `X-Forwarded-For` from an untrusted peer is
+ignored, the same header from loopback is honoured, the chain is walked from the right past
+trusted hops, `X-Forwarded-Proto` is only believed from a trusted peer, HSTS appears only on a
+forwarded-https request, and the rate limiter keys per forwarded client rather than collapsing.
+Verified live, not just in tests: `cloudflared` installed via winget, `scripts/tunnel.ps1` ran and
+produced a working `https://...trycloudflare.com` that returned 200 from `/healthz` through a real
+Cloudflare certificate, and the new binary confirmed on a second port that HSTS is absent on a
+plain request, present on an `X-Forwarded-Proto: https` one, and that a forwarded client IP
+(`198.51.100.77`) reaches the request log in place of `::1`.
+
+**Still open here:** a CSP (see above), and `config.yaml` at the repo root still carries the old
+`public_url: http://192.168.1.179:8080` / `session_cookie_secure: false` - `.env` overrides both
+(defaults < YAML < env) and the tunnel script writes `.env`, so this is stale rather than wrong,
+but it is the value any run without the script falls back to.
+
+**Before that:** fixed the emailed logo not loading, reported right after the HTML-email work
 below shipped. Cause: the `<img>` pointed at `PublicURL/logo.png` (`PublicURL` is currently this
 dev machine's LAN address, `192.168.1.179:8080` - see the LAN-access entry further down), and
 Gmail (like most webmail) never fetches a remote image directly - it routes every one through
@@ -400,6 +464,11 @@ Go (from repo root):
 - `go run ./cmd/watermark -in FILE [-out FILE] [-kind logo|text|both] [-text "..."]` — apply the
   watermark to one file with a live progress bar. Manual test of `internals/ffmpeg`; needs
   `ffmpeg`/`ffprobe` on PATH.
+- `./scripts/tunnel.ps1` - starts a Cloudflare quick tunnel, writes the resulting
+  `https://*.trycloudflare.com` URL into `.env` (`APP_PUBLIC_URL`, `APP_FRONTEND_URL`,
+  `SERVER_CORS_ALLOWED_ORIGINS`, `AUTH_SESSION_COOKIE_SECURE`), then leave it running and
+  `go run .` in another terminal. Needs `winget install --id Cloudflare.cloudflared` once.
+  `-NoEnvUpdate` prints the URL without touching `.env`.
 - To exercise the real Stripe unlock (not just the mocked-backend tests): set `STRIPE_SECRET_KEY`
   (a `sk_test_...` key) before `go run .`. For webhook-driven confirmation too (`Service.Status`'s
   own reconciliation covers a single local tester without this): `stripe listen --forward-to

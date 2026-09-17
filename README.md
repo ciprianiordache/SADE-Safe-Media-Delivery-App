@@ -102,6 +102,63 @@ prints the `whsec_...` value to set. A single local tester doesn't strictly
 need this — `payment.Service.Status` reconciles a still-pending payment
 against Stripe directly on the recipient's own page load.
 
+### HTTPS
+
+The browser marks `http://` as "not secure", and some of the app genuinely
+needs a secure origin to behave: the session cookie is only worth marking
+`Secure` over HTTPS, and Stripe refuses to collect card details on a plain
+page outside `localhost`. Testing on a LAN address (a phone pointed at
+`http://192.168.1.x:8080`) hits both.
+
+**Recommended locally: a Cloudflare quick tunnel.** It terminates TLS at
+Cloudflare's edge with a real, publicly trusted certificate and forwards to
+the local server, so every device works with nothing installed on it —
+unlike a self-signed certificate, whose CA has to be trusted per device.
+
+```powershell
+winget install --id Cloudflare.cloudflared   # once
+./scripts/tunnel.ps1                         # leave running
+go run .                                     # in a second terminal
+```
+
+`scripts/tunnel.ps1` waits for the `https://<random>.trycloudflare.com`
+hostname Cloudflare assigns and writes it into `.env` as `APP_PUBLIC_URL`,
+`APP_FRONTEND_URL` and `SERVER_CORS_ALLOWED_ORIGINS`, plus
+`AUTH_SESSION_COOKIE_SECURE=true`. Those must be set **before** the app
+starts: `APP_PUBLIC_URL` is what goes into every emailed magic-link and
+share link, so a stale value emails links pointing at the old address. Pass
+`-NoEnvUpdate` to print the URL without touching `.env`.
+
+A quick tunnel gets a new hostname on every run. For a stable one — which a
+Stripe webhook endpoint needs, since it is registered once in the Stripe
+dashboard — use a named tunnel on a Cloudflare-managed domain
+(`cloudflared tunnel create sade` / `route dns` / `run`).
+
+**Terminating TLS in the Go server instead** (a real certificate, or a
+self-signed one for a LAN IP) needs no tunnel:
+
+```
+SERVER_TLS_ENABLED=true
+SERVER_TLS_CERT_FILE=/path/fullchain.pem
+SERVER_TLS_KEY_FILE=/path/privkey.pem
+```
+
+#### Behind a proxy
+
+Whenever something else terminates TLS, requests reach the Go server from
+loopback over plain HTTP, with the real client in `X-Forwarded-For` and the
+real scheme in `X-Forwarded-Proto`. `SERVER_TRUSTED_PROXIES` (default
+`127.0.0.1/32,::1/128`) lists the peers whose forwarded headers are
+believed; anything else is read from the connection itself, so a client
+reaching the server directly can never forge an address past the
+`POST /api/auth/request` rate limiter. Set it to your terminator's address
+if it is not on this machine, or to nothing at all to disable the trust.
+
+Note that a terminator does not make the local hop HTTPS. `Secure` cookies
+and the HSTS header are keyed on the *forwarded* scheme, which is why
+`AUTH_SESSION_COOKIE_SECURE=true` is correct behind a tunnel even though
+the server itself is answering plain HTTP.
+
 ## Commands
 
 ```bash
