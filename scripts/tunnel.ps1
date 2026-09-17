@@ -58,7 +58,12 @@ function Set-EnvValue {
         if ($line -match $pattern) { $found = $true; "$Key=$Value" } else { $line }
     }
     if (-not $found) { $out = @($out) + "$Key=$Value" }
-    Set-Content -Path $Path -Value $out -Encoding utf8
+    # Windows PowerShell 5.1's Set-Content -Encoding utf8 writes a BOM,
+    # which the app's .env parser (joho/godotenv) does not accept - it
+    # failed to start with "unexpected character ... in variable name"
+    # the first time this ran. Write UTF-8 without a BOM directly instead.
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($Path, $out, $utf8NoBom)
 }
 
 $log = Join-Path ([System.IO.Path]::GetTempPath()) ("sade-tunnel-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
