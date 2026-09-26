@@ -11,6 +11,24 @@ gets emailed a `/p/<token>` (view) and `/d/<token>` (download) link to the
 preview → they can pay to unlock the original via a third signed link,
 `/o/<token>`.
 
+## Screenshots
+
+**Operator dashboard** — upload form, plus a searchable, filterable job list
+with live status.
+
+![Operator dashboard](docs/dashboard.png)
+
+**Job detail** — status stepper, an inline player for the operator's own
+files, and file metadata.
+
+![Job detail](docs/job.png)
+
+**Recipient preview** — the public, login-free page a recipient lands on from
+the email: the watermarked preview next to an embedded Stripe Payment Element
+to unlock the clean original.
+
+![Recipient preview](docs/preview.png)
+
 ## Architecture at a glance
 
 - **Backend**: Go, no ORM. `internals/database` wraps two libraries over the

@@ -155,6 +155,12 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
+**Latest:** portfolio screenshots taken from the `cmd/seed` demo dataset (app run on localhost with
+`MAILER_TRANSPORT=log` and `APP_PUBLIC_URL`/`AUTH_SESSION_COOKIE_SECURE` overridden via process
+env, which `godotenv` never clobbers, so `.env`'s tunnel values stayed untouched) and embedded in
+`README.md`'s new "Screenshots" section: `docs/dashboard.png`, `docs/job.png` (job detail),
+`docs/preview.png` (recipient `/preview/[token]` page with the Stripe Payment Element).
+
 **Last shipped:** HTTPS. The user's report was the browser's "conexiune nesecurizată" on
 `http://192.168.1.179:8080` (the LAN address the app had been demoed from). The TLS listener
 itself already existed and was never the gap - `config.ServerConfig.TLS` +
