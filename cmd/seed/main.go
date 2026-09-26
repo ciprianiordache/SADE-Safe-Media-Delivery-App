@@ -5,14 +5,15 @@
 //	go run ./cmd/seed            # wipe + seed (asks for no confirmation)
 //	go run ./cmd/seed -links     # print /preview links for the done jobs
 //
-// Seeding generates its media locally with ffmpeg's synthetic sources
-// (mandelbrot, gradients, sine), then uploads each file through the real
-// job.Service.Create path, so every original is a genuine, ffprobe-verified
-// asset. The jobs meant to end up "done" are left pending for the app's own
+// Seeding generates its image/audio locally with ffmpeg's synthetic sources
+// (mandelbrot, gradients, sine), copies the sample clip for video, then
+// uploads each file through the real job.Service.Create path, so every
+// original is a genuine, ffprobe-verified asset. The jobs meant to end up "done" are left pending for the app's own
 // worker to watermark on its next start; the rest are pinned to their demo
 // status (failed / processing / pending-far-in-the-future) so the worker
-// never touches them. Recipients of the non-final jobs use example.com, so a
-// later run with a real SMTP transport cannot email a stranger.
+// never touches them. Every address, the operator's included, is on
+// example.com, so even a run with a real SMTP transport cannot email anyone.
+// Video jobs are copies of docs/test.mp4; run from the repo root.
 package main
 
 import (
@@ -51,44 +52,49 @@ type demo struct {
 }
 
 var (
-	vid = func(src string) []string {
-		return []string{"-f", "lavfi", "-i", src, "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=44100", "-t", "8",
-			"-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"}
-	}
+	// Every video job is a stream copy of the checked-in sample clip, so the
+	// dashboard and preview player show real footage rather than a fractal.
+	vid = func() []string { return []string{"-i", sampleVideo, "-c", "copy"} }
 	img = func(src string) []string { return []string{"-f", "lavfi", "-i", src, "-frames:v", "1"} }
 	aud = func(expr string) []string { return []string{"-f", "lavfi", "-i", expr, "-t", "20"} }
 )
 
 var demos = []demo{
-	{file: "brand-film-final-v3.mp4", recipient: "andreea.munteanu@studionord.ro", kind: job.WatermarkBoth, status: job.StatusDone, age: 14 * time.Minute, attempts: 1,
-		gen: vid("mandelbrot=size=1280x720:rate=25:maxiter=4096")},
-	{file: "drone-coastline-constanta.mp4", recipient: "mihai.dobre@bluewave.media", kind: job.WatermarkLogo, status: job.StatusDone, age: 3 * time.Hour, attempts: 1, paid: true,
-		gen: vid("gradients=size=1280x720:rate=25:speed=0.03:n=5:seed=7")},
-	{file: "podcast-ep12-master.wav", recipient: "irina.stan@vocea.fm", kind: job.WatermarkBoth, status: job.StatusDone, age: 9 * time.Hour, attempts: 1,
+	{file: "brand-film-final-v3.mp4", recipient: "andreea.munteanu@example.com", kind: job.WatermarkBoth, status: job.StatusDone, age: 14 * time.Minute, attempts: 1,
+		gen: vid()},
+	{file: "drone-coastline-constanta.mp4", recipient: "mihai.dobre@example.com", kind: job.WatermarkLogo, status: job.StatusDone, age: 3 * time.Hour, attempts: 1, paid: true,
+		gen: vid()},
+	{file: "podcast-ep12-master.wav", recipient: "irina.stan@example.com", kind: job.WatermarkBoth, status: job.StatusDone, age: 9 * time.Hour, attempts: 1,
 		gen: aud("aevalsrc=0.25*sin(2*PI*330*t)*(0.6+0.4*sin(2*PI*0.5*t))|0.25*sin(2*PI*440*t)*(0.6+0.4*sin(2*PI*0.3*t)):s=44100")},
-	{file: "campaign-poster-a2.png", recipient: "radu.ionescu@agentiaverde.ro", kind: job.WatermarkText, text: "CONFIDENTIAL · Agentia Verde", status: job.StatusDone, age: 26 * time.Hour, attempts: 1, paid: true,
+	{file: "campaign-poster-a2.png", recipient: "radu.ionescu@example.com", kind: job.WatermarkText, text: "CONFIDENTIAL · Agentia Verde", status: job.StatusDone, age: 26 * time.Hour, attempts: 1, paid: true,
 		gen: img("mandelbrot=size=1600x1000:start_scale=1.2:maxiter=2048")},
-	{file: "headshot-elena-retouched.jpg", recipient: "elena.vasile@portofoliu.ro", kind: job.WatermarkBoth, status: job.StatusDone, age: 2*24*time.Hour + 5*time.Hour, attempts: 1,
+	{file: "headshot-elena-retouched.jpg", recipient: "elena.vasile@example.com", kind: job.WatermarkBoth, status: job.StatusDone, age: 2*24*time.Hour + 5*time.Hour, attempts: 1,
 		gen: img("gradients=size=1200x1500:n=4:seed=21")},
-	{file: "jingle-radio-30s.mp3", recipient: "contact@radiocluj.ro", kind: job.WatermarkLogo, status: job.StatusDone, age: 4 * 24 * time.Hour, attempts: 2,
+	{file: "jingle-radio-30s.mp3", recipient: "contact@example.com", kind: job.WatermarkLogo, status: job.StatusDone, age: 4 * 24 * time.Hour, attempts: 2,
 		gen: aud("aevalsrc=0.3*sin(2*PI*(262+131*floor(mod(t*2\\,4)))*t):s=44100")},
-	{file: "product-teaser-60s.mp4", recipient: "cristina.pop@lumenstudio.ro", kind: job.WatermarkText, text: "Preview · Lumen Studio", status: job.StatusDone, age: 6 * 24 * time.Hour, attempts: 1,
-		gen: vid("gradients=size=1280x720:rate=25:speed=0.05:n=3:seed=3")},
-	{file: "label-mockup-v2.webp", recipient: "office@cramadealu.ro", kind: job.WatermarkLogo, status: job.StatusDone, age: 9 * 24 * time.Hour, attempts: 1,
+	{file: "product-teaser-60s.mp4", recipient: "cristina.pop@example.com", kind: job.WatermarkText, text: "Preview · Lumen Studio", status: job.StatusDone, age: 6 * 24 * time.Hour, attempts: 1,
+		gen: vid()},
+	{file: "label-mockup-v2.webp", recipient: "office@example.com", kind: job.WatermarkLogo, status: job.StatusDone, age: 9 * 24 * time.Hour, attempts: 1,
 		gen: img("mandelbrot=size=1400x900:start_x=-0.743643887037151:start_y=0.13182590420533:start_scale=0.005:maxiter=4096")},
 	{file: "wedding-highlights-4k.mp4", recipient: "ana.georgescu@example.com", kind: job.WatermarkBoth, status: job.StatusProcessing, age: 2 * time.Minute, attempts: 1,
-		gen: vid("mandelbrot=size=1280x720:rate=25:start_scale=2:maxiter=2048")},
+		gen: vid()},
 	{file: "interview-raw-take4.mov", recipient: "bogdan.marin@example.com", kind: job.WatermarkBoth, status: job.StatusPending, age: 40 * time.Second,
-		gen: vid("gradients=size=1280x720:rate=25:speed=0.02:n=6:seed=11")},
+		gen: vid()},
 	{file: "concert-live-sala-palatului.mp4", recipient: "tickets@example.com", kind: job.WatermarkText, text: "Live · Sala Palatului", status: job.StatusFailed, age: 30 * time.Hour, attempts: 4,
 		errMsg: "watermark: ffmpeg exited with status 1: Invalid data found when processing input",
-		gen:    vid("gradients=size=1280x720:rate=25:speed=0.04:n=2:seed=5")},
+		gen:    vid()},
 	{file: "voiceover-spot-tv.flac", recipient: "studio@example.com", kind: job.WatermarkLogo, status: job.StatusFailed, age: 3*24*time.Hour + 2*time.Hour, attempts: 4,
 		errMsg: "watermark: context deadline exceeded",
 		gen:    aud("sine=frequency=523:sample_rate=44100")},
 }
 
-const operatorEmail = "ciipriian5521@gmail.com"
+// Every address in the demo - the operator included - is on example.com
+// (RFC 2606, reserved: no mailbox can exist there), so no seeded row can
+// ever cause mail to reach a real person, whatever transport the app runs.
+const (
+	operatorEmail = "operator@example.com"
+	sampleVideo   = "docs/test.mp4"
+)
 
 func main() {
 	links := flag.Bool("links", false, "print /preview links for done jobs instead of seeding")

@@ -471,11 +471,14 @@ Go (from repo root):
   watermark to one file with a live progress bar. Manual test of `internals/ffmpeg`; needs
   `ffmpeg`/`ffprobe` on PATH.
 - `go run ./cmd/seed` - **destructive**: `TRUNCATE`s every table and deletes `originals/`+`previews/`
-  from storage, then seeds a demo dataset for screenshots: operator `ciipriian5521@gmail.com`, 12 jobs
-  (media generated with ffmpeg's `mandelbrot`/`gradients`/`aevalsrc` sources, uploaded through the real
+  from storage, then seeds a demo dataset for screenshots: operator `operator@example.com`, 12 jobs
+  (video jobs are stream copies of the checked-in `docs/test.mp4` - run from the repo root; image/audio
+  generated with ffmpeg's `mandelbrot`/`gradients`/`aevalsrc` sources; all uploaded through the real
   `job.Service.Create`), 2 `paid` payments. The 8 "done" jobs are left `pending` for the app's own
   worker to watermark on next start; failed/processing/pending demo rows are pinned with
-  `next_attempt_at` a year out, and their recipients are `@example.com`. `-links` prints signed
+  `next_attempt_at` a year out. **Every** seeded address - operator and all recipients - is on
+  `example.com` (RFC 2606 reserved), so no transport can ever mail a real person; log in by requesting
+  a link for `operator@example.com` with `MAILER_TRANSPORT=log` and taking it from the log. `-links` prints signed
   `/preview/<token>` URLs for every preview asset. Run the app for a demo with
   `MAILER_TRANSPORT=log` so the worker's preview-ready mail to the dummy recipients is only logged.
   Audio jobs need `assets/watermark/audio.mp3` (gitignored, per-deployment like the logo/font) - it
