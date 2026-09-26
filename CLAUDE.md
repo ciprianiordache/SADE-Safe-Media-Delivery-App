@@ -464,6 +464,16 @@ Go (from repo root):
 - `go run ./cmd/watermark -in FILE [-out FILE] [-kind logo|text|both] [-text "..."]` — apply the
   watermark to one file with a live progress bar. Manual test of `internals/ffmpeg`; needs
   `ffmpeg`/`ffprobe` on PATH.
+- `go run ./cmd/seed` - **destructive**: `TRUNCATE`s every table and deletes `originals/`+`previews/`
+  from storage, then seeds a demo dataset for screenshots: operator `ciipriian5521@gmail.com`, 12 jobs
+  (media generated with ffmpeg's `mandelbrot`/`gradients`/`aevalsrc` sources, uploaded through the real
+  `job.Service.Create`), 2 `paid` payments. The 8 "done" jobs are left `pending` for the app's own
+  worker to watermark on next start; failed/processing/pending demo rows are pinned with
+  `next_attempt_at` a year out, and their recipients are `@example.com`. `-links` prints signed
+  `/preview/<token>` URLs for every preview asset. Run the app for a demo with
+  `MAILER_TRANSPORT=log` so the worker's preview-ready mail to the dummy recipients is only logged.
+  Audio jobs need `assets/watermark/audio.mp3` (gitignored, per-deployment like the logo/font) - it
+  was missing on this machine, so every audio upload failed until a short chime was generated there.
 - `./scripts/tunnel.ps1` - starts a Cloudflare quick tunnel, writes the resulting
   `https://*.trycloudflare.com` URL into `.env` (`APP_PUBLIC_URL`, `APP_FRONTEND_URL`,
   `SERVER_CORS_ALLOWED_ORIGINS`, `AUTH_SESSION_COOKIE_SECURE`), then leave it running and
