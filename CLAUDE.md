@@ -159,7 +159,9 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 `MAILER_TRANSPORT=log` and `APP_PUBLIC_URL`/`AUTH_SESSION_COOKIE_SECURE` overridden via process
 env, which `godotenv` never clobbers, so `.env`'s tunnel values stayed untouched) and embedded in
 `README.md`'s new "Screenshots" section: `docs/dashboard.png`, `docs/job.png` (job detail),
-`docs/preview.png` (recipient `/preview/[token]` page with the Stripe Payment Element).
+`docs/preview.png` (recipient `/preview/[token]` page with the Stripe Payment Element), and
+`docs/unlocked.png` (the same page after payment, "Download the original"). Retaken after the seed switched
+its video jobs to `docs/test.mp4` and every address to `@example.com`.
 
 **Last shipped:** HTTPS. The user's report was the browser's "conexiune nesecurizată" on
 `http://192.168.1.179:8080` (the LAN address the app had been demoed from). The TLS listener

@@ -29,6 +29,11 @@ to unlock the clean original.
 
 ![Recipient preview](docs/preview.png)
 
+**Original unlocked** — the same page once the payment clears: the recipient
+gets a download of the clean, unwatermarked original.
+
+![Original unlocked](docs/unlocked.png)
+
 ## Architecture at a glance
 
 - **Backend**: Go, no ORM. `internals/database` wraps two libraries over the
