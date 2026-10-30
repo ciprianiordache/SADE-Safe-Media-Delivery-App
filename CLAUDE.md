@@ -193,11 +193,12 @@ serviciu mai apropiat de un saas". What shipped, by finding:
   hashes of the inline scripts in `frontend/build/index.html`, read once at startup (restart after
   a frontend rebuild). Styles keep `'unsafe-inline'` (Svelte style attributes). Plus COOP,
   Permissions-Policy, and `Cache-Control: no-store` on `/api/*`. Verified live: confirm page and
-  dashboard render with zero console errors. **Not verified live:** the `/preview/[token]` page
-  with the Stripe Payment Element under the new CSP - minting a preview link needed
-  `go run ./cmd/seed -links`, which the auto-mode permission classifier blocked. Check it first
-  next time (Stripe's own CSP list was followed: js.stripe.com, *.js.stripe.com, hooks.stripe.com,
-  api.stripe.com).
+  dashboard render with zero console errors. `/preview/[token]` verified live too (user approved
+  running `go run ./cmd/seed -links`, which is read-only - it returns before the `TRUNCATE`):
+  the Stripe Payment Element mounts under the CSP (7 `js.stripe.com` frames, no CSP violations,
+  only Stripe's usual test-mode/HTTP warnings), a reload keeps one `payments` row (intent reused),
+  `POST /api/payments/checkout` on a paid job answers 409 `already paid`, and the paid job's page
+  shows "Original deblocat" with a working `/o/` link.
 - **CSRF (was low):** `OriginCheck(originGuard)` in the global chain (after CORS, before Auth):
   a POST/PUT/PATCH/DELETE whose `Origin` isn't PublicURL/FrontendURL/CORS list and whose
   `Sec-Fetch-Site` is `same-site`/`cross-site` (or has a foreign/`null` Origin with no
