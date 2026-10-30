@@ -39,7 +39,7 @@ func TestHandlerRequestLink(t *testing.T) {
 	}
 }
 
-func TestHandlerCallbackSetsCookieAndRedirects(t *testing.T) {
+func TestHandlerCallbackForwardsToConfirmWithoutSigningIn(t *testing.T) {
 	h, cm := newHandler(t)
 	if err := h.svc.RequestLink(context.Background(), "a@b.c"); err != nil {
 		t.Fatal(err)
@@ -53,8 +53,35 @@ func TestHandlerCallbackSetsCookieAndRedirects(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "http://app.test" {
-		t.Errorf("Location = %q, want http://app.test", loc)
+	if loc := w.Header().Get("Location"); loc != "http://app.test/auth/confirm#token="+tok {
+		t.Errorf("Location = %q", loc)
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Errorf("a GET must never sign anyone in")
+	}
+	// The token is still usable: the GET did not spend it.
+	if _, err := h.svc.Peek(context.Background(), tok); err != nil {
+		t.Errorf("token spent by GET callback: %v", err)
+	}
+}
+
+func TestHandlerVerifyThenComplete(t *testing.T) {
+	h, cm := newHandler(t)
+	if err := h.svc.RequestLink(context.Background(), "a@b.c"); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"token":"` + linkToken(t, cm) + `"}`
+
+	w := httptest.NewRecorder()
+	h.Verify(w, httptest.NewRequest(http.MethodPost, "/api/auth/verify", strings.NewReader(body)))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "a@b.c") {
+		t.Fatalf("verify = %d %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	h.Complete(w, httptest.NewRequest(http.MethodPost, "/api/auth/complete", strings.NewReader(body)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("complete = %d %s", w.Code, w.Body.String())
 	}
 	var sc *http.Cookie
 	for _, c := range w.Result().Cookies() {
@@ -64,6 +91,13 @@ func TestHandlerCallbackSetsCookieAndRedirects(t *testing.T) {
 	}
 	if sc == nil || sc.Value == "" || !sc.HttpOnly {
 		t.Fatalf("session cookie missing or not HttpOnly: %+v", sc)
+	}
+
+	// Single use.
+	w = httptest.NewRecorder()
+	h.Complete(w, httptest.NewRequest(http.MethodPost, "/api/auth/complete", strings.NewReader(body)))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("second complete = %d, want 400", w.Code)
 	}
 }
 

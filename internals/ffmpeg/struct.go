@@ -39,6 +39,10 @@ type Request struct {
 	Overlay    string // OverlayLogo | OverlayText | OverlayBoth (ignored for audio)
 	Text       string // text to burn in when Overlay includes text; caller renders any template
 
+	// textFile is set by Watermark to a temp file holding SanitizeText(Text);
+	// drawtext reads it from there (see visualFilter).
+	textFile string
+
 	// DurationSec, when > 0, lets Watermark report Percent without a
 	// second ffprobe call. The worker already has it from Probe.
 	DurationSec float64

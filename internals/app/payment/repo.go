@@ -16,6 +16,8 @@ type Repo interface {
 	// operator's own retried checkouts all point at the same job), or
 	// ErrNotFound if the job has none yet.
 	LatestByJob(jobID string) (*Payment, error)
+	// ListByJob returns every payment for a job, newest first ([] if none).
+	ListByJob(jobID string) ([]Payment, error)
 	// ByProviderRef looks a payment up by its Stripe Checkout Session id -
 	// the only handle the webhook payload carries.
 	ByProviderRef(ref string) (*Payment, error)
@@ -30,11 +32,13 @@ func (r *repo) Create(p *Payment) (string, error) {
 	return r.db.CRUD().Create(p)
 }
 
-func (r *repo) LatestByJob(jobID string) (*Payment, error) {
+// ListByJob returns every payment for a job, newest first, or an empty slice
+// if it has none.
+func (r *repo) ListByJob(jobID string) ([]Payment, error) {
 	var payments []Payment
 	err := r.db.CRUD().Read(Payment{}, "job_id", jobID, &payments)
-	if errors.Is(err, crud.ErrNotFound) || len(payments) == 0 {
-		return nil, ErrNotFound
+	if errors.Is(err, crud.ErrNotFound) {
+		return []Payment{}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -44,6 +48,17 @@ func (r *repo) LatestByJob(jobID string) (*Payment, error) {
 	sort.Slice(payments, func(i, j int) bool {
 		return payments[i].CreatedAt.After(payments[j].CreatedAt)
 	})
+	return payments, nil
+}
+
+func (r *repo) LatestByJob(jobID string) (*Payment, error) {
+	payments, err := r.ListByJob(jobID)
+	if err != nil {
+		return nil, err
+	}
+	if len(payments) == 0 {
+		return nil, ErrNotFound
+	}
 	return &payments[0], nil
 }
 

@@ -16,6 +16,10 @@ type Service interface {
 	// magic-link login.
 	EnsureByEmail(email string) (Response, error)
 	GetByID(id string) (Response, error)
+	// FindByEmail returns the account for email (normalised first), or
+	// ErrNotFound - unlike EnsureByEmail it never creates one. ErrInvalidInput
+	// for a malformed address.
+	FindByEmail(email string) (Response, error)
 	List(offset, limit int) ([]Response, error)
 	// SetRole changes an account's role (admin action). role must be a known
 	// Role* value.
@@ -57,6 +61,18 @@ func (s *service) EnsureByEmail(email string) (Response, error) {
 	}
 	u.ID = id
 	s.log.Info("user created", "id", id, "email", norm)
+	return toResponse(*u), nil
+}
+
+func (s *service) FindByEmail(email string) (Response, error) {
+	norm, err := normalizeEmail(email)
+	if err != nil {
+		return Response{}, err
+	}
+	u, err := s.repo.GetByEmail(norm)
+	if err != nil {
+		return Response{}, err
+	}
 	return toResponse(*u), nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"sade/config"
 	"sade/internals/app/asset"
@@ -39,6 +42,8 @@ type Service interface {
 	Asset(userID, jobID, assetID string) (asset.Asset, error)
 	// List returns the caller's jobs newest-first (without assets).
 	List(userID string, offset, limit int) ([]Response, error)
+	// Usage reports the caller's consumption against their quotas.
+	Usage(ctx context.Context, userID string) (Usage, error)
 }
 
 // NewUpload is the parsed POST /api/jobs request: the non-file fields plus the
@@ -83,6 +88,15 @@ func (s *service) Create(ctx context.Context, userID string, in NewUpload) (Resp
 	if err != nil {
 		return Response{}, err
 	}
+	text := strings.TrimSpace(in.WatermarkText)
+	if utf8.RuneCountInString(text) > ffmpeg.MaxTextRunes {
+		return Response{}, ErrInvalidInput
+	}
+	text = ffmpeg.SanitizeText(text)
+	opts := strings.TrimSpace(in.WatermarkOpts)
+	if opts != "" && (len(opts) > maxOptsBytes || !isJSONObject(opts)) {
+		return Response{}, ErrInvalidInput
+	}
 	kind := strings.TrimSpace(in.WatermarkKind)
 	if kind == "" {
 		kind = WatermarkBoth
@@ -99,6 +113,18 @@ func (s *service) Create(ctx context.Context, userID string, in NewUpload) (Resp
 	if maxBytes > 0 && in.DeclaredSize > maxBytes {
 		return Response{}, ErrFileTooLarge
 	}
+	usage, err := s.Usage(ctx, userID)
+	if err != nil {
+		return Response{}, err
+	}
+	if !usage.Unlimited {
+		if usage.JobsPerDay > 0 && usage.JobsLast24h >= usage.JobsPerDay {
+			return Response{}, ErrDailyLimit
+		}
+		if usage.StorageLimitBytes > 0 && usage.StorageBytes+in.DeclaredSize > usage.StorageLimitBytes {
+			return Response{}, ErrStorageQuota
+		}
+	}
 
 	j := &Job{
 		UserID:         userID,
@@ -106,8 +132,8 @@ func (s *service) Create(ctx context.Context, userID string, in NewUpload) (Resp
 		MediaType:      media,
 		RecipientEmail: recipient,
 		WatermarkKind:  kind,
-		WatermarkText:  strings.TrimSpace(in.WatermarkText),
-		WatermarkOpts:  strings.TrimSpace(in.WatermarkOpts),
+		WatermarkText:  text,
+		WatermarkOpts:  opts,
 	}
 	id, err := s.repo.Create(j)
 	if err != nil {
@@ -135,6 +161,13 @@ func (s *service) Create(ctx context.Context, userID string, in NewUpload) (Resp
 	case maxBytes > 0 && fi.Size > maxBytes:
 		s.rollback(ctx, id, key)
 		return Response{}, ErrFileTooLarge
+	}
+
+	// DeclaredSize is the client's word; re-check the quota against what
+	// was actually stored.
+	if !usage.Unlimited && usage.StorageLimitBytes > 0 && usage.StorageBytes+fi.Size > usage.StorageLimitBytes {
+		s.rollback(ctx, id, key)
+		return Response{}, ErrStorageQuota
 	}
 
 	if err := s.verifyMedia(ctx, key, media); err != nil {
@@ -228,6 +261,34 @@ func (s *service) List(userID string, offset, limit int) ([]Response, error) {
 		out[i] = toResponse(jobs[i])
 	}
 	return out, nil
+}
+
+func (s *service) Usage(ctx context.Context, userID string) (Usage, error) {
+	if quotaExempt(ctx) {
+		return Usage{Unlimited: true}, nil
+	}
+	jobs, err := s.repo.CountCreatedSince(userID, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		return Usage{}, err
+	}
+	used, err := s.repo.StorageBytes(userID)
+	if err != nil {
+		return Usage{}, err
+	}
+	return Usage{
+		JobsLast24h:       jobs,
+		JobsPerDay:        s.cfg.JobsPerDay,
+		StorageBytes:      used,
+		StorageLimitBytes: int64(s.cfg.StorageQuotaMiB) << 20,
+	}, nil
+}
+
+// maxOptsBytes bounds the watermarkOpts JSON an operator may store.
+const maxOptsBytes = 2048
+
+func isJSONObject(s string) bool {
+	var m map[string]any
+	return json.Unmarshal([]byte(s), &m) == nil
 }
 
 // verifyMedia ffprobes the just-stored blob and confirms its actual stream

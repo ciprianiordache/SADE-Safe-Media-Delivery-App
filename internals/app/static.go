@@ -11,7 +11,7 @@ import (
 // SPA shell - they belong to other handlers, and an unmatched route under
 // one of them (e.g. a typo'd /api/ call) should 404 as a miss, not silently
 // render index.html.
-var reservedPrefixes = []string{"/api/", "/p/", "/d/", "/healthz"}
+var reservedPrefixes = []string{"/api/", "/p/", "/d/", "/o/", "/healthz"}
 
 // spaFileServer serves a SvelteKit adapter-static build (fallback:
 // 'index.html') from dir: a request for a real file (JS/CSS/an image under

@@ -16,6 +16,9 @@ type Repo interface {
 	// Delete removes the session with the given hash. Deleting an unknown
 	// hash is not an error (logout is idempotent).
 	Delete(hash string) error
+	// DeleteByUser drops every session a user has (sign out everywhere,
+	// role change). No sessions is not an error.
+	DeleteByUser(userID string) error
 }
 
 type repo struct {
@@ -42,6 +45,14 @@ func (r *repo) GetByHash(hash string) (*Session, error) {
 
 func (r *repo) Delete(hash string) error {
 	err := r.db.CRUD().Delete(Session{}, "token_hash", hash)
+	if err == nil || errors.Is(err, crud.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+func (r *repo) DeleteByUser(userID string) error {
+	err := r.db.CRUD().Delete(Session{}, "user_id", userID)
 	if err == nil || errors.Is(err, crud.ErrNotFound) {
 		return nil
 	}

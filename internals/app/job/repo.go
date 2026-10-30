@@ -27,6 +27,11 @@ type Repo interface {
 	Update(j *Job) error
 	Delete(id string) error
 
+	// CountCreatedSince counts userID's jobs created at or after since.
+	CountCreatedSince(userID string, since time.Time) (int, error)
+	// StorageBytes sums the size of every asset across userID's jobs.
+	StorageBytes(userID string) (int64, error)
+
 	// --- worker-facing: the job row is the source of truth for state ---
 
 	// ClaimPending atomically moves up to limit eligible pending jobs
@@ -108,6 +113,31 @@ func (r *repo) Delete(id string) error {
 		return ErrNotFound
 	}
 	return err
+}
+
+func (r *repo) CountCreatedSince(userID string, since time.Time) (int, error) {
+	var n int
+	err := r.db.QueryRow(
+		r.rebind("SELECT COUNT(*) FROM jobs WHERE user_id = ? AND created_at >= ?"),
+		userID, since,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("job: count recent: %w", err)
+	}
+	return n, nil
+}
+
+func (r *repo) StorageBytes(userID string) (int64, error) {
+	var n int64
+	err := r.db.QueryRow(
+		r.rebind("SELECT COALESCE(SUM(a.size_bytes), 0) FROM assets a "+
+			"JOIN jobs j ON a.job_id = j.id WHERE j.user_id = ?"),
+		userID,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("job: storage bytes: %w", err)
+	}
+	return n, nil
 }
 
 // claimColumns is the projection ClaimPending scans, in order.

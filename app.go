@@ -120,6 +120,10 @@ func NewApp(ctx context.Context) (*App, error) {
 	)
 	authH := auth.NewHandler(authSvc, cfg.Auth, log)
 	authRateLimiter := ratelimit.New(cfg.Auth.RequestRateLimit, cfg.Auth.RequestRateWindow.Std())
+	// Same budget per recipient address as per client IP: rotating IPs
+	// still cannot flood one mailbox with sign-in links.
+	authSvc.SetEmailLimiter(ratelimit.New(cfg.Auth.RequestRateLimit, cfg.Auth.RequestRateWindow.Std()))
+	userH.OnRoleChanged = authSvc.RevokeAll
 
 	// The watermark engine also backs job.Service's upload validation (an
 	// ffprobe pass confirming the stored file's actual stream kind matches
@@ -147,14 +151,15 @@ func NewApp(ctx context.Context) (*App, error) {
 	}
 	paymentSvc := payment.NewService(
 		payment.NewRepo(db), assetRepo, signer, stripeClient, cfg.Payment,
-		cfg.App.PublicURL, cfg.Auth.ShareTokenTTL.Std(), log,
+		cfg.App.PublicURL, cfg.Payment.OriginalLinkTTL.Std(), log,
 	)
 	paymentH := payment.NewHandler(paymentSvc, log)
 
 	router := app.NewRouter(app.Deps{
 		Cfg: cfg, Log: log, Auth: authH, AuthSvc: authSvc,
 		User: userH, Job: jobH, Share: shareH, Payment: paymentH,
-		AuthRateLimiter: authRateLimiter,
+		AuthRateLimiter:    authRateLimiter,
+		PaymentRateLimiter: ratelimit.New(cfg.Payment.RateLimit, cfg.Payment.RateWindow.Std()),
 	})
 
 	a := &App{cfg: cfg, log: log, logGC: logGC, db: db}

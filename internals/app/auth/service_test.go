@@ -14,6 +14,7 @@ import (
 	"sade/internals/app/session"
 	"sade/internals/app/user"
 	"sade/internals/mailer"
+	"sade/internals/ratelimit"
 	"sade/internals/testutil"
 )
 
@@ -36,7 +37,7 @@ func (m *captureMailer) last() mailer.Message {
 	return m.sent[len(m.sent)-1]
 }
 
-func newService(t *testing.T) (*Service, *captureMailer) {
+func newService(t *testing.T, opts ...func(*config.AuthConfig)) (*Service, *captureMailer) {
 	t.Helper()
 	db := testutil.DB(t, user.User{}, magic_token.MagicToken{}, session.Session{})
 	cm := &captureMailer{}
@@ -44,6 +45,9 @@ func newService(t *testing.T) (*Service, *captureMailer) {
 		MagicLinkTTL:      config.Duration(15 * time.Minute),
 		SessionTTL:        config.Duration(24 * time.Hour),
 		SessionCookieName: "sade_session",
+	}
+	for _, o := range opts {
+		o(&cfg)
 	}
 	svc := NewService(
 		user.NewService(user.NewRepo(db), testutil.Logger()),
@@ -82,8 +86,8 @@ func TestRequestLinkThenComplete(t *testing.T) {
 	if msg.To != "op@example.com" {
 		t.Errorf("mail To = %q, want op@example.com", msg.To)
 	}
-	if !strings.Contains(msg.Text, "http://api.test/api/auth/callback?token=") {
-		t.Errorf("callback link missing from body:\n%s", msg.Text)
+	if !strings.Contains(msg.Text, "http://app.test/auth/confirm#token=") {
+		t.Errorf("confirmation link missing from body:\n%s", msg.Text)
 	}
 
 	secret, exp, err := svc.Complete(context.Background(), linkToken(t, cm))
@@ -177,5 +181,108 @@ func TestAuthenticateExpiredSessionIsCleared(t *testing.T) {
 	// row removed as a side effect -> now looks like no session
 	if _, err := svc.Authenticate(context.Background(), secret); !errors.Is(err, ErrNoSession) {
 		t.Errorf("Authenticate(after cleanup) = %v, want ErrNoSession", err)
+	}
+}
+
+func TestPeekDoesNotSpendTheToken(t *testing.T) {
+	svc, cm := newService(t)
+	ctx := context.Background()
+	if err := svc.RequestLink(ctx, "op@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	tok := linkToken(t, cm)
+
+	for i := 0; i < 2; i++ {
+		email, err := svc.Peek(ctx, tok)
+		if err != nil || email != "op@example.com" {
+			t.Fatalf("Peek #%d = %q, %v", i, email, err)
+		}
+	}
+	if _, _, err := svc.Complete(ctx, tok); err != nil {
+		t.Fatalf("Complete after Peek: %v", err)
+	}
+	if _, err := svc.Peek(ctx, tok); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("Peek of a spent token = %v, want ErrInvalidToken", err)
+	}
+}
+
+func TestSignupPolicy(t *testing.T) {
+	ctx := context.Background()
+
+	closed, cm := newService(t, func(c *config.AuthConfig) { c.SignupMode = "closed" })
+	if err := closed.RequestLink(ctx, "new@example.com"); err != nil {
+		t.Fatalf("closed signup must look like success, got %v", err)
+	}
+	if len(cm.sent) != 0 {
+		t.Errorf("closed signup sent %d emails", len(cm.sent))
+	}
+	if _, err := closed.users.FindByEmail("new@example.com"); !errors.Is(err, user.ErrNotFound) {
+		t.Errorf("closed signup created an account: %v", err)
+	}
+
+	allow, cm := newService(t, func(c *config.AuthConfig) {
+		c.SignupMode = "allowlist"
+		c.SignupAllowedDomains = []string{"@studio.test"}
+		c.SignupAllowedEmails = []string{"Boss@Elsewhere.test"}
+	})
+	for _, ok := range []string{"a@studio.test", "boss@elsewhere.test"} {
+		if err := allow.RequestLink(ctx, ok); err != nil {
+			t.Fatalf("RequestLink(%s): %v", ok, err)
+		}
+	}
+	if err := allow.RequestLink(ctx, "x@notstudio.test"); err != nil {
+		t.Fatalf("refused address must look like success, got %v", err)
+	}
+	if len(cm.sent) != 2 {
+		t.Errorf("allowlist sent %d emails, want 2", len(cm.sent))
+	}
+
+	// An existing account always signs in, whatever the mode.
+	if _, err := closed.users.EnsureByEmail("old@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := closed.RequestLink(ctx, "old@example.com"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPerAddressLimit(t *testing.T) {
+	svc, cm := newService(t)
+	svc.SetEmailLimiter(ratelimit.New(2, time.Hour))
+	for i := 0; i < 4; i++ {
+		if err := svc.RequestLink(context.Background(), "op@example.com"); err != nil {
+			t.Fatalf("RequestLink #%d: %v", i, err)
+		}
+	}
+	if len(cm.sent) != 2 {
+		t.Errorf("sent %d emails to one address, want 2", len(cm.sent))
+	}
+}
+
+func TestRevokeAllEndsEverySession(t *testing.T) {
+	svc, cm := newService(t)
+	ctx := context.Background()
+	var secrets []string
+	for i := 0; i < 2; i++ {
+		if err := svc.RequestLink(ctx, "op@example.com"); err != nil {
+			t.Fatal(err)
+		}
+		sec, _, err := svc.Complete(ctx, linkToken(t, cm))
+		if err != nil {
+			t.Fatal(err)
+		}
+		secrets = append(secrets, sec)
+	}
+	u, err := svc.Authenticate(ctx, secrets[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RevokeAll(ctx, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, sec := range secrets {
+		if _, err := svc.Authenticate(ctx, sec); err == nil {
+			t.Errorf("session survived RevokeAll")
+		}
 	}
 }

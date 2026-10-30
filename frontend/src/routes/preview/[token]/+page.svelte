@@ -48,6 +48,12 @@
 				clientSecret = intent.clientSecret;
 			}
 		} catch (err) {
+			// Paid in the meantime (another tab, or between the two calls):
+			// just show the unlocked state.
+			if (err instanceof ApiError && err.status === 409) {
+				await loadStatus().catch(() => {});
+				return;
+			}
 			// Payment is a bonus feature on top of the preview - if any of this
 			// fails, just leave the section hidden rather than break the page
 			// the recipient actually came for.

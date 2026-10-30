@@ -1,7 +1,7 @@
 // Typed client for internals/app/router.go's /api/* surface. Session auth is
-// a cookie (sade_session, HttpOnly) set by GET /api/auth/callback, so every
+// a cookie (sade_session, HttpOnly) set by POST /api/auth/complete, so every
 // call goes with credentials: 'include' - no token to attach by hand.
-import type { Job, NewJobInput, PaymentStatus, User } from './types';
+import type { Job, NewJobInput, PaymentStatus, Usage, User } from './types';
 
 // In dev the frontend runs on Vite (:5173) and the API on the Go server
 // (config default :8080, CORS already allows :5173 - see config.ServerConfig
@@ -67,8 +67,27 @@ export const api = {
 		}
 	},
 
+	// The /auth/confirm page: which account a sign-in link belongs to (does
+	// not spend it), then the explicit sign-in on the user's click.
+	verifyLink(token: string): Promise<{ email: string }> {
+		return request('/api/auth/verify', { method: 'POST', body: JSON.stringify({ token }) });
+	},
+
+	completeLink(token: string): Promise<void> {
+		return request('/api/auth/complete', { method: 'POST', body: JSON.stringify({ token }) });
+	},
+
 	logout(): Promise<void> {
 		return request('/api/auth/logout', { method: 'POST' });
+	},
+
+	// Ends every session of the signed-in account, on every device.
+	logoutAll(): Promise<void> {
+		return request('/api/auth/logout-all', { method: 'POST' });
+	},
+
+	usage(): Promise<Usage> {
+		return request('/api/usage');
 	},
 
 	// --- jobs ----------------------------------------------------------------

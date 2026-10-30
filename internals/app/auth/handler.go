@@ -44,20 +44,83 @@ func (h *Handler) RequestLink(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Callback handles GET /api/auth/callback?token=... On success it sets the
-// session cookie and redirects to the frontend; a bad token redirects to the
-// frontend login page with an error marker.
+// Callback handles GET /api/auth/callback?token=... - the link shape older
+// emails still carry. It no longer signs anyone in: a GET is what mail
+// scanners prefetch and what a third party can plant in an <img>, so it only
+// forwards the browser to the confirmation page (token in the fragment),
+// where the user sees the account and confirms with a click.
 func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
-	secret, exp, err := h.svc.Complete(r.Context(), r.URL.Query().Get("token"))
-	if err != nil {
-		if !errors.Is(err, ErrInvalidToken) {
-			h.log.Error("auth callback", "error", err)
-		}
+	tok := r.URL.Query().Get("token")
+	if !wellFormedToken(tok) {
 		http.Redirect(w, r, h.svc.FrontendURL()+"/login?error=invalid_link", http.StatusSeeOther)
 		return
 	}
-	http.SetCookie(w, h.sessionCookie(secret, exp))
-	http.Redirect(w, r, h.svc.FrontendURL(), http.StatusSeeOther)
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, h.svc.ConfirmURL(tok), http.StatusSeeOther)
+}
+
+type tokenBody struct {
+	Token string `json:"token"`
+}
+
+// Verify handles POST /api/auth/verify {"token": "..."}: which account a
+// still-valid sign-in link belongs to, without spending it.
+func (h *Handler) Verify(w http.ResponseWriter, r *http.Request) {
+	var body tokenBody
+	if err := httpx.DecodeJSON(w, r, &body, 4<<10); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	email, err := h.svc.Peek(r.Context(), body.Token)
+	switch {
+	case errors.Is(err, ErrInvalidToken):
+		httpx.Error(w, http.StatusBadRequest, "invalid or expired link")
+	case err != nil:
+		h.log.Error("auth verify", "error", err)
+		httpx.Error(w, http.StatusInternalServerError, "could not check the link")
+	default:
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"email": email})
+	}
+}
+
+// Complete handles POST /api/auth/complete {"token": "..."}: spend the
+// sign-in token and set the session cookie. Called by the confirmation page
+// on the user's click.
+func (h *Handler) Complete(w http.ResponseWriter, r *http.Request) {
+	var body tokenBody
+	if err := httpx.DecodeJSON(w, r, &body, 4<<10); err != nil {
+		httpx.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	secret, exp, err := h.svc.Complete(r.Context(), body.Token)
+	switch {
+	case errors.Is(err, ErrInvalidToken):
+		httpx.Error(w, http.StatusBadRequest, "invalid or expired link")
+	case err != nil:
+		h.log.Error("auth complete", "error", err)
+		httpx.Error(w, http.StatusInternalServerError, "could not sign in")
+	default:
+		http.SetCookie(w, h.sessionCookie(secret, exp))
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "signed_in"})
+	}
+}
+
+// ClearSession expires the session cookie on w (used by sign-out-everywhere,
+// which the router owns because it needs the request's user).
+func (h *Handler) ClearSession(w http.ResponseWriter) { http.SetCookie(w, h.clearCookie()) }
+
+// wellFormedToken accepts only what secret() produces (URL-safe base64), so
+// nothing else is ever reflected into a redirect.
+func wellFormedToken(t string) bool {
+	if len(t) < 16 || len(t) > 128 {
+		return false
+	}
+	for _, c := range t {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // Logout handles POST /api/auth/logout: drop the session, clear the cookie.

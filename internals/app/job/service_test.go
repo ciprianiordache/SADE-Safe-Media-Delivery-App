@@ -400,3 +400,76 @@ func TestListReturnsOwnJobsNewestFirst(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateEnforcesDailyJobLimit(t *testing.T) {
+	cfg := config.Defaults().Upload
+	cfg.JobsPerDay = 2
+	svc, _, uid := newSvc(t, &memStore{}, nil, cfg)
+	ctx := context.Background()
+
+	for i := 0; i < 2; i++ {
+		if _, err := svc.Create(ctx, uid, upload("a.mp4", "data")); err != nil {
+			t.Fatalf("Create #%d: %v", i, err)
+		}
+	}
+	if _, err := svc.Create(ctx, uid, upload("a.mp4", "data")); !errors.Is(err, ErrDailyLimit) {
+		t.Fatalf("third job = %v, want ErrDailyLimit", err)
+	}
+	u, err := svc.Usage(ctx, uid)
+	if err != nil || u.JobsLast24h != 2 || u.JobsPerDay != 2 {
+		t.Errorf("Usage = %+v, %v", u, err)
+	}
+
+	// Admins are exempt.
+	if _, err := svc.Create(WithQuotaExempt(ctx), uid, upload("a.mp4", "data")); err != nil {
+		t.Errorf("exempt Create: %v", err)
+	}
+}
+
+func TestCreateEnforcesStorageQuotaOnStoredBytes(t *testing.T) {
+	cfg := config.Defaults().Upload
+	cfg.StorageQuotaMiB = 1
+	store := &memStore{}
+	svc, _, uid := newSvc(t, store, nil, cfg)
+	ctx := context.Background()
+
+	big := strings.Repeat("x", 700<<10) // 700 KiB
+	if _, err := svc.Create(ctx, uid, upload("a.mp4", big)); err != nil {
+		t.Fatalf("first upload: %v", err)
+	}
+	// Lying about the size must not get past the quota.
+	in := upload("b.mp4", big)
+	in.DeclaredSize = 1
+	if _, err := svc.Create(ctx, uid, in); !errors.Is(err, ErrStorageQuota) {
+		t.Fatalf("second upload = %v, want ErrStorageQuota", err)
+	}
+	if n := len(store.blobs); n != 1 {
+		t.Errorf("rejected upload left a blob behind: %d blobs", n)
+	}
+}
+
+func TestCreateValidatesWatermarkTextAndOpts(t *testing.T) {
+	svc, _, uid := newSvc(t, &memStore{}, nil, config.Defaults().Upload)
+	ctx := context.Background()
+
+	long := upload("a.mp4", "data")
+	long.WatermarkText = strings.Repeat("x", ffmpeg.MaxTextRunes+1)
+	if _, err := svc.Create(ctx, uid, long); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("over-long text = %v, want ErrInvalidInput", err)
+	}
+	bad := upload("a.mp4", "data")
+	bad.WatermarkOpts = "not json"
+	if _, err := svc.Create(ctx, uid, bad); !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("non-JSON opts = %v, want ErrInvalidInput", err)
+	}
+
+	ok := upload("a.mp4", "data")
+	ok.WatermarkText = "line one" + string(rune(10)) + "line two"
+	resp, err := svc.Create(ctx, uid, ok)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if resp.WatermarkText != "line one line two" {
+		t.Errorf("stored text = %q, want control characters flattened", resp.WatermarkText)
+	}
+}

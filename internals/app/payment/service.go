@@ -10,9 +10,9 @@ package payment
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"sade/config"
@@ -119,6 +119,22 @@ func (s *service) CreateIntent(ctx context.Context, previewToken string) (string
 	}
 	jobID := previewAsset.JobID
 
+	// Anyone holding the preview link can call this, so it must never be a
+	// way to undo or duplicate a purchase: a paid job refuses outright, and a
+	// still-open PaymentIntent is handed back instead of minting another
+	// (which would also grow the payments table and Stripe's intent list on
+	// every page load or scripted call).
+	payments, err := s.repo.ListByJob(jobID)
+	if err != nil {
+		return "", fmt.Errorf("payment: list payments: %w", err)
+	}
+	if paidPayment(payments) != nil {
+		return "", ErrAlreadyPaid
+	}
+	if secret, ok := s.reusableIntent(ctx, payments); ok {
+		return secret, nil
+	}
+
 	p := &Payment{
 		JobID: jobID, Provider: ProviderStripe, Status: StatusPending,
 		AmountCents: s.cfg.PriceCents, Currency: s.cfg.Currency,
@@ -164,19 +180,25 @@ func (s *service) Status(ctx context.Context, previewToken string) (StatusResult
 		return StatusResult{}, err
 	}
 
-	p, err := s.repo.LatestByJob(previewAsset.JobID)
-	if errors.Is(err, ErrNotFound) {
+	payments, err := s.repo.ListByJob(previewAsset.JobID)
+	if err != nil {
+		return StatusResult{}, fmt.Errorf("payment: list payments: %w", err)
+	}
+	if len(payments) == 0 {
 		return StatusResult{
 			Enabled: true, PublishableKey: s.cfg.StripePublishableKey,
 			AmountCents: s.cfg.PriceCents, Currency: s.cfg.Currency,
 		}, nil
 	}
-	if err != nil {
-		return StatusResult{}, fmt.Errorf("payment: load latest: %w", err)
-	}
 
-	if p.Status == StatusPending && p.ProviderRef != "" {
-		s.reconcile(ctx, p)
+	// Paid is a property of the job, not of its newest attempt: a later
+	// pending row (someone reopening checkout) must never hide a purchase.
+	p := paidPayment(payments)
+	if p == nil {
+		p = &payments[0]
+		if p.Status == StatusPending && p.ProviderRef != "" {
+			s.reconcile(ctx, p)
+		}
 	}
 
 	if p.Status != StatusPaid {
@@ -196,6 +218,55 @@ func (s *service) Status(ctx context.Context, previewToken string) (StatusResult
 	}, nil
 }
 
+// coversPayment reports whether a succeeded intent actually collected what p
+// asked for. SADE creates every intent itself, so a mismatch means something
+// changed it outside this code path - never treat that as a purchase.
+func coversPayment(intent *stripe.PaymentIntent, p *Payment) bool {
+	received := intent.AmountReceived
+	if received == 0 {
+		received = intent.Amount
+	}
+	return received >= p.AmountCents && strings.EqualFold(string(intent.Currency), p.Currency)
+}
+
+// paidPayment returns the first paid payment in payments, or nil.
+func paidPayment(payments []Payment) *Payment {
+	for i := range payments {
+		if payments[i].Status == StatusPaid {
+			return &payments[i]
+		}
+	}
+	return nil
+}
+
+// reusableIntent returns the client secret of the newest pending payment's
+// PaymentIntent when Stripe still accepts a confirmation on it, so a reload
+// of the preview page keeps using one intent instead of piling up new ones.
+func (s *service) reusableIntent(ctx context.Context, payments []Payment) (string, bool) {
+	if len(payments) == 0 {
+		return "", false
+	}
+	p := payments[0]
+	if p.Status != StatusPending || p.ProviderRef == "" {
+		return "", false
+	}
+	intent, err := s.stripe.V1PaymentIntents.Retrieve(ctx, p.ProviderRef, nil)
+	if err != nil {
+		s.log.Warn("payment: retrieve intent for reuse", "payment", p.ID, "error", err)
+		return "", false
+	}
+	switch intent.Status {
+	case stripe.PaymentIntentStatusRequiresPaymentMethod,
+		stripe.PaymentIntentStatusRequiresConfirmation,
+		stripe.PaymentIntentStatusRequiresAction:
+		if intent.ClientSecret != "" && intent.Amount == s.cfg.PriceCents &&
+			string(intent.Currency) == s.cfg.Currency {
+			return intent.ClientSecret, true
+		}
+	}
+	return "", false
+}
+
 // reconcile asks Stripe directly whether a still-pending PaymentIntent has
 // succeeded, and marks the row paid if so. This is what makes the unlock
 // work end to end even when Stripe has no public URL to send its webhook to
@@ -208,6 +279,11 @@ func (s *service) reconcile(ctx context.Context, p *Payment) {
 		return
 	}
 	if intent.Status != stripe.PaymentIntentStatusSucceeded {
+		return
+	}
+	if !coversPayment(intent, p) {
+		s.log.Error("payment: intent succeeded for the wrong amount", "payment", p.ID,
+			"intent", intent.ID, "amount", intent.AmountReceived, "currency", intent.Currency)
 		return
 	}
 	p.Status = StatusPaid
@@ -248,6 +324,11 @@ func (s *service) Webhook(_ context.Context, payload []byte, sigHeader string) e
 	}
 	if p.Status == StatusPaid {
 		return nil // already reconciled (e.g. by Status's fallback) - idempotent
+	}
+	if !coversPayment(&intent, p) {
+		s.log.Error("payment: webhook intent for the wrong amount", "payment", p.ID,
+			"intent", intent.ID, "amount", intent.AmountReceived, "currency", intent.Currency)
+		return nil // acknowledged, not honoured - retrying would not change it
 	}
 	p.Status = StatusPaid
 	if err := s.repo.Update(p); err != nil {

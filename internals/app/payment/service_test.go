@@ -32,6 +32,7 @@ type fakeStripeBackend struct {
 	intentStatus stripe.PaymentIntentStatus // what Retrieve reports
 	createErr    error
 	intents      int
+	amountCents  int64 // 0 = the fixture price
 }
 
 func (f *fakeStripeBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
@@ -46,11 +47,14 @@ func (f *fakeStripeBackend) Call(method, path, _ string, _ stripe.ParamsContaine
 			"id": fmt.Sprintf("pi_test_%d", f.intents), "object": "payment_intent",
 			"client_secret": fmt.Sprintf("pi_test_%d_secret_fake", f.intents),
 			"status":        "requires_payment_method",
+			"amount":        f.amount(), "currency": "eur",
 		}
 	case method == "GET":
+		id := path[len("/v1/payment_intents/"):]
 		body = map[string]any{
-			"id": path[len("/v1/payment_intents/"):], "object": "payment_intent",
-			"status": string(f.intentStatus),
+			"id": id, "object": "payment_intent",
+			"status": string(f.intentStatus), "client_secret": id + "_secret_fake",
+			"amount": f.amount(), "amount_received": f.amount(), "currency": "eur",
 		}
 	default:
 		return fmt.Errorf("fakeStripeBackend: unhandled %s %s", method, path)
@@ -61,6 +65,15 @@ func (f *fakeStripeBackend) Call(method, path, _ string, _ stripe.ParamsContaine
 	}
 	v.SetLastResponse(&stripe.APIResponse{})
 	return nil
+}
+
+// amount is what the fake intents carry: the fixture's price unless a test
+// overrides it to simulate a tampered intent.
+func (f *fakeStripeBackend) amount() int64 {
+	if f.amountCents != 0 {
+		return f.amountCents
+	}
+	return 4900
 }
 
 func (f *fakeStripeBackend) CallStreaming(string, string, string, stripe.ParamsContainer, stripe.StreamingLastResponseSetter) error {
@@ -277,7 +290,7 @@ func TestWebhookMarksPaymentPaid(t *testing.T) {
 	}
 
 	payload := []byte(fmt.Sprintf(
-		`{"id":"evt_1","object":"event","type":"payment_intent.succeeded","data":{"object":{"id":%q,"object":"payment_intent","status":"succeeded"}}}`,
+		`{"id":"evt_1","object":"event","type":"payment_intent.succeeded","data":{"object":{"id":%q,"object":"payment_intent","status":"succeeded","amount":4900,"amount_received":4900,"currency":"eur"}}}`,
 		p.ProviderRef,
 	))
 	now := time.Now()
@@ -309,5 +322,78 @@ func TestWebhookRejectsBadSignature(t *testing.T) {
 	err := fx.svc.Webhook(context.Background(), []byte(`{}`), "t=0,v1=not-a-real-signature")
 	if err == nil {
 		t.Fatal("Webhook(bad signature) succeeded, want an error")
+	}
+}
+
+func TestCreateIntentReusesAnOpenIntent(t *testing.T) {
+	backend := &fakeStripeBackend{intentStatus: stripe.PaymentIntentStatusRequiresPaymentMethod}
+	fx := newFixture(t, backend, testCfg())
+
+	first, err := fx.svc.CreateIntent(context.Background(), fx.previewTok)
+	if err != nil {
+		t.Fatalf("CreateIntent: %v", err)
+	}
+	second, err := fx.svc.CreateIntent(context.Background(), fx.previewTok)
+	if err != nil {
+		t.Fatalf("CreateIntent (again): %v", err)
+	}
+	if first != second {
+		t.Errorf("a reload should reuse the open intent: %q then %q", first, second)
+	}
+	if backend.intents != 1 {
+		t.Errorf("Stripe intents created = %d, want 1", backend.intents)
+	}
+	if ps, _ := fx.repo.ListByJob(fx.jobID); len(ps) != 1 {
+		t.Errorf("payment rows = %d, want 1", len(ps))
+	}
+}
+
+// A paid job must stay paid, whatever anyone holding the preview link does
+// afterwards - and must not be charged twice.
+func TestPaidJobCannotBeReopenedOrHidden(t *testing.T) {
+	backend := &fakeStripeBackend{intentStatus: stripe.PaymentIntentStatusSucceeded}
+	fx := newFixture(t, backend, testCfg())
+	ctx := context.Background()
+
+	if _, err := fx.svc.CreateIntent(ctx, fx.previewTok); err != nil {
+		t.Fatalf("CreateIntent: %v", err)
+	}
+	if res, err := fx.svc.Status(ctx, fx.previewTok); err != nil || !res.Paid {
+		t.Fatalf("Status after paying = %+v, %v", res, err)
+	}
+	if _, err := fx.svc.CreateIntent(ctx, fx.previewTok); !errors.Is(err, ErrAlreadyPaid) {
+		t.Fatalf("CreateIntent on a paid job = %v, want ErrAlreadyPaid", err)
+	}
+
+	// Even a newer pending row (e.g. written before this guard existed)
+	// must not hide the purchase.
+	if _, err := fx.repo.Create(&Payment{
+		JobID: fx.jobID, Provider: ProviderStripe, Status: StatusPending,
+		AmountCents: 4900, Currency: "eur", CreatedAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("seed newer pending payment: %v", err)
+	}
+	if res, err := fx.svc.Status(ctx, fx.previewTok); err != nil || !res.Paid || res.OriginalURL == "" {
+		t.Errorf("Status with a newer pending row = %+v, %v; want still paid", res, err)
+	}
+}
+
+func TestReconcileRefusesAnIntentForTheWrongAmount(t *testing.T) {
+	backend := &fakeStripeBackend{intentStatus: stripe.PaymentIntentStatusRequiresPaymentMethod}
+	fx := newFixture(t, backend, testCfg())
+	ctx := context.Background()
+
+	if _, err := fx.svc.CreateIntent(ctx, fx.previewTok); err != nil {
+		t.Fatalf("CreateIntent: %v", err)
+	}
+	backend.intentStatus = stripe.PaymentIntentStatusSucceeded
+	backend.amountCents = 100 // succeeded, but for 1.00 instead of 49.00
+
+	res, err := fx.svc.Status(ctx, fx.previewTok)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if res.Paid {
+		t.Errorf("an underpaid intent unlocked the original: %+v", res)
 	}
 }

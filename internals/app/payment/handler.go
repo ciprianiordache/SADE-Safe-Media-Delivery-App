@@ -52,6 +52,8 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusServiceUnavailable, "payment is not configured")
 	case errors.Is(err, ErrInvalidToken):
 		httpx.Error(w, http.StatusNotFound, "not found")
+	case errors.Is(err, ErrAlreadyPaid):
+		httpx.Error(w, http.StatusConflict, "already paid")
 	case err != nil:
 		h.log.Error("payment checkout", "error", err)
 		httpx.Error(w, http.StatusInternalServerError, "could not start checkout")

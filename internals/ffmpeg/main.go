@@ -128,6 +128,29 @@ func (e *Engine) Watermark(ctx context.Context, req Request) error {
 	if req.SourcePath == "" || req.OutputPath == "" {
 		return fmt.Errorf("ffmpeg: source and output paths are required")
 	}
+	if err := os.MkdirAll(filepath.Dir(req.OutputPath), 0o755); err != nil {
+		return fmt.Errorf("ffmpeg: create output dir: %w", err)
+	}
+	if req.Media != MediaAudio && needsText(req.Overlay) {
+		// The text goes through a file, never the filtergraph - see
+		// visualFilter. It lives next to the output and is removed after.
+		f, err := os.CreateTemp(filepath.Dir(req.OutputPath), ".wmtext-*.txt")
+		if err != nil {
+			return fmt.Errorf("ffmpeg: create text file: %w", err)
+		}
+		defer os.Remove(f.Name())
+		_, werr := f.WriteString(SanitizeText(req.Text))
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			return fmt.Errorf("ffmpeg: write text file: %w", werr)
+		}
+		req.textFile = f.Name()
+	}
+	if strings.Contains(req.textFile, "'") || strings.Contains(e.cfg.FontPath, "'") {
+		return fmt.Errorf("ffmpeg: font/text paths must not contain a single quote")
+	}
 	args, err := e.buildArgs(req)
 	if err != nil {
 		return err
@@ -137,10 +160,6 @@ func (e *Engine) Watermark(ctx context.Context, req Request) error {
 		// default stderr progress line. Insert right after "-y".
 		args = append(args[:1:1], append([]string{"-progress", "pipe:1", "-nostats"}, args[1:]...)...)
 	}
-	if err := os.MkdirAll(filepath.Dir(req.OutputPath), 0o755); err != nil {
-		return fmt.Errorf("ffmpeg: create output dir: %w", err)
-	}
-
 	cmd := exec.CommandContext(ctx, e.bin, args...)
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
@@ -195,7 +214,7 @@ func (e *Engine) buildArgs(req Request) ([]string, error) {
 }
 
 func (e *Engine) videoArgs(req Request) []string {
-	fc, outLabel := e.visualFilter(req.Overlay, req.Text)
+	fc, outLabel := e.visualFilter(req.Overlay, req.textFile)
 	args := []string{"-y", "-i", req.SourcePath}
 	if needsLogo(req.Overlay) {
 		args = append(args, "-i", e.cfg.LogoPath)
@@ -212,7 +231,7 @@ func (e *Engine) videoArgs(req Request) []string {
 }
 
 func (e *Engine) imageArgs(req Request) []string {
-	fc, outLabel := e.visualFilter(req.Overlay, req.Text)
+	fc, outLabel := e.visualFilter(req.Overlay, req.textFile)
 	args := []string{"-y", "-i", req.SourcePath}
 	if needsLogo(req.Overlay) {
 		args = append(args, "-i", e.cfg.LogoPath)

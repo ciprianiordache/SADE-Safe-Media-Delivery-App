@@ -45,6 +45,19 @@ func WithUserID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, userIDKey, id)
 }
 
+type quotaExemptKey struct{}
+
+// WithQuotaExempt marks ctx as belonging to an account the upload quotas do
+// not apply to (admins). Set by the router, like WithUserID.
+func WithQuotaExempt(ctx context.Context) context.Context {
+	return context.WithValue(ctx, quotaExemptKey{}, true)
+}
+
+func quotaExempt(ctx context.Context) bool {
+	v, _ := ctx.Value(quotaExemptKey{}).(bool)
+	return v
+}
+
 func userIDFrom(r *http.Request) (string, bool) {
 	id, ok := r.Context().Value(userIDKey).(string)
 	return id, ok && id != ""
@@ -96,7 +109,11 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 	switch {
 	case errors.Is(err, ErrInvalidInput):
-		httpx.Error(w, http.StatusBadRequest, "invalid recipient email or watermark kind")
+		httpx.Error(w, http.StatusBadRequest, "invalid recipient email, watermark kind, text or options")
+	case errors.Is(err, ErrDailyLimit):
+		httpx.Error(w, http.StatusTooManyRequests, "daily job limit reached")
+	case errors.Is(err, ErrStorageQuota):
+		httpx.Error(w, http.StatusRequestEntityTooLarge, "storage quota exceeded")
 	case errors.Is(err, ErrUnsupportedMedia):
 		httpx.Error(w, http.StatusUnsupportedMediaType, "unsupported file type")
 	case errors.Is(err, ErrFileTooLarge):
@@ -128,6 +145,22 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, jobs)
+}
+
+// Usage handles GET /api/usage: the caller's consumption against their quotas.
+func (h *Handler) Usage(w http.ResponseWriter, r *http.Request) {
+	uid, ok := userIDFrom(r)
+	if !ok {
+		httpx.Error(w, http.StatusUnauthorized, "not signed in")
+		return
+	}
+	u, err := h.svc.Usage(r.Context(), uid)
+	if err != nil {
+		h.log.Error("job usage", "user", uid, "error", err)
+		httpx.Error(w, http.StatusInternalServerError, "could not load usage")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, u)
 }
 
 // Get handles GET /api/jobs/{id}, scoped to the caller. A job owned by

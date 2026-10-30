@@ -1,6 +1,7 @@
 package user
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,11 @@ import (
 type Handler struct {
 	svc Service
 	log *slog.Logger
+
+	// OnRoleChanged, when set, runs after a successful role change. app.go
+	// points it at auth.Service.RevokeAll so the account's open sessions end
+	// and the new role takes effect from its next sign-in.
+	OnRoleChanged func(ctx context.Context, userID string) error
 }
 
 func NewHandler(svc Service, log *slog.Logger) *Handler {
@@ -43,6 +49,11 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("get user", "error", err)
 		httpx.Error(w, http.StatusInternalServerError, "could not load user")
 	default:
+		if h.OnRoleChanged != nil {
+			if err := h.OnRoleChanged(r.Context(), u.ID); err != nil {
+				h.log.Error("revoke sessions after role change", "user", u.ID, "error", err)
+			}
+		}
 		httpx.WriteJSON(w, http.StatusOK, u)
 	}
 }

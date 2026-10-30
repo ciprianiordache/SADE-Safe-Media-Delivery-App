@@ -24,4 +24,10 @@ var (
 	// missing/unavailable ffprobe leaves extension-based detection as the
 	// only check, same as before this existed.
 	ErrCorruptMedia = errors.New("job: file content does not match its extension")
+	// ErrDailyLimit is returned when the operator has already created
+	// Upload.JobsPerDay jobs in the last 24 hours.
+	ErrDailyLimit = errors.New("job: daily job limit reached")
+	// ErrStorageQuota is returned when the operator's stored files would
+	// exceed Upload.StorageQuotaMiB.
+	ErrStorageQuota = errors.New("job: storage quota exceeded")
 )

@@ -93,8 +93,29 @@ func toResponse(j Job) Response {
 		WatermarkKind:  j.WatermarkKind,
 		WatermarkText:  j.WatermarkText,
 		Attempts:       j.Attempts,
-		Error:          j.Error,
+		Error:          publicError(j.Error),
 		CreatedAt:      j.CreatedAt,
 		UpdatedAt:      j.UpdatedAt,
 	}
+}
+
+// publicError is what an operator sees for a failed attempt. The stored
+// message carries ffmpeg's stderr - server paths, binary build flags - which
+// stays in the database and the logs, not the API.
+func publicError(stored string) string {
+	if stored == "" {
+		return ""
+	}
+	return "processing failed"
+}
+
+// Usage is an operator's consumption against their quotas. A zero limit
+// means unlimited (a quota disabled in config); Unlimited is set for
+// accounts exempt from quotas altogether (admins).
+type Usage struct {
+	JobsLast24h       int   `json:"jobsLast24h"`
+	JobsPerDay        int   `json:"jobsPerDay"`
+	StorageBytes      int64 `json:"storageBytes"`
+	StorageLimitBytes int64 `json:"storageLimitBytes"`
+	Unlimited         bool  `json:"unlimited"`
 }

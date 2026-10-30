@@ -125,6 +125,64 @@ prints the `whsec_...` value to set. A single local tester doesn't strictly
 need this — `payment.Service.Status` reconciles a still-pending payment
 against Stripe directly on the recipient's own page load.
 
+A job counts as paid once *any* of its payments is paid, so nobody holding
+the preview link can reopen checkout and hide a purchase. A paid job refuses
+a new checkout (409), and reloading the page reuses the still-open
+PaymentIntent instead of creating a new one. A payment counts only if Stripe
+reports the full price in the configured currency. The `/o/<token>` link to
+the original lasts `PAYMENT_ORIGINAL_LINK_TTL` (default 24h); the recipient's
+page mints a fresh one on every visit. The public checkout and status routes
+are rate-limited per client IP (`PAYMENT_RATE_LIMIT` per
+`PAYMENT_RATE_WINDOW`).
+
+### Accounts, quotas and sign-in
+
+SADE is self-serve by default: anyone who requests a sign-in link gets an
+operator account (`AUTH_SIGNUP_MODE=open`). What keeps that safe is a quota
+on every operator account (admins are exempt):
+
+```
+UPLOAD_JOBS_PER_DAY=25          # jobs per rolling 24h (each one emails a recipient)
+UPLOAD_STORAGE_QUOTA_MIB=10240  # originals + previews per account
+```
+
+`0` disables either quota. The dashboard shows both as meters
+(`GET /api/usage`). To restrict who can sign up instead:
+
+```
+AUTH_SIGNUP_MODE=allowlist      # or: closed (existing accounts only)
+AUTH_SIGNUP_ALLOWED_DOMAINS=studio.example
+AUTH_SIGNUP_ALLOWED_EMAILS=someone@else.example
+```
+
+A refused address gets the same "link sent" answer as any other, so the
+policy can't be used to probe which accounts exist.
+
+Sign-in links open `/auth/confirm#token=...` on the frontend. The token sits
+in the URL fragment, so browsers never send it to a server, and nothing
+happens until the user clicks "Sign in". That way a mail scanner that
+prefetches the link can't spend it, and a link someone else plants can't
+quietly sign a visitor into the wrong account. The page calls
+`POST /api/auth/verify` (shows the account) and then `POST
+/api/auth/complete` (sets the session cookie). Links are limited per
+client IP *and* per recipient address (`AUTH_REQUEST_RATE_LIMIT` per
+`AUTH_REQUEST_RATE_WINDOW`). The account menu also has "sign out on all
+devices" (`POST /api/auth/logout-all`). Changing a user's role ends all of
+their sessions.
+
+### Security headers
+
+Every response carries a Content-Security-Policy that allows only SADE's own
+scripts, Stripe.js, and the frontend build's inline bootstrap script, matched
+by hash and read from `index.html` at startup (so restart after a frontend
+rebuild). It also carries `X-Frame-Options: DENY`, `nosniff`,
+`Referrer-Policy`, `Cross-Origin-Opener-Policy` and `Permissions-Policy`.
+API responses are `Cache-Control: no-store`. State-changing requests
+from a page on another origin are refused with 403 (`Origin` /
+`Sec-Fetch-Site` check, on top of `SameSite=Lax`). The Stripe webhook is
+the one exemption. Signed `/p`, `/d`, `/o` and `/preview` URLs are logged
+as `/p/***`.
+
 ### HTTPS
 
 The browser marks `http://` as "not secure", and some of the app genuinely
@@ -208,11 +266,14 @@ preview`, `npm run check` (type checking; no separate lint step).
 - `internals/app/integration_test.go` — the full model graph (every table,
   every foreign key, `ON DELETE CASCADE`) against a real (SQLite) DB.
 - `internals/app/router_test.go` and `internals/app/worker_flow_test.go` —
-  real HTTP round trips over `httptest`: login → callback → cookie →
+  real HTTP round trips over `httptest`: login → confirm → cookie →
   `/api/me` → logout, upload → list → detail, a Stripe-mocked checkout →
   unlock, and a full worker run (a fake `ffmpeg.Engine`, no binary needed)
   that claims a real pending job, watermarks it, and delivers a working
   `/p`/`/d` link end to end.
+- `internals/app/security_test.go` — the cross-origin guard, a refused
+  cross-site upload, sign-out-everywhere, the CSP builder, and log
+  redaction of capability URLs.
 - Package-local unit tests per domain (`repo`/`service`/`handler`) and
   supporting package (`ratelimit`, `token`, `storage`, `mailer`, `ffmpeg`'s
   argument-building, `worker`'s retry/backoff state machine with fakes).

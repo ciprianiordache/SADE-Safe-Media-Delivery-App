@@ -14,6 +14,9 @@
 # Watermark / font assets are provided per deployment
 /assets/
 
+# gstack browse reports / scratch
+/.gstack/
+
 # OS / editor
 .DS_Store
 Thumbs.db

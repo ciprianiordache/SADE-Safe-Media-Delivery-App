@@ -6,11 +6,22 @@
 	import { relativeTime } from '$lib/format';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import StatusDot from '$lib/components/StatusDot.svelte';
+	import UsageMeter from '$lib/components/UsageMeter.svelte';
+	import type { Usage } from '$lib/types';
 	import { onDestroy, onMount } from 'svelte';
 
 	// --- data -----------------------------------------------------------
 	let jobs = $state<Job[]>([]);
 	let jobsLoading = $state(true);
+	let usage = $state<Usage | null>(null);
+
+	async function loadUsage() {
+		try {
+			usage = await api.usage();
+		} catch {
+			// The meter is informational; the dashboard works without it.
+		}
+	}
 
 	async function loadJobs() {
 		try {
@@ -23,6 +34,7 @@
 	let pollHandle: ReturnType<typeof setInterval> | undefined;
 	onMount(() => {
 		loadJobs();
+		loadUsage();
 		pollHandle = setInterval(() => {
 			if (jobs.some((j) => j.status === 'pending' || j.status === 'processing')) loadJobs();
 		}, 4000);
@@ -59,6 +71,7 @@
 				watermarkText: watermarkText || undefined
 			});
 			jobs = [job, ...jobs];
+			loadUsage();
 			file = null;
 			recipientEmail = '';
 			watermarkText = '';
@@ -129,6 +142,7 @@
 <div class="container page">
 	<h1>{i18n.t('dashboard.title')}</h1>
 	<p class="subtitle muted">{i18n.t('dashboard.subtitle')}</p>
+	<UsageMeter {usage} />
 
 	<div class="layout">
 		<!-- new job -->
@@ -205,6 +219,7 @@
 					<input
 						id="text"
 						type="text"
+						maxlength="200"
 						placeholder={i18n.t('dashboard.watermarkTextPlaceholder')}
 						bind:value={watermarkText}
 					/>

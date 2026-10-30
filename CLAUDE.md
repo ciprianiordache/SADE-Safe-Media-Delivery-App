@@ -155,7 +155,81 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** portfolio screenshots taken from the `cmd/seed` demo dataset (app run on localhost with
+**Latest:** security audit (VibeSec skill, report delivered in Romanian at the user's request) and
+the fixes for every finding, plus a first step toward a SaaS shape - the user's ask, verbatim:
+"vreau sa rezolvam toate aceste probleme, imbunatatim autentificarea si incercam sa facem acest
+serviciu mai apropiat de un saas". What shipped, by finding:
+
+- **ffmpeg filtergraph (was high):** operator watermark text was escaped into a single-quoted
+  `drawtext text='...'` value, and the escaping could not keep it inside the value. The text no
+  longer enters the graph at all: `Engine.Watermark` writes `SanitizeText(req.Text)` to an
+  `os.CreateTemp` file next to the output, and `drawtext` reads it via
+  `textfile='...':expansion=none` (`internals/ffmpeg/filters.go`; `Request.textFile` is
+  unexported, set only by `Watermark`). `escapeDrawtextText` is gone; `escapeFilterPath` handles
+  server-side paths only, and `Watermark` refuses a font/text path containing `'`.
+  `SanitizeText` flattens control chars and caps at `MaxTextRunes` (200); `job.Service.Create`
+  rejects longer text and non-JSON / >2 KiB `watermarkOpts` as `ErrInvalidInput`. Verified with
+  the real ffmpeg via `cmd/watermark`: `Test: 50% it's ok` renders literally.
+- **Open signup (was high):** kept open on purpose - self-serve is the SaaS default - and bounded
+  instead: `config.UploadConfig.JobsPerDay` (25, rolling 24h) and `StorageQuotaMiB` (10 GiB,
+  originals + previews; checked against the declared size *and* again against the stored size).
+  Admins are exempt via `job.WithQuotaExempt(ctx)`, set by the router's `operator` wrapper.
+  `GET /api/usage` (`job.Handler.Usage`) feeds the dashboard's new `UsageMeter.svelte`.
+  `job.Repo` gained raw-SQL `CountCreatedSince` / `StorageBytes`. `Auth.SignupMode`
+  (`open|allowlist|closed`, + `SignupAllowedEmails/Domains`) restricts new accounts; a refused
+  address gets the same 202 (no enumeration). **No per-user `plan` column**: schema-builder
+  cannot `ADD COLUMN` to an existing table (checked - no such code), so plans/billing for
+  operators need a new table or a migration step first - the natural next SaaS step.
+- **Payment reopen/hide (was medium):** `payment.Service` now treats a job as paid if *any*
+  payment is paid (`Repo.ListByJob`; `LatestByJob` kept), `CreateIntent` returns
+  `ErrAlreadyPaid` (409) for a paid job and reuses the newest pending PaymentIntent while
+  Stripe still accepts confirmation, and both `reconcile` and the webhook require
+  `coversPayment` (amount received >= price, same currency) before marking paid.
+- **Payment endpoints unbounded (was medium):** `PaymentConfig.RateLimit/RateWindow` (60 / 15m)
+  per client IP on checkout + status (`Deps.PaymentRateLimiter`).
+- **Tokens in logs (was medium):** `RequestLog`/`Recover` log `redactPath(path)` -
+  `/p/ /d/ /o/ /preview/` become `<prefix>***` (`internals/app/security.go`). Verified live.
+- **No CSP (was medium):** `buildCSP(frontendDir)` - `script-src 'self'` + Stripe + sha256
+  hashes of the inline scripts in `frontend/build/index.html`, read once at startup (restart after
+  a frontend rebuild). Styles keep `'unsafe-inline'` (Svelte style attributes). Plus COOP,
+  Permissions-Policy, and `Cache-Control: no-store` on `/api/*`. Verified live: confirm page and
+  dashboard render with zero console errors. **Not verified live:** the `/preview/[token]` page
+  with the Stripe Payment Element under the new CSP - minting a preview link needed
+  `go run ./cmd/seed -links`, which the auto-mode permission classifier blocked. Check it first
+  next time (Stripe's own CSP list was followed: js.stripe.com, *.js.stripe.com, hooks.stripe.com,
+  api.stripe.com).
+- **CSRF (was low):** `OriginCheck(originGuard)` in the global chain (after CORS, before Auth):
+  a POST/PUT/PATCH/DELETE whose `Origin` isn't PublicURL/FrontendURL/CORS list and whose
+  `Sec-Fetch-Site` is `same-site`/`cross-site` (or has a foreign/`null` Origin with no
+  Sec-Fetch-Site) gets 403. No Origin and no Sec-Fetch-Site = non-browser client, allowed.
+  `/api/payments/webhook` exempt.
+- **Login CSRF / link prefetch (was low):** the email now links to the **frontend**
+  `FrontendURL/auth/confirm#token=<raw>` (fragment - never sent to a server or logged). New page
+  `frontend/src/routes/auth/confirm/+page.svelte` strips the hash, calls `POST /api/auth/verify`
+  (`Service.Peek` / `magic_token.Repo.Peek` - does not spend) to show the account, and signs in
+  only on click via `POST /api/auth/complete`. `GET /api/auth/callback` still exists for old
+  emails but only redirects to the confirm page (token charset-checked) - **a GET never signs
+  in anymore**. Also a per-recipient-address limiter (`Service.SetEmailLimiter`, same budget as
+  the per-IP one) so rotating IPs can't flood one mailbox.
+- **Session revocation (was low):** `session.Repo.DeleteByUser`, `auth.Service.RevokeAll`,
+  `POST /api/auth/logout-all` (account menu: "Deconectare de pe toate dispozitivele"), and
+  `user.Handler.OnRoleChanged` (wired to `RevokeAll` in `app.go`) ends sessions on a role change.
+- **Original link forwarding (was low, by design):** a preview-link holder can still unlock the
+  original after payment (payment is per job, not per person). Mitigated, not removed:
+  `PaymentConfig.OriginalLinkTTL` (24h) instead of the 30-day share TTL - the payer's page re-mints
+  on every visit, so only forwarded `/o/` copies are affected.
+- Also: `job.Response.Error` is now a generic "processing failed" (`publicError`) - the stored
+  message has ffmpeg stderr with server paths; `/o/` added to `static.go`'s reserved prefixes;
+  `.gstack/` (browse reports) gitignored.
+
+New tests: `internals/app/security_test.go`, auth (`TestPeekDoesNotSpendTheToken`,
+`TestSignupPolicy`, `TestPerAddressLimit`, `TestRevokeAllEndsEverySession`,
+`TestHandlerVerifyThenComplete`, callback-forwards test), job quotas/validation, payment
+reuse/paid-stays-paid/underpaid. Router e2e tests now sign in via `completeSignIn` (POST, like the
+frontend). `go test ./...` green except the pre-existing `TestWatermarkIntegration` Fontconfig
+crash on this Windows box.
+
+**Before that:** portfolio screenshots taken from the `cmd/seed` demo dataset (app run on localhost with
 `MAILER_TRANSPORT=log` and `APP_PUBLIC_URL`/`AUTH_SESSION_COOKIE_SECURE` overridden via process
 env, which `godotenv` never clobbers, so `.env`'s tunnel values stayed untouched) and embedded in
 `README.md`'s new "Screenshots" section: `docs/dashboard.png`, `docs/job.png` (job detail),
@@ -220,7 +294,7 @@ Cloudflare certificate, and the new binary confirmed on a second port that HSTS 
 plain request, present on an `X-Forwarded-Proto: https` one, and that a forwarded client IP
 (`198.51.100.77`) reaches the request log in place of `::1`.
 
-**Still open here:** a CSP (see above), and `config.yaml` at the repo root still carries the old
+**Still open here:** ~~a CSP~~ (done - see "Latest"), and `config.yaml` at the repo root still carries the old
 `public_url: http://192.168.1.179:8080` / `session_cookie_secure: false` - `.env` overrides both
 (defaults < YAML < env) and the tunnel script writes `.env`, so this is stale rather than wrong,
 but it is the value any run without the script falls back to.
@@ -675,12 +749,16 @@ Two libraries operate on the *same* `db`-tagged structs, both reached through `i
 
 Operator login is magic-link only (no password). `POST /api/auth/request {email}` →
 `user.EnsureByEmail` (find-or-create an operator) → a random 32-byte token, sha256-hashed and
-stored with `MagicLinkTTL` → email carries `PublicURL/api/auth/callback?token=<raw>`. The
-callback spends the token (atomic delete) and issues a DB-backed session: a random secret in the
+stored with `MagicLinkTTL` → email carries `FrontendURL/auth/confirm#token=<raw>` (fragment;
+`Auth.SignupMode` and a per-address limiter can silently skip the send). That page calls `POST
+/api/auth/verify` (peek, shows the account) and, on the user's click, `POST /api/auth/complete`,
+which spends the token (atomic delete) and issues a DB-backed session: a random secret in the
 `sade_session` cookie (HttpOnly, `Secure` per `Auth.SessionCookieSecure`, SameSite=Lax,
 `SessionTTL`), only its sha256 stored. `Auth` middleware attaches the user on every request;
 `/api/me` returns it; `/api/users*` additionally needs `RequireRole("admin")`. `POST
-/api/auth/logout` deletes the session row and clears the cookie. Recipients of watermarked
+/api/auth/logout` deletes the session row and clears the cookie; `POST /api/auth/logout-all`
+deletes every session of the user. `GET /api/auth/callback` only redirects old links to the
+confirm page. Recipients of watermarked
 previews never get an account — they use signed `internals/token` links served by
 `internals/app/share` (`GET /p/{token}` inline, `GET /d/{token}` download).
 

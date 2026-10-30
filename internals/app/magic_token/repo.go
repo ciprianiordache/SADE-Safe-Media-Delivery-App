@@ -18,6 +18,12 @@ type Repo interface {
 	// token exists but has lapsed, and ErrNotFound if it does not exist or
 	// was already consumed (including losing a race to a concurrent call).
 	Consume(hash string, now time.Time) (userID string, err error)
+	// Peek reports which user a still-valid token belongs to without
+	// spending it (ErrNotFound / ErrExpired otherwise). It backs the
+	// sign-in confirmation page, which shows the account before the user
+	// commits - so a link opened by a mail scanner, or planted by someone
+	// else, never signs anyone in on its own.
+	Peek(hash string, now time.Time) (userID string, err error)
 }
 
 type repo struct {
@@ -65,4 +71,18 @@ func (r *repo) Consume(hash string, now time.Time) (string, error) {
 	default:
 		return "", fmt.Errorf("magic_token: consume: %w", err)
 	}
+}
+
+func (r *repo) Peek(hash string, now time.Time) (string, error) {
+	var mt MagicToken
+	if err := r.db.CRUD().ReadOne(MagicToken{}, "token_hash", hash, &mt); err != nil {
+		if errors.Is(err, crud.ErrNotFound) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("magic_token: peek: %w", err)
+	}
+	if mt.Expired(now) {
+		return "", ErrExpired
+	}
+	return mt.UserID, nil
 }

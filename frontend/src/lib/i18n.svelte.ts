@@ -115,7 +115,19 @@ const dict = {
 		'preview.processingPayment': 'Se procesează…',
 		'preview.cardDisclaimer': 'Cardul e procesat de Stripe — SADE nu vede niciodată numărul.',
 		'common.loading': 'Se încarcă…',
-		'common.signOut': 'Deconectare'
+		'common.signOut': 'Deconectare',
+		'nav.signOutEverywhere': 'Deconectare de pe toate dispozitivele',
+		'confirm.title': 'Confirmă autentificarea',
+		'confirm.subtitle': 'Te autentifici în contul:',
+		'confirm.submit': 'Intră în cont',
+		'confirm.signingIn': 'Se autentifică…',
+		'confirm.notYou': 'Nu ai cerut tu acest link? Închide pagina — nu se întâmplă nimic.',
+		'confirm.invalidTitle': 'Link invalid',
+		'confirm.backToLogin': 'Cere un link nou',
+		'confirm.errorGeneric': 'Autentificarea a eșuat. Încearcă din nou.',
+		'usage.label': 'Consum',
+		'usage.jobs': 'Fișiere în ultimele 24h',
+		'usage.storage': 'Spațiu folosit'
 	},
 	en: {
 		'app.name': 'SADE',
@@ -229,7 +241,19 @@ const dict = {
 		'preview.processingPayment': 'Processing…',
 		'preview.cardDisclaimer': 'Card handled by Stripe — SADE never sees the number.',
 		'common.loading': 'Loading…',
-		'common.signOut': 'Sign out'
+		'common.signOut': 'Sign out',
+		'nav.signOutEverywhere': 'Sign out on all devices',
+		'confirm.title': 'Confirm sign-in',
+		'confirm.subtitle': 'You are signing in as:',
+		'confirm.submit': 'Sign in',
+		'confirm.signingIn': 'Signing in…',
+		'confirm.notYou': "Didn't request this link? Just close this page — nothing happens.",
+		'confirm.invalidTitle': 'Invalid link',
+		'confirm.backToLogin': 'Request a new link',
+		'confirm.errorGeneric': 'Sign-in failed. Please try again.',
+		'usage.label': 'Usage',
+		'usage.jobs': 'Files in the last 24h',
+		'usage.storage': 'Storage used'
 	}
 } as const satisfies Record<Locale, Record<string, string>>;
 

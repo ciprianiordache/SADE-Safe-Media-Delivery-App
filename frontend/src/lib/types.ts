@@ -49,6 +49,16 @@ export interface NewJobInput {
 	watermarkText?: string;
 }
 
+// Mirrors internals/app/job.Usage - the caller's consumption against their
+// quotas. A zero limit means that quota is off; unlimited is set for admins.
+export interface Usage {
+	jobsLast24h: number;
+	jobsPerDay: number;
+	storageBytes: number;
+	storageLimitBytes: number;
+	unlimited: boolean;
+}
+
 // Mirrors internals/app/payment.statusResponse.
 export interface PaymentStatus {
 	enabled: boolean; // false when the server has no Stripe key configured

@@ -104,7 +104,7 @@ func TestBuildArgsVideoLogo(t *testing.T) {
 func TestBuildArgsVideoTextOnlyHasNoLogoInput(t *testing.T) {
 	e := testEngine()
 	args, _ := e.buildArgs(Request{
-		SourcePath: "in.mp4", OutputPath: "out.mp4", Media: MediaVideo, Overlay: OverlayText, Text: "Ana : 50%",
+		SourcePath: "in.mp4", OutputPath: "out.mp4", Media: MediaVideo, Overlay: OverlayText, textFile: `C:\tmp\.wmtext-1.txt`,
 	})
 	if n := countFlag(args, "-i"); n != 1 {
 		t.Errorf("text-only overlay should have 1 input, got %d: %v", n, args)
@@ -113,13 +113,26 @@ func TestBuildArgsVideoTextOnlyHasNoLogoInput(t *testing.T) {
 	if !strings.HasPrefix(fc, "[0:v]drawtext=") {
 		t.Errorf("text filter should start from [0:v]: %s", fc)
 	}
-	// Inside a single-quoted value ':' is literal; only '%' (drawtext text
-	// expansion), '\'' and '\\' need escaping.
-	if !strings.Contains(fc, `text='Ana : 50\%'`) {
-		t.Errorf("text not escaped for filtergraph: %s", fc)
+	// The text never enters the graph: drawtext reads it from a file with
+	// expansion off.
+	if !strings.Contains(fc, `textfile='C\:/tmp/.wmtext-1.txt':expansion=none`) {
+		t.Errorf("drawtext should read the text from a file: %s", fc)
+	}
+	if strings.Contains(fc, ":text=") {
+		t.Errorf("user text must not be inlined into the filtergraph: %s", fc)
 	}
 	if !strings.Contains(fc, `fontfile='C\:/fonts/NotoSans-Regular.ttf'`) {
 		t.Errorf("font path not normalised/escaped: %s", fc)
+	}
+}
+
+func TestSanitizeText(t *testing.T) {
+	if got := SanitizeText("  a" + string(rune(10)) + "b" + string(rune(9)) + "c" + string(rune(13)) + "  "); got != "a b c" {
+		t.Errorf("control characters should become spaces, got %q", got)
+	}
+	long := strings.Repeat("x", MaxTextRunes+50)
+	if got := SanitizeText(long); len([]rune(got)) != MaxTextRunes {
+		t.Errorf("text should be capped at %d runes, got %d", MaxTextRunes, len([]rune(got)))
 	}
 }
 

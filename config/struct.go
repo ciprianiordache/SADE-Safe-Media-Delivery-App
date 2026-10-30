@@ -191,6 +191,15 @@ type AuthConfig struct {
 	// account discovery. 0 disables the limiter entirely.
 	RequestRateLimit  int      `yaml:"request_rate_limit" env:"AUTH_REQUEST_RATE_LIMIT" default:"5"`
 	RequestRateWindow Duration `yaml:"request_rate_window" env:"AUTH_REQUEST_RATE_WINDOW" default:"15m"`
+	// SignupMode decides who may create an operator account by requesting a
+	// sign-in link: "open" (anyone - self-serve SaaS, bounded by the Upload
+	// quotas), "allowlist" (only SignupAllowedEmails / SignupAllowedDomains),
+	// or "closed" (no new accounts; existing ones still sign in). A refused
+	// address gets the same 202 as any other, so the mode cannot be used to
+	// probe which accounts exist.
+	SignupMode           string   `yaml:"signup_mode" env:"AUTH_SIGNUP_MODE" default:"open"` // open | allowlist | closed
+	SignupAllowedEmails  []string `yaml:"signup_allowed_emails" env:"AUTH_SIGNUP_ALLOWED_EMAILS"`
+	SignupAllowedDomains []string `yaml:"signup_allowed_domains" env:"AUTH_SIGNUP_ALLOWED_DOMAINS"`
 }
 
 // FFmpegConfig configures the watermark engine. It owns binary locations, the
@@ -247,6 +256,11 @@ type UploadConfig struct {
 	AllowedAudio  []string `yaml:"allowed_audio" env:"UPLOAD_ALLOWED_AUDIO" default:".mp3,.wav,.m4a,.aac,.flac,.ogg"`
 	AllowedImage  []string `yaml:"allowed_image" env:"UPLOAD_ALLOWED_IMAGE" default:".jpg,.jpeg,.png,.webp,.tiff"`
 	KeepOriginals bool     `yaml:"keep_originals" env:"UPLOAD_KEEP_ORIGINALS" default:"true"` // false = delete original once preview is ready
+	// Per-operator quotas (admins are exempt). They are what keeps open
+	// signup safe: every job stores files, burns ffmpeg time and emails a
+	// recipient, so an account can only do so much of each. 0 = unlimited.
+	JobsPerDay      int `yaml:"jobs_per_day" env:"UPLOAD_JOBS_PER_DAY" default:"25"`              // rolling 24h
+	StorageQuotaMiB int `yaml:"storage_quota_mib" env:"UPLOAD_STORAGE_QUOTA_MIB" default:"10240"` // originals + previews
 }
 
 // PaymentConfig configures the Stripe-backed unlock of a job's original
@@ -269,4 +283,12 @@ type PaymentConfig struct {
 	StripeWebhookSecret  string `yaml:"stripe_webhook_secret" env:"STRIPE_WEBHOOK_SECRET"`
 	PriceCents           int64  `yaml:"price_cents" env:"PAYMENT_PRICE_CENTS" default:"4900"` // 49.00 in the default currency
 	Currency             string `yaml:"currency" env:"PAYMENT_CURRENCY" default:"eur"`        // lower-case ISO 4217, as Stripe expects
+	// OriginalLinkTTL bounds each /o/<token> link Status mints. It can be
+	// short: the paying recipient's page mints a fresh one on every load, so
+	// a short TTL only limits how long a forwarded copy keeps working.
+	OriginalLinkTTL Duration `yaml:"original_link_ttl" env:"PAYMENT_ORIGINAL_LINK_TTL" default:"24h"`
+	// RateLimit bounds the public checkout/status endpoints per client IP
+	// within RateWindow (each call can reach Stripe's API). 0 disables it.
+	RateLimit  int      `yaml:"rate_limit" env:"PAYMENT_RATE_LIMIT" default:"60"`
+	RateWindow Duration `yaml:"rate_window" env:"PAYMENT_RATE_WINDOW" default:"15m"`
 }

@@ -366,6 +366,12 @@ func Validate(cfg *Config) error {
 			}
 		}
 	}
+	if !oneOf(cfg.Auth.SignupMode, "open", "allowlist", "closed") {
+		add("auth.signup_mode %q must be open|allowlist|closed", cfg.Auth.SignupMode)
+	}
+	if cfg.Auth.SignupMode == "allowlist" && len(cfg.Auth.SignupAllowedEmails) == 0 && len(cfg.Auth.SignupAllowedDomains) == 0 {
+		add("auth.signup_mode is allowlist but signup_allowed_emails/domains are both empty")
+	}
 	if !oneOf(cfg.Database.Driver, "pgx", "postgres") {
 		add("database.driver %q must be pgx or postgres", cfg.Database.Driver)
 	}

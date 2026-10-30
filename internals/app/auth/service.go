@@ -19,7 +19,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"net/url"
+	"strings"
 	"time"
 
 	"sade/config"
@@ -28,6 +30,7 @@ import (
 	"sade/internals/app/user"
 	"sade/internals/emailtmpl"
 	"sade/internals/mailer"
+	"sade/internals/ratelimit"
 )
 
 // Service runs the login flow.
@@ -40,7 +43,15 @@ type Service struct {
 	publicURL   string // API base for the callback link (config.App.PublicURL)
 	frontendURL string
 	log         *slog.Logger
+
+	// emailLimiter caps sign-in links per recipient address, on top of the
+	// per-IP limit in the router: an attacker rotating IPs still cannot
+	// flood one mailbox. Nil disables it (see SetEmailLimiter).
+	emailLimiter *ratelimit.Limiter
 }
+
+// SetEmailLimiter installs the per-address cap on RequestLink.
+func (s *Service) SetEmailLimiter(l *ratelimit.Limiter) { s.emailLimiter = l }
 
 func NewService(
 	users user.Service,
@@ -60,13 +71,31 @@ func NewService(
 // RequestLink provisions an account for email if needed, stores a fresh
 // single-use token, and emails its callback URL. It does not reveal whether
 // the address was already known.
+//
+// Every refusal that depends on the address - signup policy, the per-address
+// rate limit - returns nil exactly like a sent link, so the response never
+// tells a caller whether an account exists or may be created.
 func (s *Service) RequestLink(ctx context.Context, email string) error {
-	u, err := s.users.EnsureByEmail(email)
-	if err != nil {
-		if errors.Is(err, user.ErrInvalidInput) {
-			return ErrInvalidEmail
+	u, err := s.users.FindByEmail(email)
+	switch {
+	case errors.Is(err, user.ErrInvalidInput):
+		return ErrInvalidEmail
+	case errors.Is(err, user.ErrNotFound):
+		norm := normalizeAddr(email)
+		if !s.signupAllowed(norm) {
+			s.log.Info("signup refused by policy", "mode", s.cfg.SignupMode, "domain", domainOf(norm))
+			return nil
 		}
-		return fmt.Errorf("auth: ensure account: %w", err)
+		u, err = s.users.EnsureByEmail(norm)
+		if err != nil {
+			return fmt.Errorf("auth: create account: %w", err)
+		}
+	case err != nil:
+		return fmt.Errorf("auth: find account: %w", err)
+	}
+	if !s.emailLimiter.Allow(u.Email) {
+		s.log.Warn("magic link suppressed: per-address limit", "user", u.ID)
+		return nil
 	}
 
 	raw, err := secret()
@@ -82,7 +111,12 @@ func (s *Service) RequestLink(ctx context.Context, email string) error {
 		return fmt.Errorf("auth: store token: %w", err)
 	}
 
-	link := s.publicURL + "/api/auth/callback?token=" + url.QueryEscape(raw)
+	// The link opens the frontend's confirmation page, which shows the
+	// account and signs in only on an explicit click (POST). The token rides
+	// in the fragment, so it is never sent to a server, logged, or leaked
+	// through a Referer - and a mail scanner that prefetches the URL cannot
+	// spend it.
+	link := s.ConfirmURL(raw)
 	human := emailtmpl.HumanDuration(ttl)
 	body := fmt.Sprintf(
 		"Use this link to sign in to SADE. It is valid for %s and can be used once:\n\n%s\n\n"+
@@ -110,6 +144,82 @@ func (s *Service) RequestLink(ctx context.Context, email string) error {
 	}
 	s.log.Info("magic link sent", "user", u.ID)
 	return nil
+}
+
+// ConfirmURL is the frontend sign-in confirmation page for a raw token.
+func (s *Service) ConfirmURL(rawToken string) string {
+	return s.frontendURL + "/auth/confirm#token=" + url.QueryEscape(rawToken)
+}
+
+// Peek returns the email address a still-valid sign-in token belongs to,
+// without spending it - the confirmation page shows it before the user
+// commits. Any unusable token yields ErrInvalidToken.
+func (s *Service) Peek(_ context.Context, rawToken string) (string, error) {
+	if rawToken == "" {
+		return "", ErrInvalidToken
+	}
+	userID, err := s.tokens.Peek(hash(rawToken), time.Now())
+	if err != nil {
+		if errors.Is(err, magic_token.ErrNotFound) || errors.Is(err, magic_token.ErrExpired) {
+			return "", ErrInvalidToken
+		}
+		return "", fmt.Errorf("auth: peek token: %w", err)
+	}
+	u, err := s.users.GetByID(userID)
+	if err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			return "", ErrInvalidToken
+		}
+		return "", fmt.Errorf("auth: load token user: %w", err)
+	}
+	return u.Email, nil
+}
+
+// RevokeAll ends every session userID has - "sign out everywhere", and what
+// a role change does so the new privileges apply from the next request.
+func (s *Service) RevokeAll(_ context.Context, userID string) error {
+	if err := s.sessions.DeleteByUser(userID); err != nil {
+		return fmt.Errorf("auth: revoke sessions: %w", err)
+	}
+	s.log.Info("sessions revoked", "user", userID)
+	return nil
+}
+
+// signupAllowed applies Auth.SignupMode to an address with no account yet.
+func (s *Service) signupAllowed(email string) bool {
+	switch s.cfg.SignupMode {
+	case "", "open":
+		return true
+	case "allowlist":
+		for _, e := range s.cfg.SignupAllowedEmails {
+			if strings.EqualFold(strings.TrimSpace(e), email) {
+				return true
+			}
+		}
+		d := domainOf(email)
+		for _, allowed := range s.cfg.SignupAllowedDomains {
+			if d != "" && strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(allowed), "@"), d) {
+				return true
+			}
+		}
+		return false
+	default: // closed
+		return false
+	}
+}
+
+func normalizeAddr(email string) string {
+	if a, err := mail.ParseAddress(strings.TrimSpace(email)); err == nil {
+		return strings.ToLower(a.Address)
+	}
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func domainOf(email string) string {
+	if i := strings.LastIndexByte(email, '@'); i >= 0 {
+		return strings.ToLower(email[i+1:])
+	}
+	return ""
 }
 
 // Complete spends rawToken and returns a new session's secret and expiry.

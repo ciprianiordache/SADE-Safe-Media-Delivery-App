@@ -13,4 +13,7 @@ var (
 	// verify (unknown, expired, wrong purpose, or points at a non-preview
 	// asset).
 	ErrInvalidToken = errors.New("payment: invalid token")
+	// ErrAlreadyPaid is returned by Service.CreateIntent when the job has
+	// already been paid for - there is nothing left to charge.
+	ErrAlreadyPaid = errors.New("payment: already paid")
 )

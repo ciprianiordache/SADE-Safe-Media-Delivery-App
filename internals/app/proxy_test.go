@@ -112,7 +112,7 @@ func TestSchemeHonoursForwardedProtoOnlyFromTrustedProxy(t *testing.T) {
 
 func TestSecurityHeadersSendsHSTSOnlyOverHTTPS(t *testing.T) {
 	trust := newProxyTrust(loopbackOnly)
-	h := SecurityHeaders(trust)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := SecurityHeaders(trust, "")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

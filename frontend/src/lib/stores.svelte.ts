@@ -29,6 +29,11 @@ class AuthStore {
 		await api.logout();
 		this.user = null;
 	}
+
+	async logoutEverywhere() {
+		await api.logoutAll();
+		this.user = null;
+	}
 }
 
 export const auth = new AuthStore();

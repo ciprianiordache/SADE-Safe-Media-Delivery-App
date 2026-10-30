@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"slices"
+	"strings"
 	"time"
 
 	"sade/internals/app/auth"
@@ -93,7 +94,7 @@ func RequestLog(log *slog.Logger, trust proxyTrust) middleware {
 			sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(sw, r)
 			log.Info("http request",
-				"method", r.Method, "path", r.URL.Path,
+				"method", r.Method, "path", redactPath(r.URL.Path),
 				"status", sw.status, "bytes", sw.bytes,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"remote", trust.clientIP(r),
@@ -109,7 +110,7 @@ func Recover(log *slog.Logger) middleware {
 			defer func() {
 				if p := recover(); p != nil {
 					log.Error("panic in handler",
-						"panic", p, "path", r.URL.Path, "stack", string(debug.Stack()))
+						"panic", p, "path", redactPath(r.URL.Path), "stack", string(debug.Stack()))
 					httpx.Error(w, http.StatusInternalServerError, "internal error")
 				}
 			}()
@@ -168,13 +169,25 @@ func RateLimit(limiter *ratelimit.Limiter, trust proxyTrust) middleware {
 // the client actually reached us over HTTPS, so it is keyed on the
 // forwarded scheme rather than sent unconditionally, which would otherwise
 // pin a plain-HTTP dev host to a scheme it cannot serve.
-func SecurityHeaders(trust proxyTrust) middleware {
+//
+// csp is the Content-Security-Policy (see buildCSP); "" omits it. API
+// responses are also marked no-store, so a shared or back-button cache never
+// replays one user's data.
+func SecurityHeaders(trust proxyTrust, csp string) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
 			h.Set("X-Content-Type-Options", "nosniff")
 			h.Set("X-Frame-Options", "DENY")
 			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			h.Set("Cross-Origin-Opener-Policy", "same-origin")
+			h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+			if csp != "" {
+				h.Set("Content-Security-Policy", csp)
+			}
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				h.Set("Cache-Control", "no-store")
+			}
 			if trust.scheme(r) == "https" {
 				h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 			}

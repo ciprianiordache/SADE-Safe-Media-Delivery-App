@@ -156,24 +156,37 @@ func TestAuthFlowEndToEnd(t *testing.T) {
 		t.Fatalf("request link = %d, want 202", resp.StatusCode)
 	}
 
-	// 2. follow the callback link from the email; the API base in the link
-	// is a placeholder, so swap in the test server's URL.
+	// 2. the emailed link opens the frontend confirmation page with the
+	// token in the fragment. The legacy GET callback only forwards there and
+	// never signs in; the page then verifies and completes with POSTs.
 	link := cm.lastLink(t)
-	link = strings.Replace(link, "http://APIBASE", srv.URL, 1)
-	cb, err := client.Get(link)
+	if !strings.HasPrefix(link, "http://app.test/auth/confirm#token=") {
+		t.Fatalf("emailed link = %q, want the confirmation page", link)
+	}
+	tok := strings.TrimPrefix(link, "http://app.test/auth/confirm#token=")
+
+	cb, err := client.Get(srv.URL + "/api/auth/callback?token=" + tok)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cb.Body.Close()
-	if cb.StatusCode != http.StatusSeeOther {
-		t.Fatalf("callback = %d, want 303", cb.StatusCode)
+	if cb.StatusCode != http.StatusSeeOther || cb.Header.Get("Location") != link {
+		t.Fatalf("legacy callback = %d -> %q", cb.StatusCode, cb.Header.Get("Location"))
 	}
-	if loc := cb.Header.Get("Location"); loc != "http://app.test" {
-		t.Errorf("callback Location = %q", loc)
+	if hasSessionCookie(client, srv.URL) {
+		t.Fatal("a GET signed the browser in")
 	}
-	if !hasSessionCookie(client, srv.URL) {
-		t.Fatal("no session cookie in the jar after callback")
+
+	vr, err := client.Post(srv.URL+"/api/auth/verify", "application/json", strings.NewReader(`{"token":"`+tok+`"}`))
+	if err != nil {
+		t.Fatal(err)
 	}
+	vb, _ := io.ReadAll(vr.Body)
+	vr.Body.Close()
+	if vr.StatusCode != http.StatusOK || !strings.Contains(string(vb), "op@example.com") {
+		t.Fatalf("verify = %d %s", vr.StatusCode, vb)
+	}
+	completeSignIn(t, srv, client, tok)
 
 	// 3. /api/me now returns the signed-in user
 	me, err := client.Get(srv.URL + "/api/me")
@@ -224,14 +237,27 @@ func signIn(t *testing.T, srv *httptest.Server, client *http.Client, cm *capMail
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("request link = %d, want 202", resp.StatusCode)
 	}
-	link := strings.Replace(cm.lastLink(t), "http://APIBASE", srv.URL, 1)
-	cb, err := client.Get(link)
+	link := cm.lastLink(t)
+	i := strings.Index(link, "#token=")
+	if i < 0 {
+		t.Fatalf("no token in emailed link %q", link)
+	}
+	completeSignIn(t, srv, client, link[i+len("#token="):])
+}
+
+// completeSignIn does what the confirmation page does on the user's click.
+func completeSignIn(t *testing.T, srv *httptest.Server, client *http.Client, tok string) {
+	t.Helper()
+	resp, err := client.Post(srv.URL+"/api/auth/complete", "application/json", strings.NewReader(`{"token":"`+tok+`"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	cb.Body.Close()
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("complete = %d, want 200", resp.StatusCode)
+	}
 	if !hasSessionCookie(client, srv.URL) {
-		t.Fatal("no session cookie after callback")
+		t.Fatal("no session cookie after completing sign-in")
 	}
 }
 
@@ -543,12 +569,12 @@ func (f *fakePaymentBackend) Call(method, path, _ string, _ stripe.ParamsContain
 		f.n++
 		body = map[string]any{
 			"id": fmt.Sprintf("pi_test_%d", f.n), "object": "payment_intent",
-			"client_secret": fmt.Sprintf("pi_test_%d_secret_fake", f.n), "status": "requires_payment_method",
+			"client_secret": fmt.Sprintf("pi_test_%d_secret_fake", f.n), "status": "requires_payment_method", "amount": 4900, "currency": "eur",
 		}
 	case method == "GET":
 		body = map[string]any{
 			"id": path[len("/v1/payment_intents/"):], "object": "payment_intent",
-			"status": string(f.intentStatus),
+			"status": string(f.intentStatus), "amount": 4900, "amount_received": 4900, "currency": "eur",
 		}
 	default:
 		return fmt.Errorf("fakePaymentBackend: unhandled %s %s", method, path)
