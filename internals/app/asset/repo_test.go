@@ -95,3 +95,34 @@ func TestRepoCRUD(t *testing.T) {
 		t.Errorf("Delete(missing) = %v, want ErrNotFound", err)
 	}
 }
+
+func TestUpsertPreviewKeepsOneRowAndItsID(t *testing.T) {
+	db := testutil.DB(t, user.User{}, job.Job{}, asset.Asset{})
+	r := asset.NewRepo(db)
+	jid := seedJob(t, db.CRUD())
+
+	first, err := r.UpsertPreview(&asset.Asset{
+		JobID: jid, StorageKey: "previews/" + jid + "/a-preview.mp4",
+		Filename: "a-preview.mp4", MIME: "video/mp4", SizeBytes: 10,
+	})
+	if err != nil {
+		t.Fatalf("first UpsertPreview: %v", err)
+	}
+	second, err := r.UpsertPreview(&asset.Asset{
+		JobID: jid, StorageKey: "previews/" + jid + "/a-preview.mp4",
+		Filename: "a-preview.mp4", MIME: "video/mp4", SizeBytes: 20, Checksum: "new",
+	})
+	if err != nil {
+		t.Fatalf("second UpsertPreview: %v", err)
+	}
+	if first != second {
+		t.Errorf("reprocessing changed the preview id (%s -> %s): emailed links would break", first, second)
+	}
+	all, err := r.ListByJob(jid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].SizeBytes != 20 || all[0].Checksum != "new" {
+		t.Errorf("want one updated preview row, got %+v", all)
+	}
+}

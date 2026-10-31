@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
+	"time"
 
 	"sade/config"
 	"sade/internals/app"
@@ -45,6 +47,7 @@ type App struct {
 	db     *database.Database
 	server *server.Server
 	worker *worker.Pool // nil when ffmpeg is unavailable
+	auth   *auth.Service
 }
 
 // NewApp loads config, starts the logger, connects the database and ensures
@@ -68,6 +71,12 @@ func NewApp(ctx context.Context) (*App, error) {
 	}
 	log = log.With("environment", cfg.App.Environment)
 	slog.SetDefault(log)
+	// A session cookie must never travel over plain HTTP once the public
+	// address is HTTPS, whatever AUTH_SESSION_COOKIE_SECURE says.
+	if strings.HasPrefix(strings.ToLower(cfg.App.PublicURL), "https://") && !cfg.Auth.SessionCookieSecure {
+		cfg.Auth.SessionCookieSecure = true
+		log.Warn("forcing Secure session cookies: app.public_url is https")
+	}
 	log.Info("starting",
 		"name", cfg.App.Name, "version", cfg.App.Version, "public_url", cfg.App.PublicURL)
 
@@ -162,7 +171,7 @@ func NewApp(ctx context.Context) (*App, error) {
 		PaymentRateLimiter: ratelimit.New(cfg.Payment.RateLimit, cfg.Payment.RateWindow.Std()),
 	})
 
-	a := &App{cfg: cfg, log: log, logGC: logGC, db: db}
+	a := &App{cfg: cfg, log: log, logGC: logGC, db: db, auth: authSvc}
 	a.server = server.New(cfg.Server, log, router)
 
 	// The watermark worker. If ffmpeg/ffprobe are missing (engine == nil,
@@ -197,6 +206,7 @@ func NewApp(ctx context.Context) (*App, error) {
 // server and the worker down gracefully. Close still has to be called
 // afterwards to release the database and logger.
 func (a *App) Run(ctx context.Context) error {
+	go a.purgeExpired(ctx)
 	if a.worker != nil {
 		a.worker.Start(ctx)
 	}
@@ -226,4 +236,21 @@ func (a *App) Close() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// purgeExpired drops expired sign-in tokens and sessions once at startup and
+// then hourly, until ctx is cancelled.
+func (a *App) purgeExpired(ctx context.Context) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		if err := a.auth.PurgeExpired(ctx); err != nil {
+			a.log.Error("purge expired credentials", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }

@@ -185,6 +185,25 @@ func (s *Service) RevokeAll(_ context.Context, userID string) error {
 	return nil
 }
 
+// PurgeExpired deletes sign-in tokens and sessions past their expiry. Both
+// are otherwise only removed when someone presents them again, so unused
+// ones would pile up forever. app.go runs this periodically.
+func (s *Service) PurgeExpired(_ context.Context) error {
+	now := time.Now()
+	tokens, err := s.tokens.DeleteExpired(now)
+	if err != nil {
+		return err
+	}
+	sessions, err := s.sessions.DeleteExpired(now)
+	if err != nil {
+		return err
+	}
+	if tokens+sessions > 0 {
+		s.log.Info("purged expired credentials", "magic_tokens", tokens, "sessions", sessions)
+	}
+	return nil
+}
+
 // signupAllowed applies Auth.SignupMode to an address with no account yet.
 func (s *Service) signupAllowed(email string) bool {
 	switch s.cfg.SignupMode {

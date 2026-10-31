@@ -28,13 +28,14 @@ func New(cfg config.ServerConfig, log *slog.Logger, handler http.Handler) *Serve
 		cfg: cfg,
 		log: log,
 		httpSrv: &http.Server{
-			Addr:           net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
-			Handler:        handler,
-			ReadTimeout:    cfg.ReadTimeout.Std(),
-			WriteTimeout:   cfg.WriteTimeout.Std(),
-			IdleTimeout:    cfg.IdleTimeout.Std(),
-			MaxHeaderBytes: cfg.MaxHeaderBytes,
-			ErrorLog:       slog.NewLogLogger(log.Handler(), slog.LevelError),
+			Addr:              net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
+			Handler:           handler,
+			ReadTimeout:       cfg.ReadTimeout.Std(),
+			ReadHeaderTimeout: cfg.ReadHeaderTimeout.Std(),
+			WriteTimeout:      cfg.WriteTimeout.Std(),
+			IdleTimeout:       cfg.IdleTimeout.Std(),
+			MaxHeaderBytes:    cfg.MaxHeaderBytes,
+			ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelError),
 		},
 	}
 }

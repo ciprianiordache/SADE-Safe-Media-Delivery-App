@@ -77,9 +77,28 @@
 			watermarkText = '';
 			if (fileInput) fileInput.value = '';
 		} catch (err) {
-			uploadError = err instanceof ApiError ? err.message : i18n.t('dashboard.uploadError');
+			uploadError = uploadErrorMessage(err);
 		} finally {
 			submitting = false;
+		}
+	}
+
+	// Server errors arrive in English; show the common ones in the UI language.
+	function uploadErrorMessage(err: unknown): string {
+		if (!(err instanceof ApiError)) return i18n.t('dashboard.uploadError');
+		switch (err.status) {
+			case 429:
+				return i18n.t('dashboard.errorDailyLimit');
+			case 413:
+				return err.message.includes('quota')
+					? i18n.t('dashboard.errorStorageQuota')
+					: i18n.t('dashboard.errorTooLarge');
+			case 415:
+				return i18n.t('dashboard.errorUnsupported');
+			case 400:
+				return i18n.t('dashboard.errorInvalid');
+			default:
+				return i18n.t('dashboard.uploadError');
 		}
 	}
 

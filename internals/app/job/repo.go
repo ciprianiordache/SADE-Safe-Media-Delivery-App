@@ -31,6 +31,11 @@ type Repo interface {
 	CountCreatedSince(userID string, since time.Time) (int, error)
 	// StorageBytes sums the size of every asset across userID's jobs.
 	StorageBytes(userID string) (int64, error)
+	// HasPaidPayment reports whether any payment for jobID is paid.
+	HasPaidPayment(jobID string) (bool, error)
+	// DeleteIfNotProcessing removes the job row (cascading its assets and
+	// payments) unless the worker holds it; false means it was processing.
+	DeleteIfNotProcessing(jobID string) (bool, error)
 
 	// --- worker-facing: the job row is the source of truth for state ---
 
@@ -138,6 +143,30 @@ func (r *repo) StorageBytes(userID string) (int64, error) {
 		return 0, fmt.Errorf("job: storage bytes: %w", err)
 	}
 	return n, nil
+}
+
+func (r *repo) HasPaidPayment(jobID string) (bool, error) {
+	var n int
+	err := r.db.QueryRow(
+		r.rebind("SELECT COUNT(*) FROM payments WHERE job_id = ? AND status = 'paid'"), jobID,
+	).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("job: check payments: %w", err)
+	}
+	return n > 0, nil
+}
+
+func (r *repo) DeleteIfNotProcessing(jobID string) (bool, error) {
+	// One conditional statement, so the worker cannot claim the row between
+	// a status check and the delete.
+	res, err := r.db.Exec(
+		r.rebind("DELETE FROM jobs WHERE id = ? AND status <> 'processing'"), jobID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("job: delete: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // claimColumns is the projection ClaimPending scans, in order.

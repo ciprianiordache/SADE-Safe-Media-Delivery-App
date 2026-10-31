@@ -24,6 +24,12 @@ export class ApiError extends Error {
 	}
 }
 
+// Fired when an authenticated call comes back 401 - the session expired, or
+// was ended from another device ("sign out on all devices"). The /app layout
+// listens and sends the user to /login instead of leaving a dashboard that
+// silently fails every poll.
+export const UNAUTHORIZED_EVENT = 'sade:unauthorized';
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(`${API_BASE}${path}`, {
 		credentials: 'include',
@@ -42,6 +48,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 			if (typeof body?.error === 'string') message = body.error;
 		} catch {
 			// non-JSON error body - fall back to statusText
+		}
+		if (res.status === 401 && path !== '/api/me' && typeof window !== 'undefined') {
+			window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
 		}
 		throw new ApiError(res.status, message);
 	}
@@ -97,6 +106,10 @@ export const api = {
 
 	getJob(id: string): Promise<Job> {
 		return request(`/api/jobs/${encodeURIComponent(id)}`);
+	},
+
+	deleteJob(id: string): Promise<void> {
+		return request(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' });
 	},
 
 	createJob(input: NewJobInput): Promise<Job> {

@@ -142,3 +142,12 @@ func contains(s []string, want string) bool {
 	}
 	return false
 }
+
+func TestValidateRejectsStuckTimeoutShorterThanJobTimeout(t *testing.T) {
+	cfg, _, _ := loadInto(t)
+	cfg.Worker.JobTimeout = Duration(time.Hour)
+	cfg.Worker.StuckJobTimeout = Duration(30 * time.Minute)
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected Validate to reject stuck_job_timeout <= job_timeout")
+	}
+}

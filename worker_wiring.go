@@ -62,7 +62,7 @@ func (a assetStoreAdapter) Original(_ context.Context, jobID string) (worker.Ori
 }
 
 func (a assetStoreAdapter) AddPreview(_ context.Context, p worker.PreviewInput) (string, error) {
-	return a.repo.Create(&asset.Asset{
+	return a.repo.UpsertPreview(&asset.Asset{
 		JobID:      p.JobID,
 		Kind:       asset.KindPreview,
 		StorageKey: p.StorageKey,

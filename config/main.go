@@ -366,6 +366,13 @@ func Validate(cfg *Config) error {
 			}
 		}
 	}
+	if cfg.Worker.StuckJobTimeout.Std() <= cfg.Worker.JobTimeout.Std() {
+		// The worker requeues 'processing' rows older than StuckJobTimeout
+		// while it runs; at or below JobTimeout it would requeue a job that
+		// is still legitimately being encoded and process it twice.
+		add("worker.stuck_job_timeout (%s) must be longer than worker.job_timeout (%s)",
+			cfg.Worker.StuckJobTimeout, cfg.Worker.JobTimeout)
+	}
 	if !oneOf(cfg.Auth.SignupMode, "open", "allowlist", "closed") {
 		add("auth.signup_mode %q must be open|allowlist|closed", cfg.Auth.SignupMode)
 	}

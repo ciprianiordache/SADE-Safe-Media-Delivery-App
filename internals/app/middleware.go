@@ -196,6 +196,25 @@ func SecurityHeaders(trust proxyTrust, csp string) middleware {
 	}
 }
 
+// LongRequest gives one route a longer read and write deadline than the
+// server-wide Read/WriteTimeout - for the upload and the file streams, which
+// legitimately take minutes. d <= 0 leaves the server defaults in place.
+func LongRequest(d time.Duration) middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if d > 0 {
+				rc := http.NewResponseController(w)
+				deadline := time.Now().Add(d)
+				// Errors only mean the writer can't do deadlines (a test
+				// recorder); the server defaults then still apply.
+				_ = rc.SetReadDeadline(deadline)
+				_ = rc.SetWriteDeadline(deadline)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // statusWriter records the status code and byte count for RequestLog.
 type statusWriter struct {
 	http.ResponseWriter
@@ -211,6 +230,10 @@ func (s *statusWriter) WriteHeader(code int) {
 	}
 	s.ResponseWriter.WriteHeader(code)
 }
+
+// Unwrap lets http.ResponseController reach the real connection (deadlines,
+// flushing) through this wrapper.
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 func (s *statusWriter) Write(b []byte) (int, error) {
 	s.wrote = true

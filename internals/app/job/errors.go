@@ -31,3 +31,11 @@ var (
 	// exceed Upload.StorageQuotaMiB.
 	ErrStorageQuota = errors.New("job: storage quota exceeded")
 )
+
+var (
+	// ErrBusy is returned by Delete while the worker is processing the job.
+	ErrBusy = errors.New("job: is being processed")
+	// ErrPaid is returned by Delete for a job whose original a recipient has
+	// paid for - deleting it would break the access they bought.
+	ErrPaid = errors.New("job: has a paid unlock")
+)

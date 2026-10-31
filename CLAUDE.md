@@ -155,7 +155,50 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** security audit (VibeSec skill, report delivered in Romanian at the user's request) and
+**Latest:** a general bug hunt (user: "vreau sa te uiti de posibile probleme in aplicatie si sa
+incercam sa le rezolvam"). Found and fixed:
+
+- **15s server timeouts cut uploads and downloads.** `ReadTimeout`/`WriteTimeout` (15s) applied
+  to every route, so a large upload (cap is 2 GiB) or a slow video stream died mid-transfer.
+  New `LongRequest(d)` middleware (`internals/app/middleware.go`) sets per-request read+write
+  deadlines via `http.NewResponseController` on `POST /api/jobs`, the asset-content route and
+  `/p` `/d` `/o`; `config.ServerConfig.LongRequestTimeout` (2h). `statusWriter` gained
+  `Unwrap()` so the controller reaches the real conn through `RequestLog`. Also
+  `ReadHeaderTimeout` (10s, new config) on the `http.Server`. Regression test
+  `TestLongRequestOutlivesServerWriteTimeout` (200ms server timeout vs a 400ms handler).
+- **A worker panic killed the whole server** (unrecovered panic on a goroutine) and left the job
+  `processing`. `Pool.safeProcess` recovers it into an ordinary job error (retry/fail as usual).
+  `TestHandleRecoversFromPanic`.
+- **Stuck jobs were only requeued at startup.** `dispatch` now runs `ResetStuck` every
+  `StuckJobTimeout/2` too. `config.Validate` requires `StuckJobTimeout > JobTimeout`, otherwise
+  that would requeue a job still being encoded.
+- **Reprocessing duplicated the preview.** `asset.Repo.UpsertPreview` (used by
+  `worker_wiring.go`'s `AddPreview`) updates the job's existing preview row and keeps its id, so
+  already-emailed links (signed over that id) stay valid. `TestUpsertPreviewKeepsOneRowAndItsID`.
+- **Expired magic tokens and sessions were never deleted** (only on reuse). `DeleteExpired` on
+  both repos (raw SQL via new `database.Rebind`), `auth.Service.PurgeExpired`, run at start and
+  hourly by `App.purgeExpired` in `app.go`.
+- **No way to delete a job**, so an operator at the storage quota was stuck for good. `DELETE
+  /api/jobs/{id}` (`job.Service.Delete`): owner-scoped, 409 `ErrBusy` while processing (atomic
+  `DeleteIfNotProcessing`, so the worker can't claim it mid-delete), 409 `ErrPaid` once a payment
+  is paid (`Repo.HasPaidPayment`, raw SQL - job can't import payment, payment's tests import job).
+  Rows go first, then blobs. Local `storage.Delete` now also removes the object's own (now empty)
+  per-job directory. Frontend: two-step "Șterge" / "Confirmă ștergerea" section at the bottom of
+  `/app/jobs/[id]`. Verified live end to end.
+- **Session cookie could go over HTTP with an https PublicURL.** `app.go` forces
+  `SessionCookieSecure=true` when `App.PublicURL` is https.
+- **Dashboard stayed on a dead session.** `api.ts` fires `sade:unauthorized` on any 401 except
+  `/api/me`; the `/app` layout sends the user to `/login`. Verified live: logout-all from another
+  client, then a click in the dashboard goes to /login.
+- **Upload errors were English in a Romanian UI.** `uploadErrorMessage` maps 429/413/415/400 to
+  i18n strings (`dashboard.error*`).
+- `UploadConfig.KeepOriginals` documented as reserved/ignored: the paid unlock serves the
+  original, so it is always kept.
+
+Checked and left alone: the rate limiter's map is swept; worker state writes ignore ctx (the
+adapters drop it), so an expired job ctx cannot fail `MarkDone`.
+
+**Before that:** security audit (VibeSec skill, report delivered in Romanian at the user's request) and
 the fixes for every finding, plus a first step toward a SaaS shape - the user's ask, verbatim:
 "vreau sa rezolvam toate aceste probleme, imbunatatim autentificarea si incercam sa facem acest
 serviciu mai apropiat de un saas". What shipped, by finding:

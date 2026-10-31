@@ -84,12 +84,20 @@ type AppConfig struct {
 
 // ServerConfig holds the HTTP server settings.
 type ServerConfig struct {
-	Host               string    `yaml:"host" env:"SERVER_HOST" default:"localhost"`
-	Port               int       `yaml:"port" env:"SERVER_PORT" default:"8080"`
-	ReadTimeout        Duration  `yaml:"read_timeout" env:"SERVER_READ_TIMEOUT" default:"15s"`
-	WriteTimeout       Duration  `yaml:"write_timeout" env:"SERVER_WRITE_TIMEOUT" default:"15s"`
-	IdleTimeout        Duration  `yaml:"idle_timeout" env:"SERVER_IDLE_TIMEOUT" default:"60s"`
-	ShutdownTimeout    Duration  `yaml:"shutdown_timeout" env:"SERVER_SHUTDOWN_TIMEOUT" default:"15s"`
+	Host            string   `yaml:"host" env:"SERVER_HOST" default:"localhost"`
+	Port            int      `yaml:"port" env:"SERVER_PORT" default:"8080"`
+	ReadTimeout     Duration `yaml:"read_timeout" env:"SERVER_READ_TIMEOUT" default:"15s"`
+	WriteTimeout    Duration `yaml:"write_timeout" env:"SERVER_WRITE_TIMEOUT" default:"15s"`
+	IdleTimeout     Duration `yaml:"idle_timeout" env:"SERVER_IDLE_TIMEOUT" default:"60s"`
+	ShutdownTimeout Duration `yaml:"shutdown_timeout" env:"SERVER_SHUTDOWN_TIMEOUT" default:"15s"`
+	// ReadHeaderTimeout bounds how long a client may take to send its
+	// request headers (slow-header / slowloris connections).
+	ReadHeaderTimeout Duration `yaml:"read_header_timeout" env:"SERVER_READ_HEADER_TIMEOUT" default:"10s"`
+	// LongRequestTimeout replaces Read/WriteTimeout on the routes that move
+	// whole media files - the upload and every file stream (/p, /d, /o, the
+	// operator's own asset content). Read/WriteTimeout (15s) suit JSON calls,
+	// but would cut a multi-GB upload or a long video download mid-transfer.
+	LongRequestTimeout Duration  `yaml:"long_request_timeout" env:"SERVER_LONG_REQUEST_TIMEOUT" default:"2h"`
 	MaxHeaderBytes     int       `yaml:"max_header_bytes" env:"SERVER_MAX_HEADER_BYTES" default:"1048576"` // 1 MiB
 	CORSAllowedOrigins []string  `yaml:"cors_allowed_origins" env:"SERVER_CORS_ALLOWED_ORIGINS" default:"http://localhost:5173"`
 	TLS                TLSConfig `yaml:"tls"`
@@ -249,13 +257,15 @@ type WorkerConfig struct {
 // extension lists are the coarse allowlist; handlers additionally sniff the
 // content type and validate with ffprobe.
 type UploadConfig struct {
-	MaxSizeMiB    int      `yaml:"max_size_mib" env:"UPLOAD_MAX_SIZE_MIB" default:"2048"`   // per-file cap (2 GiB)
-	MemoryBufMiB  int      `yaml:"memory_buf_mib" env:"UPLOAD_MEMORY_BUF_MIB" default:"32"` // ParseMultipartForm in-memory threshold
-	TempDir       string   `yaml:"temp_dir" env:"UPLOAD_TEMP_DIR" default:"./.data/tmp/uploads"`
-	AllowedVideo  []string `yaml:"allowed_video" env:"UPLOAD_ALLOWED_VIDEO" default:".mp4,.mov,.mkv,.webm,.avi"`
-	AllowedAudio  []string `yaml:"allowed_audio" env:"UPLOAD_ALLOWED_AUDIO" default:".mp3,.wav,.m4a,.aac,.flac,.ogg"`
-	AllowedImage  []string `yaml:"allowed_image" env:"UPLOAD_ALLOWED_IMAGE" default:".jpg,.jpeg,.png,.webp,.tiff"`
-	KeepOriginals bool     `yaml:"keep_originals" env:"UPLOAD_KEEP_ORIGINALS" default:"true"` // false = delete original once preview is ready
+	MaxSizeMiB   int      `yaml:"max_size_mib" env:"UPLOAD_MAX_SIZE_MIB" default:"2048"`   // per-file cap (2 GiB)
+	MemoryBufMiB int      `yaml:"memory_buf_mib" env:"UPLOAD_MEMORY_BUF_MIB" default:"32"` // ParseMultipartForm in-memory threshold
+	TempDir      string   `yaml:"temp_dir" env:"UPLOAD_TEMP_DIR" default:"./.data/tmp/uploads"`
+	AllowedVideo []string `yaml:"allowed_video" env:"UPLOAD_ALLOWED_VIDEO" default:".mp4,.mov,.mkv,.webm,.avi"`
+	AllowedAudio []string `yaml:"allowed_audio" env:"UPLOAD_ALLOWED_AUDIO" default:".mp3,.wav,.m4a,.aac,.flac,.ogg"`
+	AllowedImage []string `yaml:"allowed_image" env:"UPLOAD_ALLOWED_IMAGE" default:".jpg,.jpeg,.png,.webp,.tiff"`
+	// KeepOriginals is reserved and currently ignored: originals are always
+	// kept, because the paid unlock (/o/<token>) serves the original file.
+	KeepOriginals bool `yaml:"keep_originals" env:"UPLOAD_KEEP_ORIGINALS" default:"true"`
 	// Per-operator quotas (admins are exempt). They are what keeps open
 	// signup safe: every job stores files, burns ffmpeg time and emails a
 	// recipient, so an account can only do so much of each. 0 = unlimited.

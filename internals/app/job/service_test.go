@@ -102,6 +102,11 @@ func newSvc(t *testing.T, store storage.Storage, assets asset.Repo, cfg config.U
 	if assets == nil {
 		assets = asset.NewRepo(db)
 	}
+	// Delete checks payments by raw SQL; the real schema comes from the
+	// payment package, which job cannot import (payment's tests import job).
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS payments (id TEXT, job_id TEXT, status TEXT)"); err != nil {
+		t.Fatalf("payments table: %v", err)
+	}
 	return NewService(NewRepo(db), assets, store, nil, cfg, testutil.Logger()), db, uid
 }
 
@@ -471,5 +476,68 @@ func TestCreateValidatesWatermarkTextAndOpts(t *testing.T) {
 	}
 	if resp.WatermarkText != "line one line two" {
 		t.Errorf("stored text = %q, want control characters flattened", resp.WatermarkText)
+	}
+}
+
+func TestDeleteRemovesRowsAndFiles(t *testing.T) {
+	store := &memStore{}
+	svc, db, uid := newSvc(t, store, nil, config.Defaults().Upload)
+	ctx := context.Background()
+
+	resp, err := svc.Create(ctx, uid, upload("a.mp4", "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "originals/" + resp.ID + "/original.mp4"
+	if !store.has(key) {
+		t.Fatal("upload not stored")
+	}
+
+	// Someone else's job reads as not found.
+	otherID, err := db.CRUD().Create(&user.User{Email: "other@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(ctx, otherID, resp.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Delete by non-owner = %v, want ErrNotFound", err)
+	}
+
+	if err := svc.Delete(ctx, uid, resp.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if store.has(key) {
+		t.Error("blob survived Delete")
+	}
+	if _, err := svc.Get(uid, resp.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("job survived Delete: %v", err)
+	}
+	if u, _ := svc.Usage(ctx, uid); u.StorageBytes != 0 {
+		t.Errorf("storage not freed: %d bytes", u.StorageBytes)
+	}
+}
+
+func TestDeleteRefusesProcessingAndPaidJobs(t *testing.T) {
+	svc, db, uid := newSvc(t, &memStore{}, nil, config.Defaults().Upload)
+	ctx := context.Background()
+
+	resp, err := svc.Create(ctx, uid, upload("a.mp4", "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(db.Rebind("UPDATE jobs SET status = 'processing' WHERE id = ?"), resp.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(ctx, uid, resp.ID); !errors.Is(err, ErrBusy) {
+		t.Fatalf("Delete while processing = %v, want ErrBusy", err)
+	}
+
+	if _, err := db.Exec(db.Rebind("UPDATE jobs SET status = 'done' WHERE id = ?"), resp.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(db.Rebind("INSERT INTO payments (id, job_id, status) VALUES ('p1', ?, 'paid')"), resp.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(ctx, uid, resp.ID); !errors.Is(err, ErrPaid) {
+		t.Fatalf("Delete of a paid job = %v, want ErrPaid", err)
 	}
 }

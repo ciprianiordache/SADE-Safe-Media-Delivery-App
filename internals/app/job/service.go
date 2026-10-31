@@ -44,6 +44,11 @@ type Service interface {
 	List(userID string, offset, limit int) ([]Response, error)
 	// Usage reports the caller's consumption against their quotas.
 	Usage(ctx context.Context, userID string) (Usage, error)
+	// Delete removes one of the caller's jobs: its stored files, its asset
+	// and payment rows, and the job row - freeing quota. ErrNotFound for
+	// someone else's job, ErrBusy while processing, ErrPaid once a recipient
+	// has paid for the original.
+	Delete(ctx context.Context, userID, jobID string) error
 }
 
 // NewUpload is the parsed POST /api/jobs request: the non-file fields plus the
@@ -261,6 +266,44 @@ func (s *service) List(userID string, offset, limit int) ([]Response, error) {
 		out[i] = toResponse(jobs[i])
 	}
 	return out, nil
+}
+
+func (s *service) Delete(ctx context.Context, userID, jobID string) error {
+	j, err := s.repo.GetByID(jobID)
+	if err != nil {
+		return err
+	}
+	if j.UserID != userID {
+		return ErrNotFound
+	}
+	paid, err := s.repo.HasPaidPayment(jobID)
+	if err != nil {
+		return err
+	}
+	if paid {
+		return ErrPaid
+	}
+	assets, err := s.assets.ListByJob(jobID)
+	if err != nil {
+		return fmt.Errorf("job: load assets: %w", err)
+	}
+	// Rows first: once the job row is gone no link resolves to these files
+	// any more, so a blob that then fails to delete is an orphan on disk,
+	// never a dangling database reference.
+	deleted, err := s.repo.DeleteIfNotProcessing(jobID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return ErrBusy
+	}
+	for _, a := range assets {
+		if err := s.store.Delete(ctx, a.StorageKey); err != nil && !errors.Is(err, storage.ErrNotFound) {
+			s.log.Error("delete job: remove blob", "job", jobID, "key", a.StorageKey, "error", err)
+		}
+	}
+	s.log.Info("job deleted", "job", jobID, "user", userID, "files", len(assets))
+	return nil
 }
 
 func (s *service) Usage(ctx context.Context, userID string) (Usage, error) {

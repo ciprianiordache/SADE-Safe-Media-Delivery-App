@@ -147,7 +147,10 @@ UPLOAD_STORAGE_QUOTA_MIB=10240  # originals + previews per account
 ```
 
 `0` disables either quota. The dashboard shows both as meters
-(`GET /api/usage`). To restrict who can sign up instead:
+(`GET /api/usage`). An operator frees quota by deleting a job from its
+detail page (`DELETE /api/jobs/{id}`). That removes the stored files and
+the links already sent. It is refused (409) while the job is processing,
+or once a recipient has paid for its original. To restrict who can sign up instead:
 
 ```
 AUTH_SIGNUP_MODE=allowlist      # or: closed (existing accounts only)
@@ -169,6 +172,15 @@ client IP *and* per recipient address (`AUTH_REQUEST_RATE_LIMIT` per
 `AUTH_REQUEST_RATE_WINDOW`). The account menu also has "sign out on all
 devices" (`POST /api/auth/logout-all`). Changing a user's role ends all of
 their sessions.
+
+### Timeouts for large files
+
+`SERVER_READ_TIMEOUT` / `SERVER_WRITE_TIMEOUT` (15s) apply to ordinary API
+calls. The upload and every file stream (`/p`, `/d`, `/o`, the operator's own
+asset view) get `SERVER_LONG_REQUEST_TIMEOUT` (default 2h) instead, so a
+multi-GB upload or a long video download isn't cut off mid-transfer.
+`SERVER_READ_HEADER_TIMEOUT` (10s) still bounds slow-header connections on
+every route.
 
 ### Security headers
 

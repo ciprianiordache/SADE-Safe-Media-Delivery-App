@@ -24,6 +24,11 @@ type Repo interface {
 	// KindPreview.
 	GetByJobAndKind(jobID, kind string) (*Asset, error)
 	Delete(id string) error
+	// UpsertPreview records a job's preview, reusing the existing preview row
+	// (and its id) when the job already has one. A reprocessed job - retried
+	// after a crash, or requeued as stuck - then keeps a single preview, and
+	// links already emailed for it (signed over that id) keep working.
+	UpsertPreview(a *Asset) (id string, err error)
 }
 
 type repo struct {
@@ -84,4 +89,21 @@ func (r *repo) Delete(id string) error {
 		return ErrNotFound
 	}
 	return err
+}
+
+func (r *repo) UpsertPreview(a *Asset) (string, error) {
+	a.Kind = KindPreview
+	existing, err := r.GetByJobAndKind(a.JobID, KindPreview)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return r.Create(a)
+	case err != nil:
+		return "", err
+	}
+	a.ID = existing.ID
+	a.CreatedAt = existing.CreatedAt
+	if err := r.db.CRUD().Update(a, "id", a.ID); err != nil {
+		return "", err
+	}
+	return a.ID, nil
 }

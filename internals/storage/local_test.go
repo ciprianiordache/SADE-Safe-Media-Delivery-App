@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -113,5 +114,35 @@ func TestS3NotImplemented(t *testing.T) {
 	}
 	if _, err := New(config.StorageConfig{Driver: "weird"}, nil); err == nil {
 		t.Fatal("expected unknown driver to error")
+	}
+}
+
+func TestDeletePrunesTheObjectDirectoryOnlyWhenEmpty(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for _, k := range []string{"originals/job1/a.mp4", "originals/job1/b.mp4", "originals/job2/c.mp4"} {
+		if _, err := s.Put(ctx, k, strings.NewReader("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dirOf := func(k string) string {
+		p, _ := s.LocalPath(k)
+		return filepath.Dir(p)
+	}
+
+	if err := s.Delete(ctx, "originals/job1/a.mp4"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dirOf("originals/job1/b.mp4")); err != nil {
+		t.Fatalf("directory removed while it still held b.mp4: %v", err)
+	}
+	if err := s.Delete(ctx, "originals/job1/b.mp4"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dirOf("originals/job1/b.mp4")); !os.IsNotExist(err) {
+		t.Errorf("empty job directory left behind: %v", err)
+	}
+	if _, err := s.Stat(ctx, "originals/job2/c.mp4"); err != nil {
+		t.Errorf("sibling job touched: %v", err)
 	}
 }

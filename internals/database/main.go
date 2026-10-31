@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"sade/config"
@@ -174,6 +175,26 @@ func (db *Database) Close() error {
 
 // Driver is the configured driver name.
 func (db *Database) Driver() string { return db.cfg.Driver }
+
+// Rebind turns the '?' placeholders in q into $1, $2, ... for Postgres and
+// leaves them as-is for SQLite, so a repo's raw SQL works on both.
+func (db *Database) Rebind(q string) string {
+	if db.isSQLite() {
+		return q
+	}
+	var b strings.Builder
+	n := 0
+	for _, c := range q {
+		if c == '?' {
+			n++
+			b.WriteByte('$')
+			b.WriteString(strconv.Itoa(n))
+			continue
+		}
+		b.WriteRune(c)
+	}
+	return b.String()
+}
 
 func (db *Database) isSQLite() bool {
 	return db.cfg.Driver == "sqlite" || db.cfg.Driver == "sqlite3"

@@ -163,6 +163,31 @@ func (h *Handler) Usage(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, u)
 }
 
+// Delete handles DELETE /api/jobs/{id}: remove one of the caller's jobs and
+// its files. 204 on success, 404 for someone else's job, 409 while it is
+// processing or once its original has been paid for.
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	uid, ok := userIDFrom(r)
+	if !ok {
+		httpx.Error(w, http.StatusUnauthorized, "not signed in")
+		return
+	}
+	err := h.svc.Delete(r.Context(), uid, r.PathValue("id"))
+	switch {
+	case errors.Is(err, ErrNotFound):
+		httpx.Error(w, http.StatusNotFound, "job not found")
+	case errors.Is(err, ErrBusy):
+		httpx.Error(w, http.StatusConflict, "job is being processed")
+	case errors.Is(err, ErrPaid):
+		httpx.Error(w, http.StatusConflict, "job has a paid unlock")
+	case err != nil:
+		h.log.Error("delete job", "user", uid, "error", err)
+		httpx.Error(w, http.StatusInternalServerError, "could not delete the job")
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // Get handles GET /api/jobs/{id}, scoped to the caller. A job owned by
 // another operator is reported as 404.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {

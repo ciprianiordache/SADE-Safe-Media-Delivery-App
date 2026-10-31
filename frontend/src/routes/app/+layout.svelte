@@ -5,12 +5,20 @@
 	import logo from '$lib/assets/logo.png';
 	import LangThemeToggle from '$lib/components/LangThemeToggle.svelte';
 	import { onMount } from 'svelte';
+	import { UNAUTHORIZED_EVENT } from '$lib/api';
 
 	let { children } = $props();
 
-	onMount(async () => {
-		await auth.ensureLoaded();
-		if (!auth.user) goto('/login');
+	onMount(() => {
+		auth.ensureLoaded().then(() => {
+			if (!auth.user) goto('/login');
+		});
+		const onUnauthorized = () => {
+			auth.user = null;
+			goto('/login');
+		};
+		window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+		return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
 	});
 
 	let menuOpen = $state(false);

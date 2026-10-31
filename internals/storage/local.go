@@ -141,6 +141,13 @@ func (l *local) Delete(_ context.Context, key string) error {
 	if err := os.Remove(full); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("storage: delete %q: %w", key, err)
 	}
+	// Drop the object's own directory once it is empty (originals/<jobID>/),
+	// so deleted jobs don't leave a trail of empty folders. Only that one
+	// level: the shared prefixes stay, and os.Remove refuses a non-empty
+	// directory, so a sibling object is never touched.
+	if dir := filepath.Dir(full); dir != l.root && filepath.Dir(dir) != l.root {
+		_ = os.Remove(dir)
+	}
 	return nil
 }
 

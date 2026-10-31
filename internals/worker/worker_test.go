@@ -400,3 +400,23 @@ func TestPreviewFilename(t *testing.T) {
 		}
 	}
 }
+
+// panicEngine stands in for a bug deep in the pipeline.
+type panicEngine struct{ fakeEngine }
+
+func (*panicEngine) Probe(context.Context, string) (*ffmpeg.ProbeResult, error) {
+	panic("boom in probe")
+}
+
+func TestHandleRecoversFromPanic(t *testing.T) {
+	js := newFakeJobStore()
+	p := New(testConfig(), js,
+		&fakeAssets{original: Original{StorageKey: "originals/a/original.mp4", Filename: "a.mp4"}},
+		localStore(t), &panicEngine{}, &fakeNotifier{}, testutil.Logger())
+
+	p.handle(Job{ID: "a", Attempts: 1}) // must not crash the test binary
+
+	if msg, ok := js.retryErr["a"]; !ok || !strings.Contains(msg, "boom in probe") {
+		t.Fatalf("a panicking job should be rescheduled with the panic recorded, got %q (ok=%v)", msg, ok)
+	}
+}

@@ -67,10 +67,11 @@ func NewRouter(d Deps) http.Handler {
 
 	// Public share links (no session): the watermarked preview, inline or as
 	// a download. Authorised by the signed token in the path, not a cookie.
-	mux.HandleFunc("GET /p/{token}", d.Share.Preview)
-	mux.HandleFunc("GET /d/{token}", d.Share.Download)
+	long := LongRequest(d.Cfg.Server.LongRequestTimeout.Std())
+	mux.Handle("GET /p/{token}", long(http.HandlerFunc(d.Share.Preview)))
+	mux.Handle("GET /d/{token}", long(http.HandlerFunc(d.Share.Download)))
 	// The clean original, once paid for - see internals/app/payment.
-	mux.HandleFunc("GET /o/{token}", d.Share.Original)
+	mux.Handle("GET /o/{token}", long(http.HandlerFunc(d.Share.Original)))
 
 	// Public payment endpoints: the recipient on /preview/[token] never has
 	// a session, so these are authorised by the same preview token, not a
@@ -95,11 +96,12 @@ func NewRouter(d Deps) http.Handler {
 			h(w, r.WithContext(ctx))
 		}))
 	}
-	mux.Handle("POST /api/jobs", operator(d.Job.Create))
+	mux.Handle("POST /api/jobs", long(operator(d.Job.Create)))
 	mux.Handle("GET /api/jobs", operator(d.Job.List))
 	mux.Handle("GET /api/usage", operator(d.Job.Usage))
 	mux.Handle("GET /api/jobs/{id}", operator(d.Job.Get))
-	mux.Handle("GET /api/jobs/{id}/assets/{assetId}/content", operator(d.Job.Content))
+	mux.Handle("DELETE /api/jobs/{id}", operator(d.Job.Delete))
+	mux.Handle("GET /api/jobs/{id}/assets/{assetId}/content", long(operator(d.Job.Content)))
 
 	// Admin only.
 	admin := func(h http.HandlerFunc) http.Handler {

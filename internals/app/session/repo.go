@@ -2,6 +2,8 @@ package session
 
 import (
 	"errors"
+	"fmt"
+	"time"
 
 	"sade/internals/database"
 
@@ -19,6 +21,8 @@ type Repo interface {
 	// DeleteByUser drops every session a user has (sign out everywhere,
 	// role change). No sessions is not an error.
 	DeleteByUser(userID string) error
+	// DeleteExpired removes every session past its expiry; returns the count.
+	DeleteExpired(now time.Time) (int, error)
 }
 
 type repo struct {
@@ -57,4 +61,13 @@ func (r *repo) DeleteByUser(userID string) error {
 		return nil
 	}
 	return err
+}
+
+func (r *repo) DeleteExpired(now time.Time) (int, error) {
+	res, err := r.db.Exec(r.db.Rebind("DELETE FROM sessions WHERE expires_at < ?"), now)
+	if err != nil {
+		return 0, fmt.Errorf("session: delete expired: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }

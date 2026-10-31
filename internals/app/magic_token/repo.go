@@ -24,6 +24,8 @@ type Repo interface {
 	// commits - so a link opened by a mail scanner, or planted by someone
 	// else, never signs anyone in on its own.
 	Peek(hash string, now time.Time) (userID string, err error)
+	// DeleteExpired removes every token past its expiry; returns the count.
+	DeleteExpired(now time.Time) (int, error)
 }
 
 type repo struct {
@@ -85,4 +87,13 @@ func (r *repo) Peek(hash string, now time.Time) (string, error) {
 		return "", ErrExpired
 	}
 	return mt.UserID, nil
+}
+
+func (r *repo) DeleteExpired(now time.Time) (int, error) {
+	res, err := r.db.Exec(r.db.Rebind("DELETE FROM magic_tokens WHERE expires_at < ?"), now)
+	if err != nil {
+		return 0, fmt.Errorf("magic_token: delete expired: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }

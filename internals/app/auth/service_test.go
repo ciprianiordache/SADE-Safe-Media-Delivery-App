@@ -286,3 +286,37 @@ func TestRevokeAllEndsEverySession(t *testing.T) {
 		}
 	}
 }
+
+func TestPurgeExpiredRemovesOnlyExpiredRows(t *testing.T) {
+	svc, cm := newService(t)
+	ctx := context.Background()
+
+	// One live session, one expired session, one expired unused link.
+	if err := svc.RequestLink(ctx, "live@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	live, _, err := svc.Complete(ctx, linkToken(t, cm))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.cfg.SessionTTL = config.Duration(-time.Minute)
+	svc.cfg.MagicLinkTTL = config.Duration(-time.Minute)
+	if err := svc.RequestLink(ctx, "old@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	expiredTok := linkToken(t, cm)
+	if err := svc.RequestLink(ctx, "old2@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	_ = expiredTok
+
+	if err := svc.PurgeExpired(ctx); err != nil {
+		t.Fatalf("PurgeExpired: %v", err)
+	}
+	if _, err := svc.Authenticate(ctx, live); err != nil {
+		t.Errorf("live session was purged: %v", err)
+	}
+	if n, err := svc.tokens.DeleteExpired(time.Now()); err != nil || n != 0 {
+		t.Errorf("expired tokens left after purge: %d (%v)", n, err)
+	}
+}

@@ -127,7 +127,20 @@ const dict = {
 		'confirm.errorGeneric': 'Autentificarea a eșuat. Încearcă din nou.',
 		'usage.label': 'Consum',
 		'usage.jobs': 'Fișiere în ultimele 24h',
-		'usage.storage': 'Spațiu folosit'
+		'usage.storage': 'Spațiu folosit',
+		'dashboard.errorDailyLimit': 'Ai atins limita zilnică de fișiere. Încearcă din nou mai târziu.',
+		'dashboard.errorStorageQuota': 'Spațiul tău e plin. Șterge fișiere vechi ca să faci loc.',
+		'dashboard.errorTooLarge': 'Fișierul depășește dimensiunea maximă permisă.',
+		'dashboard.errorUnsupported': 'Fișierul nu e suportat sau conținutul nu corespunde extensiei.',
+		'dashboard.errorInvalid': 'Verifică emailul destinatarului și textul filigranului.',
+		'job.deleteTitle': 'Șterge fișierul',
+		'job.deleteHint': 'Șterge originalul, previzualizarea și linkurile trimise. Nu se poate anula.',
+		'job.delete': 'Șterge',
+		'job.deleteConfirm': 'Confirmă ștergerea',
+		'job.deleteCancel': 'Anulează',
+		'job.deleteBusy': 'Fișierul se procesează acum. Încearcă după ce se termină.',
+		'job.deletePaid': 'Destinatarul a plătit pentru original, așa că fișierul nu poate fi șters.',
+		'job.deleteError': 'Ștergerea a eșuat. Încearcă din nou.'
 	},
 	en: {
 		'app.name': 'SADE',
@@ -253,7 +266,20 @@ const dict = {
 		'confirm.errorGeneric': 'Sign-in failed. Please try again.',
 		'usage.label': 'Usage',
 		'usage.jobs': 'Files in the last 24h',
-		'usage.storage': 'Storage used'
+		'usage.storage': 'Storage used',
+		'dashboard.errorDailyLimit': "You've reached the daily file limit. Try again later.",
+		'dashboard.errorStorageQuota': 'Your storage is full. Delete old files to make room.',
+		'dashboard.errorTooLarge': 'The file exceeds the maximum allowed size.',
+		'dashboard.errorUnsupported': "The file isn't supported, or its content doesn't match its extension.",
+		'dashboard.errorInvalid': 'Check the recipient email and the watermark text.',
+		'job.deleteTitle': 'Delete file',
+		'job.deleteHint': 'Removes the original, the preview and the links already sent. Cannot be undone.',
+		'job.delete': 'Delete',
+		'job.deleteConfirm': 'Confirm delete',
+		'job.deleteCancel': 'Cancel',
+		'job.deleteBusy': "The file is being processed. Try again once it's done.",
+		'job.deletePaid': 'The recipient paid for the original, so this file cannot be deleted.',
+		'job.deleteError': 'Delete failed. Please try again.'
 	}
 } as const satisfies Record<Locale, Record<string, string>>;
 

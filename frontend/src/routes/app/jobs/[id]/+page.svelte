@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { i18n, type MessageKey } from '$lib/i18n.svelte';
 	import { api, ApiError } from '$lib/api';
 	import type { Job } from '$lib/types';
@@ -15,6 +16,36 @@
 			job = await api.getJob(page.params.id as string);
 		} catch (err) {
 			if (err instanceof ApiError && err.status === 404) notFound = true;
+		}
+	}
+
+	// Two-step delete: the first click arms it, the second deletes.
+	let confirmDelete = $state(false);
+	let deleting = $state(false);
+	let deleteError = $state('');
+
+	async function remove() {
+		if (!job) return;
+		if (!confirmDelete) {
+			confirmDelete = true;
+			return;
+		}
+		deleting = true;
+		deleteError = '';
+		try {
+			await api.deleteJob(job.id);
+			goto('/app');
+		} catch (err) {
+			confirmDelete = false;
+			if (err instanceof ApiError && err.status === 409) {
+				deleteError = err.message.includes('paid')
+					? i18n.t('job.deletePaid')
+					: i18n.t('job.deleteBusy');
+			} else {
+				deleteError = i18n.t('job.deleteError');
+			}
+		} finally {
+			deleting = false;
 		}
 	}
 
@@ -205,10 +236,64 @@
 				</section>
 			</div>
 		</div>
+
+		<section class="danger">
+			<div>
+				<span class="section-label">{i18n.t('job.deleteTitle')}</span>
+				<p class="faint small">{i18n.t('job.deleteHint')}</p>
+				{#if deleteError}
+					<p class="error-text">{deleteError}</p>
+				{/if}
+			</div>
+			<div class="danger-actions">
+				{#if confirmDelete}
+					<button type="button" class="btn btn-ghost" onclick={() => (confirmDelete = false)}>
+						{i18n.t('job.deleteCancel')}
+					</button>
+				{/if}
+				<button
+					type="button"
+					class="btn danger-btn"
+					onclick={remove}
+					disabled={deleting || job.status === 'processing'}
+				>
+					{confirmDelete ? i18n.t('job.deleteConfirm') : i18n.t('job.delete')}
+				</button>
+			</div>
+		</section>
 	{/if}
 </div>
 
 <style>
+	.danger {
+		margin-top: 2rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--border);
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.danger p {
+		margin: 0.35rem 0 0;
+	}
+
+	.danger-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.danger-btn {
+		background: var(--danger);
+	}
+
+	.danger-btn:hover:not(:disabled) {
+		background: var(--danger);
+		filter: brightness(0.92);
+	}
+
 	.page {
 		padding: 1.5rem 1.75rem 3rem;
 		display: flex;

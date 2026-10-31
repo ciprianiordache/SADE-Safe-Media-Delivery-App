@@ -1,13 +1,16 @@
 package app
 
 import (
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sade/internals/testutil"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOriginGuard(t *testing.T) {
@@ -118,5 +121,39 @@ func TestRedactPath(t *testing.T) {
 		if got := redactPath(in); got != want {
 			t.Errorf("redactPath(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The server-wide WriteTimeout would cut a long file stream; LongRequest
+// must lift it for its route, even behind RequestLog's statusWriter.
+func TestLongRequestOutlivesServerWriteTimeout(t *testing.T) {
+	slow := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(400 * time.Millisecond)
+		_, _ = w.Write([]byte("done"))
+	})
+	mux := http.NewServeMux()
+	mux.Handle("/short", slow)
+	mux.Handle("/long", LongRequest(time.Minute)(slow))
+
+	srv := httptest.NewUnstartedServer(chain(mux, RequestLog(testutil.Logger(), newProxyTrust(nil))))
+	srv.Config.WriteTimeout = 200 * time.Millisecond
+	srv.Start()
+	defer srv.Close()
+
+	if resp, err := http.Get(srv.URL + "/short"); err == nil {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if string(body) == "done" {
+			t.Fatal("control route should have been cut by WriteTimeout")
+		}
+	}
+	resp, err := http.Get(srv.URL + "/long")
+	if err != nil {
+		t.Fatalf("long route cut off: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "done" {
+		t.Fatalf("long route body = %q, want done", body)
 	}
 }

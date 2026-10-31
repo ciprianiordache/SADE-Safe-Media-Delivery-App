@@ -2,7 +2,9 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -84,8 +86,19 @@ func (p *Pool) dispatch(ctx context.Context, ch chan<- Job) {
 
 	ticker := time.NewTicker(p.cfg.PollInterval)
 	defer ticker.Stop()
+	lastReset := time.Now() // Start just ran one
 
 	for {
+		// Requeue rows abandoned mid-run (e.g. a job whose processor died)
+		// while the app keeps running, not only at the next restart.
+		if p.cfg.StuckJobTimeout > 0 && time.Since(lastReset) >= p.cfg.StuckJobTimeout/2 {
+			lastReset = time.Now()
+			if n, err := p.jobs.ResetStuck(ctx, lastReset.Add(-p.cfg.StuckJobTimeout)); err != nil {
+				p.log.Error("worker: reset stuck jobs", "error", err)
+			} else if n > 0 {
+				p.log.Warn("worker: requeued stuck jobs", "count", n)
+			}
+		}
 		p.claimAndFeed(ctx, ch)
 
 		select {
@@ -135,6 +148,19 @@ func (p *Pool) claimAndFeed(ctx context.Context, ch chan<- Job) {
 	}
 }
 
+// safeProcess runs process and turns a panic into an ordinary job error. An
+// unrecovered panic on a processor goroutine would otherwise take down the
+// whole server (HTTP included) and leave the job stuck in 'processing'.
+func (p *Pool) safeProcess(ctx context.Context, j Job) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			p.log.Error("worker: panic while processing", "job", j.ID, "panic", r, "stack", string(debug.Stack()))
+			err = fmt.Errorf("internal error while processing: %v", r)
+		}
+	}()
+	return p.process(ctx, j)
+}
+
 // work is one processor goroutine: pull a job, run the pipeline under a
 // per-job timeout, and record the outcome.
 func (p *Pool) work(ch <-chan Job) {
@@ -151,7 +177,7 @@ func (p *Pool) handle(j Job) {
 	defer cancel()
 
 	start := time.Now()
-	err := p.process(ctx, j)
+	err := p.safeProcess(ctx, j)
 	if err == nil {
 		if mErr := p.jobs.MarkDone(ctx, j.ID); mErr != nil {
 			p.log.Error("worker: mark done", "job", j.ID, "error", mErr)
