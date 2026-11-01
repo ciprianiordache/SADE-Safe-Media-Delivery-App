@@ -5,6 +5,45 @@ const STORAGE_KEY = 'sade:locale';
 const dict = {
 	ro: {
 		'app.name': 'SADE',
+		'common.open': 'Deschide',
+		'common.close': 'Închide',
+		'media.video': 'Video',
+		'media.audio': 'Audio',
+		'media.image': 'Imagine',
+		'asset.original': 'Original',
+		'asset.preview': 'Cu filigran',
+		'dashboard.fileChange': 'Schimbă',
+		'dashboard.fileRemove': 'Elimină fișierul',
+		'dashboard.dropRelease': 'Eliberează ca să adaugi fișierul',
+		'dashboard.cancelUpload': 'Anulează',
+		'dashboard.uploadCanceled': 'Încărcarea a fost anulată.',
+		'dashboard.uploadedToast': 'Fișier încărcat. Îl procesăm, apoi {email} primește link-ul pe email.',
+		'dashboard.readyToast': 'Gata! Previzualizarea a fost trimisă către {email}.',
+		'dashboard.failedToast': 'Procesarea a eșuat pentru {email}.',
+		'dashboard.seeJob': 'Vezi',
+		'dashboard.recipientPlaceholder': 'client@exemplu.com',
+		'job.failedTitle': 'Procesarea a eșuat',
+		'job.failedBody':
+			'Nu am reușit să aplicăm filigranul. De obicei fișierul e corupt sau într-un format neobișnuit. Șterge-l mai jos și încearcă din nou cu alt fișier.',
+		'job.workingHint': 'Lucrăm la fișier — pagina se actualizează singură.',
+		'job.deliveredHint': '{email} a primit pe email link-ul către previzualizare.',
+		'login.sentTitle': 'Verifică-ți emailul',
+		'login.sentTo': 'Am trimis un link de autentificare la',
+		'login.sentHint': 'Deschide link-ul pe acest dispozitiv. Nu-l găsești? Uită-te și în Spam.',
+		'login.resend': 'Retrimite link-ul',
+		'login.resendIn': 'Retrimite în {s}s',
+		'login.resent': 'Am trimis un link nou.',
+		'login.useOther': 'Folosește alt email',
+		'login.errorRateLimit': 'Prea multe încercări. Mai încearcă peste câteva minute.',
+		'landing.how': 'Cum funcționează',
+		'landing.step1Title': 'Încarci fișierul',
+		'landing.step1Body': 'Video, audio sau imagine, plus adresa destinatarului.',
+		'landing.step2Title': 'Aplicăm filigranul',
+		'landing.step2Body': 'Logo și/sau text, vizibil pe imagine și audibil pe sunet.',
+		'landing.step3Title': 'Destinatarul primește link-ul',
+		'landing.step3Body': 'Vede previzualizarea și poate plăti ca să descarce originalul curat.',
+		'preview.unlockTitle': 'Vrei fișierul fără filigran?',
+		'preview.footer': 'Livrat în siguranță de SADE',
 		'app.tagline': 'Livrare sigură de fișiere media, cu filigran',
 		'nav.dashboard': 'Panou',
 		'nav.signOut': 'Deconectare',
@@ -39,7 +78,7 @@ const dict = {
 		'dashboard.optional': '· opțional',
 		'dashboard.watermarkTextPlaceholder': 'Ex: Confidențial — nu redistribui',
 		'dashboard.watermarkHint': 'Lasă gol pentru valoarea implicită — destinatar + dată.',
-		'dashboard.submit': 'Încarcă și pune în coadă',
+		'dashboard.submit': 'Încarcă și trimite',
 		'dashboard.submitting': 'Se încarcă…',
 		'dashboard.uploadError': 'Încărcarea a eșuat.',
 		'dashboard.fileUnsupported': 'tip nesuportat',
@@ -54,10 +93,6 @@ const dict = {
 		'dashboard.sort.newest': 'Cele mai noi',
 		'dashboard.sort.oldest': 'Cele mai vechi',
 		'dashboard.sort.status': 'Status',
-		'dashboard.densityComfortable': 'Confortabil',
-		'dashboard.densityCompact': 'Compact',
-		'dashboard.viewList': 'Listă',
-		'dashboard.viewGrid': 'Grilă',
 		'dashboard.rowsLabel': 'Rânduri',
 		'dashboard.prev': 'Înapoi',
 		'dashboard.next': 'Înainte',
@@ -65,7 +100,7 @@ const dict = {
 		'dashboard.jobsEmpty': 'Nu ai încărcat încă niciun fișier.',
 		'dashboard.emptyTitle': 'Niciun fișier încă',
 		'dashboard.emptyBody':
-			'Completează formularul din stânga și încarcă un fișier — îl marcăm cu filigran și trimitem destinatarului un link.',
+			'Alege un fișier și adresa destinatarului în formularul „Fișier nou” — îl marcăm cu filigran și îi trimitem un link.',
 		'dashboard.noMatches': 'Niciun fișier nu corespunde filtrelor curente.',
 		'dashboard.col.file': 'Destinatar',
 		'dashboard.col.status': 'Status',
@@ -100,7 +135,7 @@ const dict = {
 		'job.download': 'Descarcă',
 		'job.previewNotReady': 'Fișierul procesat nu e disponibil încă.',
 		'preview.title': 'Previzualizare',
-		'preview.download': 'Descarcă originalul cu filigran',
+		'preview.download': 'Descarcă versiunea cu filigran',
 		'preview.unsupported': 'Nu putem afișa acest fișier direct în browser.',
 		'preview.openDirect': 'Deschide previzualizarea',
 		'preview.unlockIntro':
@@ -140,10 +175,50 @@ const dict = {
 		'job.deleteCancel': 'Anulează',
 		'job.deleteBusy': 'Fișierul se procesează acum. Încearcă după ce se termină.',
 		'job.deletePaid': 'Destinatarul a plătit pentru original, așa că fișierul nu poate fi șters.',
-		'job.deleteError': 'Ștergerea a eșuat. Încearcă din nou.'
+		'job.deleteError': 'Ștergerea a eșuat. Încearcă din nou.',
+		'job.deleted': 'Fișierul a fost șters.'
 	},
 	en: {
 		'app.name': 'SADE',
+		'common.open': 'Open',
+		'common.close': 'Close',
+		'media.video': 'Video',
+		'media.audio': 'Audio',
+		'media.image': 'Image',
+		'asset.original': 'Original',
+		'asset.preview': 'Watermarked',
+		'dashboard.fileChange': 'Change',
+		'dashboard.fileRemove': 'Remove file',
+		'dashboard.dropRelease': 'Drop to add the file',
+		'dashboard.cancelUpload': 'Cancel',
+		'dashboard.uploadCanceled': 'Upload canceled.',
+		'dashboard.uploadedToast': 'Uploaded. We are processing it, then {email} gets the link by email.',
+		'dashboard.readyToast': 'Done! The preview was sent to {email}.',
+		'dashboard.failedToast': 'Processing failed for {email}.',
+		'dashboard.seeJob': 'View',
+		'dashboard.recipientPlaceholder': 'client@example.com',
+		'job.failedTitle': 'Processing failed',
+		'job.failedBody':
+			"We couldn't apply the watermark. Usually the file is corrupt or in an unusual format. Delete it below and try again with another file.",
+		'job.workingHint': 'Working on it — this page updates by itself.',
+		'job.deliveredHint': '{email} got the preview link by email.',
+		'login.sentTitle': 'Check your email',
+		'login.sentTo': 'We sent a sign-in link to',
+		'login.sentHint': "Open the link on this device. Can't find it? Check your spam folder.",
+		'login.resend': 'Resend link',
+		'login.resendIn': 'Resend in {s}s',
+		'login.resent': 'We sent a new link.',
+		'login.useOther': 'Use a different email',
+		'login.errorRateLimit': 'Too many attempts. Try again in a few minutes.',
+		'landing.how': 'How it works',
+		'landing.step1Title': 'Upload the file',
+		'landing.step1Body': 'Video, audio or image, plus the recipient address.',
+		'landing.step2Title': 'We watermark it',
+		'landing.step2Body': 'Logo and/or text, visible on images and audible on sound.',
+		'landing.step3Title': 'The recipient gets a link',
+		'landing.step3Body': 'They see the preview and can pay to download the clean original.',
+		'preview.unlockTitle': 'Want the file without the watermark?',
+		'preview.footer': 'Delivered securely by SADE',
 		'app.tagline': 'Safe media delivery, watermarked',
 		'nav.dashboard': 'Dashboard',
 		'nav.signOut': 'Sign out',
@@ -178,7 +253,7 @@ const dict = {
 		'dashboard.optional': '· optional',
 		'dashboard.watermarkTextPlaceholder': 'e.g. Confidential — do not redistribute',
 		'dashboard.watermarkHint': 'Leave blank for the default — recipient + date.',
-		'dashboard.submit': 'Upload & queue',
+		'dashboard.submit': 'Upload & send',
 		'dashboard.submitting': 'Uploading…',
 		'dashboard.uploadError': 'Upload failed.',
 		'dashboard.fileUnsupported': 'unsupported type',
@@ -193,10 +268,6 @@ const dict = {
 		'dashboard.sort.newest': 'Newest',
 		'dashboard.sort.oldest': 'Oldest',
 		'dashboard.sort.status': 'Status',
-		'dashboard.densityComfortable': 'Comfortable',
-		'dashboard.densityCompact': 'Compact',
-		'dashboard.viewList': 'List',
-		'dashboard.viewGrid': 'Grid',
 		'dashboard.rowsLabel': 'Rows',
 		'dashboard.prev': 'Prev',
 		'dashboard.next': 'Next',
@@ -204,7 +275,7 @@ const dict = {
 		'dashboard.jobsEmpty': "You haven't uploaded any files yet.",
 		'dashboard.emptyTitle': 'No jobs yet',
 		'dashboard.emptyBody':
-			"Fill in the form on the left and upload a file — we'll watermark it and email your recipient a link.",
+			"Pick a file and the recipient address in the “New job” form — we'll watermark it and email them a link.",
 		'dashboard.noMatches': 'No jobs match the current filters.',
 		'dashboard.col.file': 'Recipient',
 		'dashboard.col.status': 'Status',
@@ -279,7 +350,8 @@ const dict = {
 		'job.deleteCancel': 'Cancel',
 		'job.deleteBusy': "The file is being processed. Try again once it's done.",
 		'job.deletePaid': 'The recipient paid for the original, so this file cannot be deleted.',
-		'job.deleteError': 'Delete failed. Please try again.'
+		'job.deleteError': 'Delete failed. Please try again.',
+		'job.deleted': 'File deleted.'
 	}
 } as const satisfies Record<Locale, Record<string, string>>;
 
@@ -300,10 +372,12 @@ class I18nStore {
 
 	init() {
 		this.locale = readStored();
+		document.documentElement.lang = this.locale;
 	}
 
 	set(locale: Locale) {
 		this.locale = locale;
+		document.documentElement.lang = locale;
 		try {
 			localStorage.setItem(STORAGE_KEY, locale);
 		} catch {
@@ -311,8 +385,11 @@ class I18nStore {
 		}
 	}
 
-	t(key: MessageKey): string {
-		return dict[this.locale][key] ?? key;
+	// Optional vars fill {name} placeholders: t('login.resendIn', { s: 30 }).
+	t(key: MessageKey, vars?: Record<string, string | number>): string {
+		let msg: string = dict[this.locale][key] ?? key;
+		if (vars) for (const [k, v] of Object.entries(vars)) msg = msg.replaceAll(`{${k}}`, String(v));
+		return msg;
 	}
 }
 

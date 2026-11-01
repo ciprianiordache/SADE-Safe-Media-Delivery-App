@@ -22,6 +22,15 @@
 	});
 
 	let menuOpen = $state(false);
+	let chipEl = $state<HTMLDivElement | undefined>();
+
+	function onWindowClick(e: MouseEvent) {
+		if (menuOpen && chipEl && !chipEl.contains(e.target as Node)) menuOpen = false;
+	}
+
+	function onWindowKey(e: KeyboardEvent) {
+		if (e.key === 'Escape') menuOpen = false;
+	}
 
 	async function signOut() {
 		menuOpen = false;
@@ -36,6 +45,8 @@
 	}
 </script>
 
+<svelte:window onclick={onWindowClick} onkeydown={onWindowKey} />
+
 {#if auth.loading}
 	<div class="container">
 		<p class="muted loading">{i18n.t('common.loading')}</p>
@@ -49,14 +60,16 @@
 			</a>
 			<div class="top-bar-right">
 				<LangThemeToggle />
-				<div class="user-chip">
-					<span class="mono">{auth.user.email}</span>
+				<div class="user-chip" bind:this={chipEl}>
 					<button
 						type="button"
+						class="chip-btn"
 						onclick={() => (menuOpen = !menuOpen)}
-						aria-label={i18n.t('nav.signOut')}
+						aria-haspopup="menu"
 						aria-expanded={menuOpen}
 					>
+						<span class="avatar" aria-hidden="true">{auth.user.email[0]?.toUpperCase()}</span>
+						<span class="mono email">{auth.user.email}</span>
 						<svg
 							width="13"
 							height="13"
@@ -70,6 +83,7 @@
 					</button>
 					{#if menuOpen}
 						<div class="menu" role="menu">
+							<span class="menu-email mono">{auth.user.email}</span>
 							<button type="button" role="menuitem" onclick={signOut}>{i18n.t('nav.signOut')}</button>
 							<button type="button" role="menuitem" onclick={signOutEverywhere}>
 								{i18n.t('nav.signOutEverywhere')}
@@ -126,28 +140,47 @@
 
 	.user-chip {
 		position: relative;
+	}
+
+	.chip-btn {
+		appearance: none;
+		background: none;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		padding: 0.32rem 0.5rem 0.32rem 0.7rem;
+		padding: 0.25rem 0.55rem 0.25rem 0.25rem;
 		border: 1px solid var(--border);
 		border-radius: 999px;
 		font-size: 0.8rem;
 		color: var(--text-muted);
-	}
-
-	.user-chip button {
-		appearance: none;
-		background: none;
-		border: none;
-		padding: 0.15rem;
-		color: var(--text-faint);
 		cursor: pointer;
-		display: inline-flex;
 	}
 
-	.user-chip button:hover {
+	.chip-btn:hover {
 		color: var(--text);
+		border-color: var(--border-strong);
+	}
+
+	.avatar {
+		width: 24px;
+		height: 24px;
+		border-radius: 999px;
+		background: var(--accent-tint);
+		color: var(--accent-tint-text);
+		font-weight: 700;
+		font-size: 0.75rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	@media (max-width: 600px) {
+		.email {
+			display: none;
+		}
+		.top-bar-right {
+			gap: 0.5rem;
+		}
 	}
 
 	.menu {
@@ -165,7 +198,20 @@
 		box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
 	}
 
-	.user-chip .menu button {
+	.menu-email {
+		padding: 0.45rem 0.65rem 0.55rem;
+		margin-bottom: 0.25rem;
+		border-bottom: 1px solid var(--border);
+		font-size: 0.75rem;
+		color: var(--text-faint);
+		overflow-wrap: anywhere;
+	}
+
+	.menu button {
+		appearance: none;
+		background: none;
+		border: none;
+		cursor: pointer;
 		padding: 0.5rem 0.65rem;
 		border-radius: 6px;
 		text-align: left;
@@ -174,7 +220,7 @@
 		color: var(--text);
 	}
 
-	.user-chip .menu button:hover {
+	.menu button:hover {
 		background: var(--bg);
 	}
 </style>

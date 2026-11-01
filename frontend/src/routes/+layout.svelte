@@ -4,6 +4,7 @@
 	import { theme } from '$lib/theme.svelte';
 	import { i18n } from '$lib/i18n.svelte';
 	import { onMount } from 'svelte';
+	import Toasts from '$lib/components/Toasts.svelte';
 
 	let { children } = $props();
 
@@ -19,3 +20,5 @@
 </svelte:head>
 
 {@render children()}
+
+<Toasts />

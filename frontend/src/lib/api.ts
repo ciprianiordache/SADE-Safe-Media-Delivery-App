@@ -112,13 +112,50 @@ export const api = {
 		return request(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' });
 	},
 
-	createJob(input: NewJobInput): Promise<Job> {
+	// Uploads over XHR rather than fetch: fetch has no upload-progress event,
+	// and a 2 GiB upload with no progress bar looks frozen. onProgress gets
+	// 0..1; the signal aborts the upload (rejects with an AbortError).
+	createJob(
+		input: NewJobInput,
+		opts: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {}
+	): Promise<Job> {
 		const form = new FormData();
 		form.set('file', input.file);
 		form.set('recipientEmail', input.recipientEmail);
 		form.set('watermarkKind', input.watermarkKind);
 		if (input.watermarkText) form.set('watermarkText', input.watermarkText);
-		return request('/api/jobs', { method: 'POST', body: form });
+
+		return new Promise((resolve, reject) => {
+			const xhr = new XMLHttpRequest();
+			xhr.open('POST', `${API_BASE}/api/jobs`);
+			xhr.withCredentials = true;
+			xhr.responseType = 'text';
+			xhr.upload.onprogress = (e) => {
+				if (e.lengthComputable) opts.onProgress?.(e.loaded / e.total);
+			};
+			xhr.onload = () => {
+				let body: unknown = null;
+				try {
+					body = JSON.parse(xhr.responseText);
+				} catch {
+					// non-JSON body
+				}
+				if (xhr.status >= 200 && xhr.status < 300) {
+					resolve(body as Job);
+					return;
+				}
+				if (xhr.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+				const msg =
+					body && typeof (body as { error?: unknown }).error === 'string'
+						? (body as { error: string }).error
+						: xhr.statusText;
+				reject(new ApiError(xhr.status, msg));
+			};
+			xhr.onerror = () => reject(new ApiError(0, 'network error'));
+			xhr.onabort = () => reject(new DOMException('aborted', 'AbortError'));
+			opts.signal?.addEventListener('abort', () => xhr.abort());
+			xhr.send(form);
+		});
 	},
 
 	// GET /api/jobs/{id}/assets/{assetId}/content: session-authenticated

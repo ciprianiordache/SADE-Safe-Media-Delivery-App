@@ -72,6 +72,11 @@
 	}
 </script>
 
+<svelte:head>
+	<title>{i18n.t('preview.title')} · SADE</title>
+	<meta name="robots" content="noindex" />
+</svelte:head>
+
 <div class="shell">
 	<div class="top wrap">
 		<MarkBar size={20} />
@@ -121,6 +126,7 @@
 								</a>
 								<p class="muted small">{i18n.t('preview.keepsWorking')}</p>
 							{:else}
+								<h2 class="unlock-title">{i18n.t('preview.unlockTitle')}</h2>
 								<p class="muted small">{i18n.t('preview.unlockIntro')}</p>
 								{#if intentError}
 									<p class="error-text">{intentError}</p>
@@ -142,7 +148,7 @@
 		</div>
 	</div>
 
-	<div class="footer faint">DELIVERED SECURELY BY SADE</div>
+	<div class="footer faint">{i18n.t('preview.footer')}</div>
 </div>
 
 <style>
@@ -271,6 +277,12 @@
 		}
 	}
 
+	.unlock-title {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 700;
+	}
+
 	.unlocked-head {
 		display: flex;
 		align-items: center;
@@ -296,6 +308,7 @@
 		text-align: center;
 		font-size: 0.68rem;
 		letter-spacing: 0.04em;
+		text-transform: uppercase;
 		padding: 1rem 1.25rem 1.6rem;
 	}
 </style>

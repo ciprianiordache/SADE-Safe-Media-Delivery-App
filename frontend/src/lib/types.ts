@@ -96,3 +96,13 @@ export function isAllowedFile(filename: string): boolean {
 	if (dot < 0) return false;
 	return ALLOWED_EXTENSIONS.includes(filename.slice(dot).toLowerCase());
 }
+
+// Client-side guess of the media kind from the extension, for the upload
+// form's file icon. The server decides for real (ffprobe).
+export function mediaTypeOf(filename: string): MediaType | null {
+	const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
+	if (['.mp4', '.mov', '.mkv', '.webm', '.avi'].includes(ext)) return 'video';
+	if (['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'].includes(ext)) return 'audio';
+	if (['.jpg', '.jpeg', '.png', '.webp', '.tiff'].includes(ext)) return 'image';
+	return null;
+}

@@ -155,7 +155,43 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** a general bug hunt (user: "vreau sa te uiti de posibile probleme in aplicatie si sa
+**Latest:** a frontend usability pass (user: "Fa un research si sa aducem inbunatatiri
+frontend-ului, nu trebuie sa ingreunam, trebuie facut intuitiv, usor de utilizat"). Frontend only,
+no API change. Verified live in the headless browser (desktop + 375px), `npm run check` clean.
+
+- **Upload:** the dropzone said "drag a file" but had no drop handler - real drag & drop now.
+  `api.createJob` uses XHR (fetch has no upload progress) with `onProgress` + `AbortSignal`: a
+  progress bar with % and a Cancel button. The picked file shows as a card (icon, name, size,
+  Change / remove). The text field hides for "Logo" (ffmpeg ignores text there, and it is no
+  longer sent). Last watermark kind is remembered (`localStorage` `sade:watermarkKind`).
+- **Bug found while testing:** a poll that ran during an upload already fetched the new job, then
+  the upload's own `[job, ...jobs]` added it again - a duplicate `{#each}` key aborted the update
+  (form not reset, no toast). Now deduped by id.
+- **Feedback:** `lib/toast.svelte.ts` + `components/Toasts.svelte` (rendered once in the root
+  layout). Toasts on upload, on delete, and when a polled job goes pending/processing -> done or
+  failed ("Done! The preview was sent to X", with a View link). Polling skips hidden tabs.
+- **Job list:** one list view (dropped the grid - its thumbnails were empty black boxes - and the
+  density toggle and rows-per-page). Media-type icon per row (`components/MediaIcon.svelte`),
+  media type / watermark kind translated (were raw `video · both`), full date on hover
+  (`format.fullDate`), filter chips with zero matches hidden, pagination (15) only when needed,
+  skeleton rows while loading. Upload card is sticky on desktop.
+- **Job detail:** failed jobs get an explanation banner instead of a silently missing stepper;
+  stepper's current step pulses and has a one-line hint; "Details" and "Files" cards merged;
+  sizes via `format.formatBytes`; attempts shown only when > 1; the player switches to the preview
+  once it appears.
+- **Login:** a "Check your email" screen with the address, resend with a 30s countdown, "Use a
+  different email", 429 mapped to a localized message; autofocus/autocomplete on the field.
+- **Other:** landing gets a 3-step "How it works"; preview page gets an unlock heading,
+  `noindex`, localized footer and a clearer RO download label; per-page `<title>`s; `<html lang>`
+  follows the locale; account menu closes on outside click / Escape and shows an avatar (email
+  hidden under 600px, shown inside the menu); `i18n.t(key, vars)` fills `{name}` placeholders;
+  `prefers-reduced-motion` respected; mobile overflow fixed (`minmax(0, 1fr)` grids,
+  `min-width: 0` on the search box).
+
+Reminder from this pass: **restart the Go server after `npm run build`** - the CSP hashes of
+`index.html`'s inline scripts are read once at startup, so a stale server blocks the new build.
+
+**Before that:** a general bug hunt (user: "vreau sa te uiti de posibile probleme in aplicatie si sa
 incercam sa le rezolvam"). Found and fixed:
 
 - **15s server timeouts cut uploads and downloads.** `ReadTimeout`/`WriteTimeout` (15s) applied
@@ -510,7 +546,7 @@ Backend + frontend now cover the whole flow M1–M5, restyled.
 
 - Frontend routes built: `/` landing, `/login` (magic-link request + `?error=invalid_link`
   banner), `/app` (guarded layout + upload form + a searchable/filterable/sortable job list with
-  list/grid views and comfortable/compact density), `/app/jobs/[id]` (detail with a status
+  a single paginated list, toasts on upload/finish), `/app/jobs/[id]` (detail with a status
   stepper + a real inline player for both its assets, polls while pending/processing),
   `/preview/[token]` (public, no auth — cascades `<video>` → `<audio>` → `<img>` → plain link
   against `GET /p/{token}`, downloads via `GET /d/{token}`; single column under 860px, a
@@ -837,7 +873,7 @@ list rows key on `recipientEmail` (the list endpoint has no filename — only a 
 fetched on the detail page, carry one), and the job detail page has no copyable `/p`/`/d` links
 or a "resend email" action (the API never exposes a preview token to the operator, and there's no
 resend endpoint — only the worker's `EmailNotifier` ever sees the token). The dashboard's search /
-status filter / sort / density (comfortable, compact) / view (list, grid) / pagination are all
+status filter / sort / pagination are all
 client-side over one `GET /api/jobs?limit=200` fetch — `job.Response` carries no total count, so
 this holds up until an operator has 200+ jobs, at which point it needs real server-side paging.
 

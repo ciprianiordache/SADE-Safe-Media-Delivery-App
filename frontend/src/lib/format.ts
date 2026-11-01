@@ -12,3 +12,20 @@ export function relativeTime(iso: string, locale: Locale): string {
 	const day = Math.floor(hr / 24);
 	return `${day}d`;
 }
+
+// Full date for tooltips and detail pages.
+export function fullDate(iso: string, locale: Locale): string {
+	return new Date(iso).toLocaleString(locale === 'ro' ? 'ro-RO' : 'en-GB', {
+		dateStyle: 'medium',
+		timeStyle: 'short'
+	});
+}
+
+export function formatBytes(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	const kb = bytes / 1024;
+	if (kb < 1024) return `${Math.round(kb)} KB`;
+	const mb = kb / 1024;
+	if (mb < 1024) return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
+	return `${(mb / 1024).toFixed(2)} GB`;
+}
