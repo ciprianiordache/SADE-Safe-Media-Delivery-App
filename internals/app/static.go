@@ -28,6 +28,16 @@ func spaFileServer(dir string) http.Handler {
 				return
 			}
 		}
+		// Hashed build output never changes under the same name, so it can be
+		// cached for good. Everything else - above all the index.html shell -
+		// must be revalidated every time: the CSP header pins the hashes of the
+		// shell's inline scripts, and a browser that heuristically cached an
+		// old shell next to a newer CSP (or the reverse) renders a blank page.
+		if strings.HasPrefix(r.URL.Path, "/_app/immutable/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		if f, err := root.Open(path.Clean(r.URL.Path)); err == nil {
 			_ = f.Close()
 			fileServer.ServeHTTP(w, r)

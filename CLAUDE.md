@@ -190,6 +190,10 @@ no API change. Verified live in the headless browser (desktop + 375px), `npm run
 
 Reminder from this pass: **restart the Go server after `npm run build`** - the CSP hashes of
 `index.html`'s inline scripts are read once at startup, so a stale server blocks the new build.
+Follow-up (user saw a blank page): the SPA shell was also served with no `Cache-Control`, so
+browsers cached it heuristically and could pair an old shell with a new CSP (or the reverse) -
+blank page, CSP errors in the console. `spaFileServer` now sends `no-cache` for everything except
+`/_app/immutable/*` (`public, max-age=31536000, immutable`). `TestStaticCacheHeaders`.
 
 **Before that:** a general bug hunt (user: "vreau sa te uiti de posibile probleme in aplicatie si sa
 incercam sa le rezolvam"). Found and fixed:

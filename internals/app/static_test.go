@@ -120,3 +120,36 @@ func TestStaticDisabledWhenFrontendNotBuilt(t *testing.T) {
 		t.Errorf("GET / with no frontend build = %d, want 404", got)
 	}
 }
+
+// The shell must always be revalidated (its CSP pins inline-script hashes
+// that change with every build); hashed assets can be cached for good.
+func TestStaticCacheHeaders(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>shell</html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	immutable := filepath.Join(dir, "_app", "immutable")
+	if err := os.MkdirAll(immutable, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(immutable, "app.abc123.js"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := spaFileServer(dir)
+
+	cases := map[string]string{
+		"/":                             "no-cache",
+		"/app/jobs/42":                  "no-cache",
+		"/_app/immutable/app.abc123.js": "public, max-age=31536000, immutable",
+	}
+	for p, want := range cases {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d", p, rec.Code)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != want {
+			t.Errorf("%s: Cache-Control %q, want %q", p, got, want)
+		}
+	}
+}
