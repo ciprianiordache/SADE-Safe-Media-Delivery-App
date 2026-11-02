@@ -50,6 +50,8 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, ErrDisabled):
 		httpx.Error(w, http.StatusServiceUnavailable, "payment is not configured")
+	case errors.Is(err, ErrLinksDisabled):
+		httpx.Error(w, http.StatusGone, "this link has been disabled")
 	case errors.Is(err, ErrInvalidToken):
 		httpx.Error(w, http.StatusNotFound, "not found")
 	case errors.Is(err, ErrAlreadyPaid):
@@ -79,6 +81,8 @@ type statusResponse struct {
 func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	result, err := h.svc.Status(r.Context(), r.URL.Query().Get("token"))
 	switch {
+	case errors.Is(err, ErrLinksDisabled):
+		httpx.Error(w, http.StatusGone, "this link has been disabled")
 	case errors.Is(err, ErrInvalidToken):
 		httpx.Error(w, http.StatusNotFound, "not found")
 	case err != nil:

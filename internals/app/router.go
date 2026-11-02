@@ -24,6 +24,7 @@ type Deps struct {
 	User            *user.Handler
 	Job             *job.Handler
 	Share           *share.Handler
+	Delivery        *share.OperatorHandler
 	Payment         *payment.Handler
 	AuthRateLimiter *ratelimit.Limiter // bounds POST /api/auth/request; nil/limit<=0 disables it
 	AuthCodeLimiter *ratelimit.Limiter // bounds POST /api/auth/code + passkey begin; nil disables it
@@ -123,6 +124,12 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/jobs/{id}", operator(d.Job.Get))
 	mux.Handle("DELETE /api/jobs/{id}", operator(d.Job.Delete))
 	mux.Handle("GET /api/jobs/{id}/assets/{assetId}/content", long(operator(d.Job.Content)))
+	// Delivery: the recipient link, resend, links on/off, history.
+	if d.Delivery != nil {
+		mux.Handle("GET /api/jobs/{id}/delivery", operator(d.Delivery.Delivery))
+		mux.Handle("POST /api/jobs/{id}/resend", operator(d.Delivery.Resend))
+		mux.Handle("PUT /api/jobs/{id}/links", operator(d.Delivery.SetLinks))
+	}
 
 	// Admin only.
 	admin := func(h http.HandlerFunc) http.Handler {

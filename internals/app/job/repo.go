@@ -1,6 +1,7 @@
 package job
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
@@ -33,6 +34,11 @@ type Repo interface {
 	StorageBytes(userID string) (int64, error)
 	// HasPaidPayment reports whether any payment for jobID is paid.
 	HasPaidPayment(jobID string) (bool, error)
+	// SetLinksDisabled switches the job's public links off (true) or on.
+	SetLinksDisabled(jobID string, disabled bool) error
+	// LinksDisabled reports whether the job's public links are switched
+	// off. An unknown job reads as ErrNotFound.
+	LinksDisabled(jobID string) (bool, error)
 	// DeleteIfNotProcessing removes the job row (cascading its assets and
 	// payments) unless the worker holds it; false means it was processing.
 	DeleteIfNotProcessing(jobID string) (bool, error)
@@ -154,6 +160,33 @@ func (r *repo) HasPaidPayment(jobID string) (bool, error) {
 		return false, fmt.Errorf("job: check payments: %w", err)
 	}
 	return n > 0, nil
+}
+
+func (r *repo) SetLinksDisabled(jobID string, disabled bool) error {
+	v := 0
+	if disabled {
+		v = 1
+	}
+	res, err := r.db.Exec(r.rebind("UPDATE jobs SET links_disabled = ? WHERE id = ?"), v, jobID)
+	if err != nil {
+		return fmt.Errorf("job: set links: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *repo) LinksDisabled(jobID string) (bool, error) {
+	var v int
+	err := r.db.QueryRow(r.rebind("SELECT links_disabled FROM jobs WHERE id = ?"), jobID).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrNotFound
+	}
+	if err != nil {
+		return false, fmt.Errorf("job: read links flag: %w", err)
+	}
+	return v == 1, nil
 }
 
 func (r *repo) DeleteIfNotProcessing(jobID string) (bool, error) {

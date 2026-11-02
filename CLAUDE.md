@@ -155,7 +155,39 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** SaaS phase 1 - schema migrations + stronger sign-in, keeping the magic link (user:
+**Latest:** SaaS phase 2 - delivery links and history on the job page (user: "Hai sa
+continuam", picking up the roadmap's next step). Verified in tests and live (headless browser +
+curl as the recipient):
+
+- **History**: new table `job_events` (`internals/app/job_event`, kinds `sent`, `resent`,
+  `viewed`, `downloaded`, `paid`, `original_downloaded`, `links_disabled`, `links_enabled`;
+  `created_at` set explicitly in UTC). Writers: `recordingNotifier` in `worker_wiring.go` wraps
+  the worker's `EmailNotifier` ("sent" once the email went out); `share.Handler` records
+  "viewed"/"downloaded"/"original_downloaded" via `RecordOnce` (30 / 10 min windows, and only for
+  a request starting at byte 0 - a player's range requests are one view); `payment` records "paid"
+  on both paths (reconcile + webhook) via its new optional `UseDelivery(links, events)` (reached
+  through the `payment.Deliverer` interface, since `NewService` returns the `Service` interface).
+- **Links switch**: `jobs.links_disabled` (int, migration `2026-11-03-job-links-disabled`,
+  `job.Response.linksDisabled`). When set, `/p` `/d` `/o` answer 410 "this link has been disabled"
+  (`share.errDisabled`), and payment's `resolvePreview` returns `ErrLinksDisabled` (410) for
+  status and checkout - `Status` checks it even with Stripe off, so the preview page can say so.
+  Switching off is refused (409) once the job is paid, like delete.
+- **Operator routes** (`share.OperatorHandler`, owner-scoped through `job.Service.Get` with the
+  new exported `job.UserIDFrom(ctx)`): `GET /api/jobs/{id}/delivery` (`{enabled, paid, ready,
+  previewUrl, expiresAt, events}` - a freshly signed `/preview/<token>` link, so the operator can
+  finally copy what the recipient got), `POST /api/jobs/{id}/resend` (max 3 per job per hour,
+  429 beyond), `PUT /api/jobs/{id}/links {enabled}`. app.go builds one `EmailNotifier` shared by
+  the worker and resend (so resend works even with ffmpeg missing).
+- **Frontend**: `components/DeliveryCard.svelte` in the job page's right column (status pill,
+  copy link, resend, two-step disable / re-enable, timeline with icons; polls every 15s and
+  reloads when the job finishes); `/preview/[token]` shows a "Link dezactivat" card on 410.
+- Not done: delivery signals on the dashboard list (e.g. an "opened"/"paid" marker per row) - the
+  list endpoint carries no event data yet.
+
+Tests: `share/delivery_test.go` (switch -> 410, range requests -> one view, owner scoping,
+resend limit, no disable after payment), `job_event/repo_test.go`.
+
+**Before that:** SaaS phase 1 - schema migrations + stronger sign-in, keeping the magic link (user:
 "Eu totusi vreau sa ramanem la usurinta unui magic link dar vreau sa vedem daca putem sa
 inbunatatim acest lucru si sa il facem mai sigur"; compared against Lidl's password + SMS code -
 recommended passkeys instead: phishing-resistant, no SIM-swap, no per-SMS cost). Verified in
@@ -786,6 +818,7 @@ package-level string consts.
 | `payment.Payment` → `payments` | `provider` (`stripe`), `provider_ref` (PaymentIntent id, indexed), `status` (`pending`/`paid`/`failed`/`refunded`), `amount_cents`, `currency` | `job_id` → `jobs` cascade |
 | `login_event.LoginEvent` → `login_events` | `method` (`link`/`code`/`passkey`), `user_agent`, `ip`, `created_at` indexed | `user_id` → `users` cascade |
 | `passkey.Passkey` → `passkeys` | `credential_id` unique (base64url), `credential` (go-webauthn JSON), `name`, `last_used_at` | `user_id` → `users` cascade |
+| `job_event.JobEvent` → `job_events` | `kind` (sent/resent/viewed/downloaded/paid/original_downloaded/links_disabled/links_enabled), `detail`, `created_at` indexed | `job_id` → `jobs` cascade |
 
 **Every component that logs takes the shared `*slog.Logger` by injection** — `server.New` and
 `database.New` already do; feature packages follow the same rule. Do not create a second logger

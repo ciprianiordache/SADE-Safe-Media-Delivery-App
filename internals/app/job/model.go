@@ -52,6 +52,11 @@ type Job struct {
 	NextAttemptAt time.Time `db:"next_attempt_at,index"`
 	CreatedAt     time.Time `db:"created_at,oncreate"`
 	UpdatedAt     time.Time `db:"updated_at,onwrite"`
+	// LinksDisabled (0/1) switches off every public link of the job - the
+	// preview page, /p, /d, /o and checkout - without deleting anything.
+	// The operator's choice; refused once the job is paid. Added by a
+	// migration.
+	LinksDisabled int `db:"links_disabled"`
 }
 
 // TableName is the SQL table (used by both schema-builder and crud-depot).
@@ -82,6 +87,7 @@ type Response struct {
 	CreatedAt      time.Time        `json:"createdAt"`
 	UpdatedAt      time.Time        `json:"updatedAt"`
 	Assets         []asset.Response `json:"assets,omitempty"`
+	LinksDisabled  bool             `json:"linksDisabled"`
 }
 
 func toResponse(j Job) Response {
@@ -96,6 +102,7 @@ func toResponse(j Job) Response {
 		Error:          publicError(j.Error),
 		CreatedAt:      j.CreatedAt,
 		UpdatedAt:      j.UpdatedAt,
+		LinksDisabled:  j.LinksDisabled == 1,
 	}
 }
 

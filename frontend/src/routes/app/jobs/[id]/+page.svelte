@@ -8,6 +8,7 @@
 	import { toasts } from '$lib/toast.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import MediaIcon from '$lib/components/MediaIcon.svelte';
+	import DeliveryCard from '$lib/components/DeliveryCard.svelte';
 	import { onDestroy, onMount } from 'svelte';
 
 	let job = $state<Job | null>(null);
@@ -221,6 +222,10 @@
 				{/if}
 			</section>
 
+			<div class="side-col">
+			{#if job.status !== 'failed'}
+				<DeliveryCard jobId={job.id} status={job.status} recipient={job.recipientEmail} />
+			{/if}
 			<section class="card">
 				<span class="section-label">{i18n.t('job.title')}</span>
 				<dl>
@@ -248,10 +253,8 @@
 					<dt>{i18n.t('job.updatedAt')}</dt>
 					<dd>{fullDate(job.updatedAt, i18n.locale)}</dd>
 				</dl>
-				{#if job.status !== 'failed'}
-					<p class="faint note">{i18n.t('job.assetsNote')}</p>
-				{/if}
 			</section>
+			</div>
 		</div>
 
 		<section class="danger">
@@ -439,7 +442,7 @@
 
 	.detail-grid {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 300px;
+		grid-template-columns: minmax(0, 1fr) 320px;
 		gap: 1.25rem;
 		align-items: start;
 	}
@@ -448,6 +451,13 @@
 		.detail-grid {
 			grid-template-columns: minmax(0, 1fr);
 		}
+	}
+
+	.side-col {
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+		min-width: 0;
 	}
 
 	.detail-grid .card {
@@ -552,11 +562,6 @@
 		overflow-wrap: anywhere;
 	}
 
-	.note {
-		font-size: 0.78rem;
-		line-height: 1.5;
-		margin: 0;
-	}
 
 	.danger {
 		margin-top: 1rem;

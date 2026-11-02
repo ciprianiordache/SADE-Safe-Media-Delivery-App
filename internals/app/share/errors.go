@@ -15,4 +15,6 @@ var (
 	errNotFound = errors.New("share: not found")
 	// errGone is a token that verified but has expired (410).
 	errGone = errors.New("share: link expired")
+	// errDisabled is a valid link whose job the operator switched off (410).
+	errDisabled = errors.New("share: links disabled")
 )

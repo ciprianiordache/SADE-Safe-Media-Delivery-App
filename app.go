@@ -16,6 +16,7 @@ import (
 	"sade/internals/app/asset"
 	"sade/internals/app/auth"
 	"sade/internals/app/job"
+	"sade/internals/app/job_event"
 	"sade/internals/app/login_event"
 	"sade/internals/app/magic_token"
 	"sade/internals/app/passkey"
@@ -163,7 +164,17 @@ func NewApp(ctx context.Context) (*App, error) {
 	jobSvc := job.NewService(jobRepo, assetRepo, store, engine, cfg.Upload, log)
 	jobH := job.NewHandler(jobSvc, store, cfg.Upload, log)
 
+	// Delivery: the job's links switch + history ("sent", "opened",
+	// "paid"...), shared by the public share links, payment and the
+	// operator's delivery routes. One notifier mails the recipient - the
+	// worker when a preview is ready, the operator's "resend" otherwise.
+	jobEvents := job_event.NewRepo(db)
+	notifier := worker.NewEmailNotifier(mail, signer, cfg.App.PublicURL, cfg.Auth.ShareTokenTTL.Std())
+
 	shareH := share.NewHandler(signer, assetRepo, store, log)
+	shareH.UseDelivery(jobRepo, jobEvents)
+	deliveryH := share.NewOperatorHandler(jobSvc, jobRepo, jobEvents, notifier,
+		signer, cfg.App.PublicURL, cfg.Auth.ShareTokenTTL.Std(), log)
 
 	// The Stripe-backed original-file unlock. A missing key only disables
 	// this domain (Service.CreateIntent/Status report it, rather than the
@@ -178,11 +189,14 @@ func NewApp(ctx context.Context) (*App, error) {
 		payment.NewRepo(db), assetRepo, signer, stripeClient, cfg.Payment,
 		cfg.App.PublicURL, cfg.Payment.OriginalLinkTTL.Std(), log,
 	)
+	if d, ok := paymentSvc.(payment.Deliverer); ok {
+		d.UseDelivery(jobRepo, jobEvents)
+	}
 	paymentH := payment.NewHandler(paymentSvc, log)
 
 	router := app.NewRouter(app.Deps{
 		Cfg: cfg, Log: log, Auth: authH, AuthSvc: authSvc,
-		User: userH, Job: jobH, Share: shareH, Payment: paymentH,
+		User: userH, Job: jobH, Share: shareH, Delivery: deliveryH, Payment: paymentH,
 		AuthRateLimiter:    authRateLimiter,
 		AuthCodeLimiter:    authCodeLimiter,
 		PaymentRateLimiter: ratelimit.New(cfg.Payment.RateLimit, cfg.Payment.RateWindow.Std()),
@@ -211,7 +225,7 @@ func NewApp(ctx context.Context) (*App, error) {
 			assetStoreAdapter{assetRepo},
 			store,
 			engine,
-			worker.NewEmailNotifier(mail, signer, cfg.App.PublicURL, cfg.Auth.ShareTokenTTL.Std()),
+			recordingNotifier{inner: notifier, assets: assetRepo, events: jobEvents, log: log},
 			log,
 		)
 	}

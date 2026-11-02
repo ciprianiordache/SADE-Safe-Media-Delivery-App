@@ -25,6 +25,9 @@ func Migrations() []database.Migration {
 		{ID: "2026-11-03-user-require-passkey", Apply: func(db *database.Database) error {
 			return db.AddColumn("users", "require_passkey", database.KindInt)
 		}},
+		{ID: "2026-11-03-job-links-disabled", Apply: func(db *database.Database) error {
+			return db.AddColumn("jobs", "links_disabled", database.KindInt)
+		}},
 	}
 }
 

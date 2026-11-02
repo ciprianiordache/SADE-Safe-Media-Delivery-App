@@ -35,6 +35,8 @@
 	let clientSecret = $state('');
 	let intentError = $state('');
 	let showSide = $derived(paymentLoading || !!payment?.enabled);
+	// The operator switched this job's links off (410 from the API).
+	let disabled = $state(false);
 
 	async function loadStatus() {
 		payment = await api.paymentStatus(token);
@@ -48,6 +50,10 @@
 				clientSecret = intent.clientSecret;
 			}
 		} catch (err) {
+			if (err instanceof ApiError && err.status === 410) {
+				disabled = true;
+				return;
+			}
 			// Paid in the meantime (another tab, or between the two calls):
 			// just show the unlocked state.
 			if (err instanceof ApiError && err.status === 409) {
@@ -83,6 +89,12 @@
 	</div>
 
 	<div class="content wrap">
+		{#if disabled}
+			<div class="disabled-card">
+				<h1>{i18n.t('preview.disabledTitle')}</h1>
+				<p class="muted">{i18n.t('preview.disabledBody')}</p>
+			</div>
+		{:else}
 		<h1>{i18n.t('preview.title')}</h1>
 
 		<div class="layout" class:single={!showSide}>
@@ -146,6 +158,7 @@
 				</div>
 			{/if}
 		</div>
+		{/if}
 	</div>
 
 	<div class="footer faint">{i18n.t('preview.footer')}</div>
@@ -302,6 +315,20 @@
 
 	.center {
 		text-align: center;
+	}
+
+	.disabled-card {
+		max-width: 420px;
+		margin: 0 auto;
+		text-align: center;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+
+	.disabled-card p {
+		margin: 0;
+		line-height: 1.5;
 	}
 
 	.footer {

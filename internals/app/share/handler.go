@@ -10,8 +10,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"sade/internals/app/asset"
+	"sade/internals/app/job_event"
 	"sade/internals/httpx"
 	"sade/internals/storage"
 	"sade/internals/token"
@@ -31,6 +33,18 @@ type Blob interface {
 	LocalPath(key string) (path string, ok bool)
 }
 
+// Links reports whether the operator switched a job's public links off.
+// job.Repo satisfies it directly.
+type Links interface {
+	LinksDisabled(jobID string) (bool, error)
+}
+
+// Events records delivery history ("opened", "downloaded"). job_event.Repo
+// satisfies it directly.
+type Events interface {
+	RecordOnce(jobID, kind string, window time.Duration) error
+}
+
 // Handler serves the public share routes. Routes are registered in
 // internals/app/router.go, outside the /api auth concerns.
 type Handler struct {
@@ -38,6 +52,16 @@ type Handler struct {
 	assets Assets
 	blob   Blob
 	log    *slog.Logger
+
+	// Optional (nil-safe): the operator's on/off switch and the history.
+	links  Links
+	events Events
+}
+
+// UseDelivery turns on the links switch and delivery history.
+func (h *Handler) UseDelivery(links Links, events Events) {
+	h.links = links
+	h.events = events
 }
 
 func NewHandler(signer *token.Signer, assets Assets, blob Blob, log *slog.Logger) *Handler {
@@ -68,6 +92,9 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, purpose, wantKin
 	case errors.Is(err, errGone):
 		httpx.Error(w, http.StatusGone, "this link has expired")
 		return
+	case errors.Is(err, errDisabled):
+		httpx.Error(w, http.StatusGone, "this link has been disabled")
+		return
 	case errors.Is(err, errNotFound):
 		httpx.Error(w, http.StatusNotFound, "not found")
 		return
@@ -76,6 +103,8 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, purpose, wantKin
 		httpx.Error(w, http.StatusInternalServerError, "could not serve the file")
 		return
 	}
+
+	h.recordAccess(r, purpose, a.JobID)
 
 	w.Header().Set("Content-Type", mimeOr(a.MIME))
 	w.Header().Set("Content-Disposition",
@@ -151,7 +180,42 @@ func (h *Handler) resolve(tok, purpose, wantKind string) (*asset.Asset, error) {
 	if a.Kind != wantKind {
 		return nil, errNotFound // e.g. a "preview" token pointed at an original row
 	}
+	if h.links != nil {
+		off, err := h.links.LinksDisabled(a.JobID)
+		if err != nil {
+			return nil, errNotFound // job gone (deleted mid-request)
+		}
+		if off {
+			return nil, errDisabled
+		}
+	}
 	return a, nil
+}
+
+// recordAccess adds "opened" / "downloaded" to the job's history. A video
+// player fetches many byte ranges per view, so only a request for the start
+// of the file counts, and repeats within a window collapse into one event.
+func (h *Handler) recordAccess(r *http.Request, purpose, jobID string) {
+	if h.events == nil || r.Method != http.MethodGet {
+		return
+	}
+	if rg := r.Header.Get("Range"); rg != "" && !strings.HasPrefix(rg, "bytes=0-") {
+		return
+	}
+	kind, window := "", 10*time.Minute
+	switch purpose {
+	case "preview":
+		kind, window = job_event.KindViewed, 30*time.Minute
+	case "download":
+		kind = job_event.KindDownloaded
+	case "original":
+		kind = job_event.KindOriginalDownloaded
+	default:
+		return
+	}
+	if err := h.events.RecordOnce(jobID, kind, window); err != nil {
+		h.log.Warn("share: record access", "job", jobID, "kind", kind, "error", err)
+	}
 }
 
 func mimeOr(m string) string {

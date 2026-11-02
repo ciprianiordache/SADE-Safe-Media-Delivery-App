@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"sade/internals/app/asset"
 	"sade/internals/app/job"
+	"sade/internals/app/job_event"
 	"sade/internals/worker"
 )
 
@@ -71,4 +73,28 @@ func (a assetStoreAdapter) AddPreview(_ context.Context, p worker.PreviewInput) 
 		SizeBytes:  p.SizeBytes,
 		Checksum:   p.Checksum,
 	})
+}
+
+// recordingNotifier sends the preview-ready email and, once it went out,
+// adds "sent" to the job's delivery history.
+type recordingNotifier struct {
+	inner  worker.Notifier
+	assets asset.Repo
+	events job_event.Repo
+	log    *slog.Logger
+}
+
+func (n recordingNotifier) PreviewReady(ctx context.Context, recipient, previewID string) error {
+	if err := n.inner.PreviewReady(ctx, recipient, previewID); err != nil {
+		return err
+	}
+	a, err := n.assets.GetByID(previewID)
+	if err != nil {
+		n.log.Warn("delivery: find job of preview", "preview", previewID, "error", err)
+		return nil
+	}
+	if err := n.events.Record(a.JobID, job_event.KindSent, recipient); err != nil {
+		n.log.Warn("delivery: record sent", "job", a.JobID, "error", err)
+	}
+	return nil
 }

@@ -16,4 +16,7 @@ var (
 	// ErrAlreadyPaid is returned by Service.CreateIntent when the job has
 	// already been paid for - there is nothing left to charge.
 	ErrAlreadyPaid = errors.New("payment: already paid")
+	// ErrLinksDisabled is returned when the operator switched the job's
+	// public links off - no status, no checkout.
+	ErrLinksDisabled = errors.New("payment: links disabled")
 )

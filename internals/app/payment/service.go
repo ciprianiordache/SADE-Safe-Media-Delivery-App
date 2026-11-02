@@ -10,6 +10,7 @@ package payment
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -66,6 +67,42 @@ type service struct {
 	publicURL string
 	shareTTL  time.Duration
 	log       *slog.Logger
+
+	// Optional (nil-safe): the job's links switch and delivery history.
+	links  Links
+	events Events
+}
+
+// Links reports whether a job's public links are switched off. job.Repo
+// satisfies it.
+type Links interface {
+	LinksDisabled(jobID string) (bool, error)
+}
+
+// Events records a job's delivery history. job_event.Repo satisfies it.
+type Events interface {
+	Record(jobID, kind, detail string) error
+}
+
+// UseDelivery wires the links switch and the "paid" history entry. Set on
+// the concrete service by app.go (see Deliverer).
+func (s *service) UseDelivery(links Links, events Events) {
+	s.links = links
+	s.events = events
+}
+
+// Deliverer is implemented by the service returned from NewService.
+type Deliverer interface {
+	UseDelivery(links Links, events Events)
+}
+
+func (s *service) recordPaid(jobID string) {
+	if s.events == nil {
+		return
+	}
+	if err := s.events.Record(jobID, "paid", ""); err != nil {
+		s.log.Warn("payment: record paid event", "job", jobID, "error", err)
+	}
 }
 
 // NewService wires the payment service. stripeClient may be nil when
@@ -101,6 +138,15 @@ func (s *service) resolvePreview(previewToken string) (previewAsset, originalAss
 	pa, err := s.assets.GetByID(subject)
 	if err != nil || pa.Kind != asset.KindPreview {
 		return nil, nil, ErrInvalidToken
+	}
+	if s.links != nil {
+		off, err := s.links.LinksDisabled(pa.JobID)
+		if err != nil {
+			return nil, nil, ErrInvalidToken
+		}
+		if off {
+			return nil, nil, ErrLinksDisabled
+		}
 	}
 	oa, err := s.assets.GetByJobAndKind(pa.JobID, asset.KindOriginal)
 	if err != nil {
@@ -173,6 +219,10 @@ func (s *service) CreateIntent(ctx context.Context, previewToken string) (string
 
 func (s *service) Status(ctx context.Context, previewToken string) (StatusResult, error) {
 	if !s.enabled() {
+		// Still tell the preview page when its links were switched off.
+		if _, _, err := s.resolvePreview(previewToken); errors.Is(err, ErrLinksDisabled) {
+			return StatusResult{}, err
+		}
 		return StatusResult{}, nil
 	}
 	previewAsset, originalAsset, err := s.resolvePreview(previewToken)
@@ -292,6 +342,7 @@ func (s *service) reconcile(ctx context.Context, p *Payment) {
 		return
 	}
 	s.log.Info("payment: reconciled as paid", "payment", p.ID, "job", p.JobID)
+	s.recordPaid(p.JobID)
 }
 
 func (s *service) Webhook(_ context.Context, payload []byte, sigHeader string) error {
@@ -335,5 +386,6 @@ func (s *service) Webhook(_ context.Context, payload []byte, sigHeader string) e
 		return fmt.Errorf("payment: mark paid: %w", err)
 	}
 	s.log.Info("payment: webhook marked paid", "payment", p.ID, "job", p.JobID)
+	s.recordPaid(p.JobID)
 	return nil
 }

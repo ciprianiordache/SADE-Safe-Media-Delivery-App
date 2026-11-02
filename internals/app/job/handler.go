@@ -58,8 +58,12 @@ func quotaExempt(ctx context.Context) bool {
 	return v
 }
 
-func userIDFrom(r *http.Request) (string, bool) {
-	id, ok := r.Context().Value(userIDKey).(string)
+func userIDFrom(r *http.Request) (string, bool) { return UserIDFrom(r.Context()) }
+
+// UserIDFrom reads the operator id WithUserID attached - for other packages'
+// operator-scoped handlers (internals/app/share's delivery routes).
+func UserIDFrom(ctx context.Context) (string, bool) {
+	id, ok := ctx.Value(userIDKey).(string)
 	return id, ok && id != ""
 }
 

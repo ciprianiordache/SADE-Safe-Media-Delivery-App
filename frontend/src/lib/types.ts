@@ -76,6 +76,33 @@ export interface Job {
 	updatedAt: string;
 	// Populated only by GET /api/jobs/{id}; the list endpoint leaves it out.
 	assets?: Asset[];
+	linksDisabled: boolean;
+}
+
+// Mirrors internals/app/share.Delivery - GET /api/jobs/{id}/delivery.
+export type DeliveryEventKind =
+	| 'sent'
+	| 'resent'
+	| 'viewed'
+	| 'downloaded'
+	| 'paid'
+	| 'original_downloaded'
+	| 'links_disabled'
+	| 'links_enabled';
+
+export interface DeliveryEvent {
+	kind: DeliveryEventKind;
+	detail?: string;
+	createdAt: string;
+}
+
+export interface Delivery {
+	enabled: boolean;
+	paid: boolean;
+	ready: boolean;
+	previewUrl?: string;
+	expiresAt?: string;
+	events: DeliveryEvent[];
 }
 
 export interface NewJobInput {

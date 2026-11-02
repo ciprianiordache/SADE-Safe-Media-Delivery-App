@@ -3,6 +3,7 @@
 // call goes with credentials: 'include' - no token to attach by hand.
 import type {
 	ActivityEntry,
+	Delivery,
 	Job,
 	NewJobInput,
 	PasskeyChallenge,
@@ -183,6 +184,22 @@ export const api = {
 
 	getJob(id: string): Promise<Job> {
 		return request(`/api/jobs/${encodeURIComponent(id)}`);
+	},
+
+	// Delivery: the recipient's link, resend, links on/off, history.
+	delivery(id: string): Promise<Delivery> {
+		return request(`/api/jobs/${encodeURIComponent(id)}/delivery`);
+	},
+
+	resend(id: string): Promise<void> {
+		return request(`/api/jobs/${encodeURIComponent(id)}/resend`, { method: 'POST' });
+	},
+
+	setLinks(id: string, enabled: boolean): Promise<void> {
+		return request(`/api/jobs/${encodeURIComponent(id)}/links`, {
+			method: 'PUT',
+			body: JSON.stringify({ enabled })
+		});
 	},
 
 	deleteJob(id: string): Promise<void> {
