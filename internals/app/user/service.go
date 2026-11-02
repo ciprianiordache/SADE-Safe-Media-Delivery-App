@@ -24,6 +24,8 @@ type Service interface {
 	// SetRole changes an account's role (admin action). role must be a known
 	// Role* value.
 	SetRole(id, role string) (Response, error)
+	// SetRequirePasskey toggles "a passkey is required at every sign-in".
+	SetRequirePasskey(id string, on bool) (Response, error)
 }
 
 type service struct {
@@ -113,6 +115,28 @@ func (s *service) SetRole(id, role string) (Response, error) {
 		return Response{}, fmt.Errorf("update user: %w", err)
 	}
 	s.log.Info("user role changed", "id", id, "role", role)
+	return toResponse(*u), nil
+}
+
+// SetRequirePasskey turns "passkey required at sign-in" on or off. The auth
+// service checks the account has a passkey before turning it on.
+func (s *service) SetRequirePasskey(id string, on bool) (Response, error) {
+	u, err := s.repo.GetByID(id)
+	if err != nil {
+		return Response{}, err
+	}
+	v := 0
+	if on {
+		v = 1
+	}
+	if u.RequirePasskey == v {
+		return toResponse(*u), nil
+	}
+	u.RequirePasskey = v
+	if err := s.repo.Update(u); err != nil {
+		return Response{}, fmt.Errorf("update user: %w", err)
+	}
+	s.log.Info("passkey requirement changed", "id", id, "required", on)
 	return toResponse(*u), nil
 }
 

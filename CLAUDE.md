@@ -155,7 +155,65 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** a frontend usability pass (user: "Fa un research si sa aducem inbunatatiri
+**Latest:** SaaS phase 1 - schema migrations + stronger sign-in, keeping the magic link (user:
+"Eu totusi vreau sa ramanem la usurinta unui magic link dar vreau sa vedem daca putem sa
+inbunatatim acest lucru si sa il facem mai sigur"; compared against Lidl's password + SMS code -
+recommended passkeys instead: phishing-resistant, no SIM-swap, no per-SMS cost). Verified in
+tests (incl. a software WebAuthn authenticator) and live (headless browser + curl as "another
+device"):
+
+- **Migrations** (`internals/database/migrations.go`): `db.RunMigrations(...)` applies each
+  `Migration{ID, Apply}` once, tracked in `schema_migrations`, right after `db.Migrate(Models())`
+  (app.go + cmd/seed). `db.AddColumn(table, col, KindString|KindInt|KindTime)` is idempotent
+  (checks `information_schema` / `pragma_table_info`) and adds `NOT NULL DEFAULT <zero>`, since
+  crud-depot cannot scan NULL into a plain string/time. **No bool kind**: crud-depot can't convert
+  SQLite's INTEGER back to a Go bool - flags are `int` 0/1 (e.g. `users.require_passkey`). The list
+  lives in `internals/app/migrations.go` - append only.
+- **Link bound to the browser + 6-digit code**: `POST /api/auth/request` sets an HttpOnly
+  `sade_login` cookie (Path `/api/auth`, SameSite Strict, MagicLinkTTL; reused on resend) and the
+  token row stores `browser_hash` + `code_hash` (HMAC with `Auth.HMACSecret`, bound to the token)
+  + `attempts`. `/api/auth/complete` only signs in from that browser (409 `other_browser`
+  otherwise, link kept); `/api/auth/verify` returns `sameBrowser`. The email also carries the
+  code: `POST /api/auth/code {email, code}` works from the same browser, 5 wrong codes kill the
+  email (`magic_token.Repo.ConsumeByCode`), per-IP limiter `AuthCodeLimiter` (4x the request
+  budget). A stolen/forwarded link is useless on its own.
+- **Sign-in history + new-device alert**: new table `login_events` (`internals/app/login_event`).
+  A sign-in from a user agent the account hasn't used in 90 days (and not the account's first
+  sign-in) emails "New sign-in" with a signed `revoke-sessions` token ->
+  `FrontendURL/auth/revoke#token=` (new page) -> `POST /api/auth/revoke` ends every session.
+  Sent async (`Service.async`; tests make it sync). History purged after 90 days by PurgeExpired.
+- **Devices**: `sessions` gained `user_agent`, `ip`, `last_seen_at` (touched at most every 5 min
+  by `AuthenticateSession`, which also returns the session id - the router's `Auth` middleware
+  puts it in context via `auth.WithCaller`). `GET /api/account/sessions`, `DELETE
+  /api/account/sessions/{id}`, `GET /api/account/activity`. `auth.DescribeUserAgent` -> "Chrome on
+  Windows" (frontend `deviceLabel` localises "on").
+- **Passkeys** (`github.com/go-webauthn/webauthn`, new table `passkeys` storing the whole
+  `webauthn.Credential` as JSON): register from Settings (`/api/account/passkeys/begin|finish`,
+  list, delete), passkey-only sign-in on /login (`/api/auth/passkey/begin|finish`, discoverable),
+  and **"Require a passkey at every sign-in"** (`PUT /api/account/require-passkey`, needs >= 1
+  passkey; deleting the last one turns it off so nobody is locked out): the email step then returns
+  `{status:"passkey_required", passkey:{ceremonyId, options}}` instead of a cookie. Open
+  ceremonies live in memory (5 min, single-use). `app.go`'s `newWebAuthn` sets RPID = host of
+  `FrontendURL`; **passkeys are off on a bare IP** (WebAuthn forbids it) and are tied to the
+  hostname (a new trycloudflare URL means new passkeys). `GET /api/auth/config` tells the login
+  page whether to offer them. Frontend: `lib/webauthn.ts` (base64url <-> ArrayBuffer, no library),
+  `lib/signin.ts`, `/app/settings` (passkeys, require toggle, devices, activity; "Setări" in the
+  account menu), `PasskeyBanner` on the dashboard (dismissable), code field on /login's sent
+  screen, other-browser + passkey-step states on /auth/confirm.
+- **Timezone bug found on the way (pre-existing):** timestamp columns are Postgres `TIMESTAMP`
+  (no zone) and the driver wrote the local wall clock - on this Romanian machine every stored time
+  was +2h, read back as UTC. Expiry checks ran 2h late (a "15 minute" link lived ~2h15m) and the UI
+  showed shifted times. `main.go` and `cmd/seed` now set `time.Local = time.UTC`. Rows written
+  before the fix stay shifted (dev data only; they age out).
+- Not done (deliberately): SMS, TOTP, step-up re-auth, admin recovery for a user who loses every
+  passkey with the requirement on (deleting passkeys needs a session; documented in the UI: add
+  two).
+
+Tests: `internals/database/migrations_test.go`, magic_token browser/code tests,
+`auth/security_test.go`, `auth/passkey_e2e_test.go` (soft authenticator: register, passkey-only
+sign-in, wrong key refused, email + required passkey), `internals/app/account_test.go`.
+
+**Before that:** a frontend usability pass (user: "Fa un research si sa aducem inbunatatiri
 frontend-ului, nu trebuie sa ingreunam, trebuie facut intuitiv, usor de utilizat"). Frontend only,
 no API change. Verified live in the headless browser (desktop + 375px), `npm run check` clean.
 
@@ -726,6 +784,8 @@ package-level string consts.
 | `job.Job` → `jobs` | `status` indexed (`pending`→`processing`→`done`/`failed`), `media_type`, `recipient_email`, `watermark_kind`, `watermark_text`, `watermark_opts` (JSON string), `attempts`, `error`, `next_attempt_at` indexed (zero = ready now; worker retry-backoff gate) | `user_id` → `users` cascade |
 | `asset.Asset` → `assets` | `kind` (`original`/`preview`), `storage_key`, `filename`, `mime`, `size_bytes`, `checksum` | `job_id` → `jobs` cascade. **A job's files are asset rows keyed by `job_id`; `Job` holds no asset columns.** |
 | `payment.Payment` → `payments` | `provider` (`stripe`), `provider_ref` (PaymentIntent id, indexed), `status` (`pending`/`paid`/`failed`/`refunded`), `amount_cents`, `currency` | `job_id` → `jobs` cascade |
+| `login_event.LoginEvent` → `login_events` | `method` (`link`/`code`/`passkey`), `user_agent`, `ip`, `created_at` indexed | `user_id` → `users` cascade |
+| `passkey.Passkey` → `passkeys` | `credential_id` unique (base64url), `credential` (go-webauthn JSON), `name`, `last_used_at` | `user_id` → `users` cascade |
 
 **Every component that logs takes the shared `*slog.Logger` by injection** — `server.New` and
 `database.New` already do; feature packages follow the same rule. Do not create a second logger
@@ -830,6 +890,10 @@ Two libraries operate on the *same* `db`-tagged structs, both reached through `i
   purpose prefix). `worker.EmailNotifier` signs both; `internals/app/share` verifies.
 
 ### Auth
+
+Operator login is a magic link (no password), bound to the requesting browser, with a 6-digit
+code from the same email as the cross-device path and optional passkeys (alone, or required as a
+second step) - see "Latest" above for the details. The paragraph below predates that.
 
 Operator login is magic-link only (no password). `POST /api/auth/request {email}` →
 `user.EnsureByEmail` (find-or-create an operator) → a random 32-byte token, sha256-hashed and

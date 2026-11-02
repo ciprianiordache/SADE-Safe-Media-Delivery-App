@@ -16,6 +16,15 @@ type MagicToken struct {
 	TokenHash string    `db:"token_hash,notnull,unique"` // sha256 hex of the raw token
 	ExpiresAt time.Time `db:"expires_at,notnull"`
 	CreatedAt time.Time `db:"created_at,oncreate"`
+
+	// BrowserHash is the sha256 of the random nonce the requesting browser
+	// got as a cookie: the link signs in only from that browser. CodeHash is
+	// an HMAC of the 6-digit code from the same email, the way in from that
+	// browser when the email was opened somewhere else; Attempts counts wrong
+	// codes. All three added by a migration.
+	BrowserHash string `db:"browser_hash"`
+	CodeHash    string `db:"code_hash"`
+	Attempts    int    `db:"attempts"`
 }
 
 // TableName is the SQL table (used by both schema-builder and crud-depot).

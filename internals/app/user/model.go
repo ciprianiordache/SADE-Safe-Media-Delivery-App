@@ -19,6 +19,10 @@ type User struct {
 	Role      string    `db:"role,notnull,default:operator"`
 	CreatedAt time.Time `db:"created_at,oncreate"`
 	UpdatedAt time.Time `db:"updated_at,onwrite"`
+	// RequirePasskey (0/1, not bool - see database.ColumnKind) makes an
+	// emailed link or code insufficient on its own: sign-in also needs one of
+	// the account's passkeys. Added by a migration.
+	RequirePasskey int `db:"require_passkey"`
 }
 
 // TableName is the SQL table (used by both schema-builder and crud-depot).
@@ -45,6 +49,8 @@ type Response struct {
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// RequirePasskey: an emailed link alone no longer signs this account in.
+	RequirePasskey bool `json:"requirePasskey"`
 }
 
 func toResponse(u User) Response {
@@ -54,5 +60,7 @@ func toResponse(u User) Response {
 		Role:      u.Role,
 		CreatedAt: u.CreatedAt,
 		UpdatedAt: u.UpdatedAt,
+
+		RequirePasskey: u.RequirePasskey == 1,
 	}
 }

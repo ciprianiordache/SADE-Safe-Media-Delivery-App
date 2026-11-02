@@ -1,7 +1,18 @@
 // Typed client for internals/app/router.go's /api/* surface. Session auth is
 // a cookie (sade_session, HttpOnly) set by POST /api/auth/complete, so every
 // call goes with credentials: 'include' - no token to attach by hand.
-import type { Job, NewJobInput, PaymentStatus, Usage, User } from './types';
+import type {
+	ActivityEntry,
+	Job,
+	NewJobInput,
+	PasskeyChallenge,
+	PasskeyInfo,
+	PaymentStatus,
+	SessionInfo,
+	SignInResult,
+	Usage,
+	User
+} from './types';
 
 // In dev the frontend runs on Vite (:5173) and the API on the Go server
 // (config default :8080, CORS already allows :5173 - see config.ServerConfig
@@ -76,14 +87,80 @@ export const api = {
 		}
 	},
 
-	// The /auth/confirm page: which account a sign-in link belongs to (does
-	// not spend it), then the explicit sign-in on the user's click.
-	verifyLink(token: string): Promise<{ email: string }> {
+	// The /auth/confirm page: which account a sign-in link belongs to and
+	// whether this is the browser that asked for it (does not spend it), then
+	// the explicit sign-in on the user's click (409 "other_browser" from
+	// anywhere else).
+	verifyLink(token: string): Promise<{ email: string; sameBrowser: boolean }> {
 		return request('/api/auth/verify', { method: 'POST', body: JSON.stringify({ token }) });
 	},
 
-	completeLink(token: string): Promise<void> {
+	completeLink(token: string): Promise<SignInResult> {
 		return request('/api/auth/complete', { method: 'POST', body: JSON.stringify({ token }) });
+	},
+
+	// The 6-digit code from the same email, typed in the requesting browser.
+	completeCode(email: string, code: string): Promise<SignInResult> {
+		return request('/api/auth/code', { method: 'POST', body: JSON.stringify({ email, code }) });
+	},
+
+	authConfig(): Promise<{ passkeys: boolean }> {
+		return request('/api/auth/config');
+	},
+
+	passkeyLoginBegin(): Promise<PasskeyChallenge> {
+		return request('/api/auth/passkey/begin', { method: 'POST' });
+	},
+
+	passkeyLoginFinish(ceremonyId: string, credential: unknown): Promise<void> {
+		return request('/api/auth/passkey/finish', {
+			method: 'POST',
+			body: JSON.stringify({ ceremonyId, credential })
+		});
+	},
+
+	// The new-device alert email's "this wasn't me".
+	revokeFromAlert(token: string): Promise<{ email: string }> {
+		return request('/api/auth/revoke', { method: 'POST', body: JSON.stringify({ token }) });
+	},
+
+	// --- account security ---------------------------------------------------
+	sessions(): Promise<SessionInfo[]> {
+		return request('/api/account/sessions');
+	},
+
+	revokeSession(id: string): Promise<void> {
+		return request(`/api/account/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+	},
+
+	activity(): Promise<ActivityEntry[]> {
+		return request('/api/account/activity');
+	},
+
+	passkeys(): Promise<PasskeyInfo[]> {
+		return request('/api/account/passkeys');
+	},
+
+	passkeyRegisterBegin(): Promise<PasskeyChallenge> {
+		return request('/api/account/passkeys/begin', { method: 'POST' });
+	},
+
+	passkeyRegisterFinish(ceremonyId: string, credential: unknown, name: string): Promise<PasskeyInfo> {
+		return request('/api/account/passkeys/finish', {
+			method: 'POST',
+			body: JSON.stringify({ ceremonyId, credential, name })
+		});
+	},
+
+	deletePasskey(id: string): Promise<void> {
+		return request(`/api/account/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+	},
+
+	setRequirePasskey(enabled: boolean): Promise<User> {
+		return request('/api/account/require-passkey', {
+			method: 'PUT',
+			body: JSON.stringify({ enabled })
+		});
 	},
 
 	logout(): Promise<void> {

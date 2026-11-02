@@ -97,6 +97,7 @@ const (
 )
 
 func main() {
+	time.Local = time.UTC // same as the app: TIMESTAMP columns hold UTC (see main.go)
 	links := flag.Bool("links", false, "print /preview links for done jobs instead of seeding")
 	flag.Parse()
 	if err := run(*links); err != nil {
@@ -119,6 +120,9 @@ func run(linksOnly bool) error {
 	}
 	defer db.Close()
 	if err := db.Migrate(app.Models()...); err != nil {
+		return err
+	}
+	if err := db.RunMigrations(app.Migrations()...); err != nil {
 		return err
 	}
 	signer, err := token.New(cfg.Auth.HMACSecret)

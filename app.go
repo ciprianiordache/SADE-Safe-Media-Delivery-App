@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,7 +16,9 @@ import (
 	"sade/internals/app/asset"
 	"sade/internals/app/auth"
 	"sade/internals/app/job"
+	"sade/internals/app/login_event"
 	"sade/internals/app/magic_token"
+	"sade/internals/app/passkey"
 	"sade/internals/app/payment"
 	"sade/internals/app/session"
 	"sade/internals/app/share"
@@ -29,6 +33,7 @@ import (
 	"sade/internals/token"
 	"sade/internals/worker"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	stripe "github.com/stripe/stripe-go/v82"
 )
 
@@ -95,6 +100,10 @@ func NewApp(ctx context.Context) (*App, error) {
 		_ = db.Close()
 		return fail(fmt.Errorf("migrate schema: %w", err))
 	}
+	if err := db.RunMigrations(app.Migrations()...); err != nil {
+		_ = db.Close()
+		return fail(fmt.Errorf("run migrations: %w", err))
+	}
 
 	mail, err := mailer.New(cfg.Mailer, log)
 	if err != nil {
@@ -133,6 +142,13 @@ func NewApp(ctx context.Context) (*App, error) {
 	// still cannot flood one mailbox with sign-in links.
 	authSvc.SetEmailLimiter(ratelimit.New(cfg.Auth.RequestRateLimit, cfg.Auth.RequestRateWindow.Std()))
 	userH.OnRoleChanged = authSvc.RevokeAll
+	// Sign-in history (new-device alerts, the activity list) and passkeys.
+	authSvc.UseLoginEvents(login_event.NewRepo(db))
+	authSvc.UseAlertSigner(signer)
+	authSvc.UsePasskeys(passkey.NewRepo(db), newWebAuthn(cfg, log))
+	// Guesses at the 6-digit sign-in code, per client IP. Each email also
+	// dies after a few wrong codes; this bounds guessing across emails.
+	authCodeLimiter := ratelimit.New(cfg.Auth.RequestRateLimit*4, cfg.Auth.RequestRateWindow.Std())
 
 	// The watermark engine also backs job.Service's upload validation (an
 	// ffprobe pass confirming the stored file's actual stream kind matches
@@ -168,6 +184,7 @@ func NewApp(ctx context.Context) (*App, error) {
 		Cfg: cfg, Log: log, Auth: authH, AuthSvc: authSvc,
 		User: userH, Job: jobH, Share: shareH, Payment: paymentH,
 		AuthRateLimiter:    authRateLimiter,
+		AuthCodeLimiter:    authCodeLimiter,
 		PaymentRateLimiter: ratelimit.New(cfg.Payment.RateLimit, cfg.Payment.RateWindow.Std()),
 	})
 
@@ -253,4 +270,39 @@ func (a *App) purgeExpired(ctx context.Context) {
 		case <-t.C:
 		}
 	}
+}
+
+// newWebAuthn builds the passkey verifier for the frontend's origin, or nil
+// (passkeys off) when that origin cannot host passkeys - WebAuthn refuses a
+// bare IP address as the relying party, e.g. a LAN demo on 192.168.x.x.
+// Passkeys are bound to the hostname: ones created on one tunnel URL do not
+// work on the next.
+func newWebAuthn(cfg *config.Config, log *slog.Logger) *webauthn.WebAuthn {
+	u, err := url.Parse(cfg.App.FrontendURL)
+	if err != nil || u.Hostname() == "" {
+		log.Warn("passkeys disabled", "reason", "APP_FRONTEND_URL has no host")
+		return nil
+	}
+	host := u.Hostname()
+	if net.ParseIP(host) != nil {
+		log.Warn("passkeys disabled", "reason", "frontend runs on a bare IP address", "host", host)
+		return nil
+	}
+	origins := []string{}
+	seen := map[string]bool{}
+	for _, o := range append([]string{cfg.App.FrontendURL, cfg.App.PublicURL}, cfg.Server.CORSAllowedOrigins...) {
+		o = strings.TrimRight(strings.TrimSpace(o), "/")
+		ou, err := url.Parse(o)
+		if o == "" || seen[o] || err != nil || ou.Hostname() != host {
+			continue
+		}
+		seen[o] = true
+		origins = append(origins, o)
+	}
+	wa, err := webauthn.New(&webauthn.Config{RPID: host, RPDisplayName: "SADE", RPOrigins: origins})
+	if err != nil {
+		log.Warn("passkeys disabled", "reason", err)
+		return nil
+	}
+	return wa
 }

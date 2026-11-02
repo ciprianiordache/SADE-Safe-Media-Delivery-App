@@ -13,6 +13,13 @@ type Session struct {
 	TokenHash string    `db:"token_hash,notnull,unique"` // sha256 hex of the cookie value
 	ExpiresAt time.Time `db:"expires_at,notnull"`
 	CreatedAt time.Time `db:"created_at,oncreate"`
+
+	// Device details, shown on the account's "Devices" page. Added by a
+	// migration (internals/app/migrations.go), so rows from before it have
+	// "" / the zero time here.
+	UserAgent  string    `db:"user_agent"`
+	IP         string    `db:"ip"`
+	LastSeenAt time.Time `db:"last_seen_at"`
 }
 
 // TableName is the SQL table (used by both schema-builder and crud-depot).

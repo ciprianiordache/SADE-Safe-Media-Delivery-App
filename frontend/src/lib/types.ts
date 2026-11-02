@@ -9,6 +9,42 @@ export interface User {
 	role: Role;
 	createdAt: string;
 	updatedAt: string;
+	requirePasskey: boolean;
+}
+
+// --- sign-in & account security (internals/app/auth) ----------------------
+
+// What a finished email step returns: signed in, or a passkey still needed.
+export type SignInResult =
+	| { status: 'signed_in' }
+	| { status: 'passkey_required'; passkey: PasskeyChallenge };
+
+export interface PasskeyChallenge {
+	ceremonyId: string;
+	options: Record<string, unknown>;
+}
+
+export interface SessionInfo {
+	id: string;
+	device: string;
+	ip: string;
+	createdAt: string;
+	lastSeenAt: string;
+	current: boolean;
+}
+
+export interface ActivityEntry {
+	method: 'link' | 'code' | 'passkey';
+	device: string;
+	ip: string;
+	createdAt: string;
+}
+
+export interface PasskeyInfo {
+	id: string;
+	name: string;
+	createdAt: string;
+	lastUsedAt: string;
 }
 
 export type JobStatus = 'pending' | 'processing' | 'done' | 'failed';

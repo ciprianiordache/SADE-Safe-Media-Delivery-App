@@ -41,7 +41,7 @@ func TestHandlerRequestLink(t *testing.T) {
 
 func TestHandlerCallbackForwardsToConfirmWithoutSigningIn(t *testing.T) {
 	h, cm := newHandler(t)
-	if err := h.svc.RequestLink(context.Background(), "a@b.c"); err != nil {
+	if err := h.svc.RequestLink(context.Background(), "a@b.c", testNonce); err != nil {
 		t.Fatal(err)
 	}
 	tok := linkToken(t, cm)
@@ -60,26 +60,39 @@ func TestHandlerCallbackForwardsToConfirmWithoutSigningIn(t *testing.T) {
 		t.Errorf("a GET must never sign anyone in")
 	}
 	// The token is still usable: the GET did not spend it.
-	if _, err := h.svc.Peek(context.Background(), tok); err != nil {
+	if _, _, err := h.svc.Peek(context.Background(), tok, testNonce); err != nil {
 		t.Errorf("token spent by GET callback: %v", err)
 	}
 }
 
 func TestHandlerVerifyThenComplete(t *testing.T) {
 	h, cm := newHandler(t)
-	if err := h.svc.RequestLink(context.Background(), "a@b.c"); err != nil {
+	if err := h.svc.RequestLink(context.Background(), "a@b.c", testNonce); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"token":"` + linkToken(t, cm) + `"}`
 
+	fromThisBrowser := func(path string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		r.AddCookie(&http.Cookie{Name: browserCookie, Value: testNonce})
+		return r
+	}
+
 	w := httptest.NewRecorder()
-	h.Verify(w, httptest.NewRequest(http.MethodPost, "/api/auth/verify", strings.NewReader(body)))
+	h.Verify(w, fromThisBrowser("/api/auth/verify"))
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "a@b.c") {
 		t.Fatalf("verify = %d %s", w.Code, w.Body.String())
 	}
 
+	// Another browser (no sign-in cookie) is refused, and the link survives.
 	w = httptest.NewRecorder()
 	h.Complete(w, httptest.NewRequest(http.MethodPost, "/api/auth/complete", strings.NewReader(body)))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("complete from another browser = %d, want 409", w.Code)
+	}
+
+	w = httptest.NewRecorder()
+	h.Complete(w, fromThisBrowser("/api/auth/complete"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("complete = %d %s", w.Code, w.Body.String())
 	}
@@ -95,7 +108,7 @@ func TestHandlerVerifyThenComplete(t *testing.T) {
 
 	// Single use.
 	w = httptest.NewRecorder()
-	h.Complete(w, httptest.NewRequest(http.MethodPost, "/api/auth/complete", strings.NewReader(body)))
+	h.Complete(w, fromThisBrowser("/api/auth/complete"))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("second complete = %d, want 400", w.Code)
 	}
@@ -122,8 +135,8 @@ func TestHandlerCallbackBadTokenRedirectsToLogin(t *testing.T) {
 
 func TestHandlerLogoutClearsCookie(t *testing.T) {
 	h, cm := newHandler(t)
-	_ = h.svc.RequestLink(context.Background(), "a@b.c")
-	secret, _, _ := h.svc.Complete(context.Background(), linkToken(t, cm))
+	_ = h.svc.RequestLink(context.Background(), "a@b.c", testNonce)
+	secret, _, _ := completeT(h.svc, context.Background(), linkToken(t, cm))
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)

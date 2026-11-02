@@ -8,6 +8,7 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import MediaIcon from '$lib/components/MediaIcon.svelte';
 	import UsageMeter from '$lib/components/UsageMeter.svelte';
+	import PasskeyBanner from '$lib/components/PasskeyBanner.svelte';
 	import { onDestroy, onMount } from 'svelte';
 
 	// --- data -----------------------------------------------------------
@@ -258,6 +259,7 @@
 <div class="container page">
 	<h1>{i18n.t('dashboard.title')}</h1>
 	<p class="subtitle muted">{i18n.t('dashboard.subtitle')}</p>
+	<PasskeyBanner />
 	<UsageMeter {usage} />
 
 	<div class="layout">

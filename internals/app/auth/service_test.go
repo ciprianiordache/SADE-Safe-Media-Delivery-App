@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"sade/config"
+	"sade/internals/app/login_event"
 	"sade/internals/app/magic_token"
+	"sade/internals/app/passkey"
 	"sade/internals/app/session"
 	"sade/internals/app/user"
 	"sade/internals/mailer"
@@ -39,7 +41,7 @@ func (m *captureMailer) last() mailer.Message {
 
 func newService(t *testing.T, opts ...func(*config.AuthConfig)) (*Service, *captureMailer) {
 	t.Helper()
-	db := testutil.DB(t, user.User{}, magic_token.MagicToken{}, session.Session{})
+	db := testutil.DB(t, user.User{}, magic_token.MagicToken{}, session.Session{}, login_event.LoginEvent{}, passkey.Passkey{})
 	cm := &captureMailer{}
 	cfg := config.AuthConfig{
 		MagicLinkTTL:      config.Duration(15 * time.Minute),
@@ -54,7 +56,19 @@ func newService(t *testing.T, opts ...func(*config.AuthConfig)) (*Service, *capt
 		magic_token.NewRepo(db), session.NewRepo(db), cm,
 		cfg, "http://api.test", "http://app.test", testutil.Logger(),
 	)
+	svc.UseLoginEvents(login_event.NewRepo(db))
+	svc.UsePasskeys(passkey.NewRepo(db), nil) // repo ready; tests that need passkeys add a verifier
+	svc.async = func(f func()) { f() }        // alert emails land before the call returns
 	return svc, cm
+}
+
+// testNonce stands in for the sign-in cookie of "this browser".
+const testNonce = "test-browser-nonce-0001"
+
+// completeT signs in with a link from this browser and returns the session.
+func completeT(svc *Service, ctx context.Context, tok string) (string, time.Time, error) {
+	res, err := svc.Complete(ctx, tok, testNonce, Client{UserAgent: "Mozilla/5.0 (Windows NT 10.0) Chrome/130.0", IP: "203.0.113.5"})
+	return res.SessionSecret, res.ExpiresAt, err
 }
 
 // linkToken pulls the ?token= value out of the most recent email.
@@ -79,7 +93,7 @@ func linkToken(t *testing.T, cm *captureMailer) string {
 func TestRequestLinkThenComplete(t *testing.T) {
 	svc, cm := newService(t)
 
-	if err := svc.RequestLink(context.Background(), "  Op@Example.com "); err != nil {
+	if err := svc.RequestLink(context.Background(), "  Op@Example.com ", testNonce); err != nil {
 		t.Fatalf("RequestLink: %v", err)
 	}
 	msg := cm.last()
@@ -90,7 +104,7 @@ func TestRequestLinkThenComplete(t *testing.T) {
 		t.Errorf("confirmation link missing from body:\n%s", msg.Text)
 	}
 
-	secret, exp, err := svc.Complete(context.Background(), linkToken(t, cm))
+	secret, exp, err := completeT(svc, context.Background(), linkToken(t, cm))
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
@@ -109,25 +123,25 @@ func TestRequestLinkThenComplete(t *testing.T) {
 
 func TestRequestLinkRejectsBadEmail(t *testing.T) {
 	svc, _ := newService(t)
-	if err := svc.RequestLink(context.Background(), "not-an-email"); !errors.Is(err, ErrInvalidEmail) {
+	if err := svc.RequestLink(context.Background(), "not-an-email", testNonce); !errors.Is(err, ErrInvalidEmail) {
 		t.Errorf("RequestLink(bad) = %v, want ErrInvalidEmail", err)
 	}
 }
 
 func TestCompleteRejectsBadTokens(t *testing.T) {
 	svc, cm := newService(t)
-	_ = svc.RequestLink(context.Background(), "a@b.c")
+	_ = svc.RequestLink(context.Background(), "a@b.c", testNonce)
 	good := linkToken(t, cm)
 
-	if _, _, err := svc.Complete(context.Background(), "garbage"); !errors.Is(err, ErrInvalidToken) {
+	if _, _, err := completeT(svc, context.Background(), "garbage"); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("Complete(garbage) = %v, want ErrInvalidToken", err)
 	}
 	// first use ok
-	if _, _, err := svc.Complete(context.Background(), good); err != nil {
+	if _, _, err := completeT(svc, context.Background(), good); err != nil {
 		t.Fatalf("Complete(good): %v", err)
 	}
 	// reuse rejected
-	if _, _, err := svc.Complete(context.Background(), good); !errors.Is(err, ErrInvalidToken) {
+	if _, _, err := completeT(svc, context.Background(), good); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("Complete(reused) = %v, want ErrInvalidToken", err)
 	}
 }
@@ -135,17 +149,17 @@ func TestCompleteRejectsBadTokens(t *testing.T) {
 func TestCompleteRejectsExpiredToken(t *testing.T) {
 	svc, cm := newService(t)
 	svc.cfg.MagicLinkTTL = config.Duration(-time.Second) // already expired when minted
-	_ = svc.RequestLink(context.Background(), "a@b.c")
+	_ = svc.RequestLink(context.Background(), "a@b.c", testNonce)
 
-	if _, _, err := svc.Complete(context.Background(), linkToken(t, cm)); !errors.Is(err, ErrInvalidToken) {
+	if _, _, err := completeT(svc, context.Background(), linkToken(t, cm)); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("Complete(expired) = %v, want ErrInvalidToken", err)
 	}
 }
 
 func TestAuthenticateAndLogout(t *testing.T) {
 	svc, cm := newService(t)
-	_ = svc.RequestLink(context.Background(), "a@b.c")
-	secret, _, _ := svc.Complete(context.Background(), linkToken(t, cm))
+	_ = svc.RequestLink(context.Background(), "a@b.c", testNonce)
+	secret, _, _ := completeT(svc, context.Background(), linkToken(t, cm))
 
 	if _, err := svc.Authenticate(context.Background(), ""); !errors.Is(err, ErrNoSession) {
 		t.Errorf("Authenticate(empty) = %v, want ErrNoSession", err)
@@ -169,8 +183,8 @@ func TestAuthenticateAndLogout(t *testing.T) {
 func TestAuthenticateExpiredSessionIsCleared(t *testing.T) {
 	svc, cm := newService(t)
 	svc.cfg.SessionTTL = config.Duration(-time.Second)
-	_ = svc.RequestLink(context.Background(), "a@b.c")
-	secret, _, err := svc.Complete(context.Background(), linkToken(t, cm))
+	_ = svc.RequestLink(context.Background(), "a@b.c", testNonce)
+	secret, _, err := completeT(svc, context.Background(), linkToken(t, cm))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,21 +201,21 @@ func TestAuthenticateExpiredSessionIsCleared(t *testing.T) {
 func TestPeekDoesNotSpendTheToken(t *testing.T) {
 	svc, cm := newService(t)
 	ctx := context.Background()
-	if err := svc.RequestLink(ctx, "op@example.com"); err != nil {
+	if err := svc.RequestLink(ctx, "op@example.com", testNonce); err != nil {
 		t.Fatal(err)
 	}
 	tok := linkToken(t, cm)
 
 	for i := 0; i < 2; i++ {
-		email, err := svc.Peek(ctx, tok)
-		if err != nil || email != "op@example.com" {
-			t.Fatalf("Peek #%d = %q, %v", i, email, err)
+		email, same, err := svc.Peek(ctx, tok, testNonce)
+		if err != nil || email != "op@example.com" || !same {
+			t.Fatalf("Peek #%d = %q, %v, %v", i, email, same, err)
 		}
 	}
-	if _, _, err := svc.Complete(ctx, tok); err != nil {
+	if _, _, err := completeT(svc, ctx, tok); err != nil {
 		t.Fatalf("Complete after Peek: %v", err)
 	}
-	if _, err := svc.Peek(ctx, tok); !errors.Is(err, ErrInvalidToken) {
+	if _, _, err := svc.Peek(ctx, tok, testNonce); !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("Peek of a spent token = %v, want ErrInvalidToken", err)
 	}
 }
@@ -210,7 +224,7 @@ func TestSignupPolicy(t *testing.T) {
 	ctx := context.Background()
 
 	closed, cm := newService(t, func(c *config.AuthConfig) { c.SignupMode = "closed" })
-	if err := closed.RequestLink(ctx, "new@example.com"); err != nil {
+	if err := closed.RequestLink(ctx, "new@example.com", testNonce); err != nil {
 		t.Fatalf("closed signup must look like success, got %v", err)
 	}
 	if len(cm.sent) != 0 {
@@ -226,11 +240,11 @@ func TestSignupPolicy(t *testing.T) {
 		c.SignupAllowedEmails = []string{"Boss@Elsewhere.test"}
 	})
 	for _, ok := range []string{"a@studio.test", "boss@elsewhere.test"} {
-		if err := allow.RequestLink(ctx, ok); err != nil {
+		if err := allow.RequestLink(ctx, ok, testNonce); err != nil {
 			t.Fatalf("RequestLink(%s): %v", ok, err)
 		}
 	}
-	if err := allow.RequestLink(ctx, "x@notstudio.test"); err != nil {
+	if err := allow.RequestLink(ctx, "x@notstudio.test", testNonce); err != nil {
 		t.Fatalf("refused address must look like success, got %v", err)
 	}
 	if len(cm.sent) != 2 {
@@ -241,7 +255,7 @@ func TestSignupPolicy(t *testing.T) {
 	if _, err := closed.users.EnsureByEmail("old@example.com"); err != nil {
 		t.Fatal(err)
 	}
-	if err := closed.RequestLink(ctx, "old@example.com"); err != nil {
+	if err := closed.RequestLink(ctx, "old@example.com", testNonce); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -250,7 +264,7 @@ func TestPerAddressLimit(t *testing.T) {
 	svc, cm := newService(t)
 	svc.SetEmailLimiter(ratelimit.New(2, time.Hour))
 	for i := 0; i < 4; i++ {
-		if err := svc.RequestLink(context.Background(), "op@example.com"); err != nil {
+		if err := svc.RequestLink(context.Background(), "op@example.com", testNonce); err != nil {
 			t.Fatalf("RequestLink #%d: %v", i, err)
 		}
 	}
@@ -264,10 +278,10 @@ func TestRevokeAllEndsEverySession(t *testing.T) {
 	ctx := context.Background()
 	var secrets []string
 	for i := 0; i < 2; i++ {
-		if err := svc.RequestLink(ctx, "op@example.com"); err != nil {
+		if err := svc.RequestLink(ctx, "op@example.com", testNonce); err != nil {
 			t.Fatal(err)
 		}
-		sec, _, err := svc.Complete(ctx, linkToken(t, cm))
+		sec, _, err := completeT(svc, ctx, linkToken(t, cm))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -292,20 +306,20 @@ func TestPurgeExpiredRemovesOnlyExpiredRows(t *testing.T) {
 	ctx := context.Background()
 
 	// One live session, one expired session, one expired unused link.
-	if err := svc.RequestLink(ctx, "live@example.com"); err != nil {
+	if err := svc.RequestLink(ctx, "live@example.com", testNonce); err != nil {
 		t.Fatal(err)
 	}
-	live, _, err := svc.Complete(ctx, linkToken(t, cm))
+	live, _, err := completeT(svc, ctx, linkToken(t, cm))
 	if err != nil {
 		t.Fatal(err)
 	}
 	svc.cfg.SessionTTL = config.Duration(-time.Minute)
 	svc.cfg.MagicLinkTTL = config.Duration(-time.Minute)
-	if err := svc.RequestLink(ctx, "old@example.com"); err != nil {
+	if err := svc.RequestLink(ctx, "old@example.com", testNonce); err != nil {
 		t.Fatal(err)
 	}
 	expiredTok := linkToken(t, cm)
-	if err := svc.RequestLink(ctx, "old2@example.com"); err != nil {
+	if err := svc.RequestLink(ctx, "old2@example.com", testNonce); err != nil {
 		t.Fatal(err)
 	}
 	_ = expiredTok

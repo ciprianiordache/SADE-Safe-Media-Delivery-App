@@ -6,7 +6,9 @@ package app
 import (
 	"sade/internals/app/asset"
 	"sade/internals/app/job"
+	"sade/internals/app/login_event"
 	"sade/internals/app/magic_token"
+	"sade/internals/app/passkey"
 	"sade/internals/app/payment"
 	"sade/internals/app/session"
 	"sade/internals/app/user"
@@ -20,6 +22,8 @@ func Models() []any {
 		user.User{},
 		magic_token.MagicToken{},
 		session.Session{},
+		login_event.LoginEvent{},
+		passkey.Passkey{},
 		job.Job{},
 		asset.Asset{},
 		payment.Payment{},

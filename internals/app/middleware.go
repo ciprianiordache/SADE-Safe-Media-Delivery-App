@@ -46,13 +46,17 @@ func UserFrom(ctx context.Context) (user.Response, bool) {
 
 // Auth resolves the session cookie and, when valid, attaches the user to the
 // request context. It never rejects - RequireUser / RequireRole do that.
-func Auth(svc *auth.Service, cookieName string) middleware {
+func Auth(svc *auth.Service, cookieName string, trust proxyTrust) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			c, err := r.Cookie(cookieName)
 			if err == nil {
-				if u, aErr := svc.Authenticate(r.Context(), c.Value); aErr == nil {
-					r = r.WithContext(withUser(r.Context(), u))
+				if u, sid, aErr := svc.AuthenticateSession(r.Context(), c.Value, trust.clientIP(r)); aErr == nil {
+					ctx := withUser(r.Context(), u)
+					// The account handlers in package auth need the ids, not
+					// the user DTO - see auth.WithCaller.
+					ctx = auth.WithCaller(ctx, u.ID, sid)
+					r = r.WithContext(ctx)
 				}
 			}
 			next.ServeHTTP(w, r)

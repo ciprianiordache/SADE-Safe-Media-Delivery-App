@@ -58,6 +58,10 @@ type Data struct {
 	Buttons     []Button
 	FallbackURL string // shown as copy-paste text under the buttons when a button can't be clicked; empty hides the line
 	Note        string // small print under everything, e.g. link expiry
+	// Code, when set, is shown large under the buttons (the sign-in email's
+	// 6-digit code), with CodeLabel above it.
+	Code      string
+	CodeLabel string
 }
 
 var tmpl = template.Must(template.New("email").Parse(layoutTmpl))
@@ -136,6 +140,8 @@ const layoutTmpl = `<!doctype html>
 {{range .Buttons}}<td style="padding-right:12px;">{{if .Primary}}<a href="{{.URL}}" style="display:inline-block;background-color:#e8631c;color:#ffffff;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;text-decoration:none;padding:13px 26px;border-radius:9px;">{{.Label}}</a>{{else}}<a href="{{.URL}}" style="display:inline-block;background-color:#ffffff;color:#211c18;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;text-decoration:none;padding:12px 25px;border-radius:9px;border:1px solid #ddd3c4;">{{.Label}}</a>{{end}}</td>{{end}}
 </tr></table>
 </td></tr>
+{{if .Code}}<tr><td style="padding-top:28px;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#6e655b;">{{.CodeLabel}}</td></tr>
+<tr><td style="padding-top:8px;"><span style="display:inline-block;font-family:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;font-size:28px;font-weight:600;letter-spacing:6px;color:#211c18;background-color:#fbf8f4;border:1px solid #ebe3d7;border-radius:9px;padding:10px 18px;">{{.Code}}</span></td></tr>{{end}}
 {{if .FallbackURL}}<tr><td style="padding-top:24px;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#9c9287;">Button not working? Paste this link into your browser:<br><span style="font-family:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;font-size:12px;color:#a8480f;word-break:break-all;">{{.FallbackURL}}</span></td></tr>{{end}}
 {{if .Note}}<tr><td style="padding-top:24px;font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;color:#9c9287;border-top:1px solid #ebe3d7;margin-top:24px;">{{.Note}}</td></tr>{{end}}
 </table>

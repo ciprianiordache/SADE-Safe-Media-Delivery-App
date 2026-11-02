@@ -26,6 +26,7 @@ type Deps struct {
 	Share           *share.Handler
 	Payment         *payment.Handler
 	AuthRateLimiter *ratelimit.Limiter // bounds POST /api/auth/request; nil/limit<=0 disables it
+	AuthCodeLimiter *ratelimit.Limiter // bounds POST /api/auth/code + passkey begin; nil disables it
 	// PaymentRateLimiter bounds the public checkout/status routes per client
 	// IP (each call can reach Stripe); nil/limit<=0 disables it.
 	PaymentRateLimiter *ratelimit.Limiter
@@ -40,6 +41,7 @@ func NewRouter(d Deps) http.Handler {
 	trust := newProxyTrust(d.Cfg.Server.TrustedProxies)
 
 	mux := http.NewServeMux()
+	d.Auth.SetClientIP(trust.clientIP)
 
 	mux.HandleFunc("GET /healthz", healthz)
 
@@ -53,6 +55,15 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/auth/callback", d.Auth.Callback)
 	mux.HandleFunc("POST /api/auth/verify", d.Auth.Verify)
 	mux.HandleFunc("POST /api/auth/complete", d.Auth.Complete)
+	// The 6-digit code from the same email, typed in the browser that asked
+	// for it. Each email dies after a few wrong codes; this per-IP cap
+	// bounds guessing across emails too.
+	mux.Handle("POST /api/auth/code", RateLimit(d.AuthCodeLimiter, trust)(http.HandlerFunc(d.Auth.CompleteCode)))
+	mux.HandleFunc("GET /api/auth/config", d.Auth.Config)
+	mux.Handle("POST /api/auth/passkey/begin", RateLimit(d.AuthCodeLimiter, trust)(http.HandlerFunc(d.Auth.PasskeyLoginBegin)))
+	mux.HandleFunc("POST /api/auth/passkey/finish", d.Auth.PasskeyLoginFinish)
+	// The new-device alert email's "this wasn't me" (signed token).
+	mux.HandleFunc("POST /api/auth/revoke", d.Auth.RevokeFromAlert)
 	mux.HandleFunc("POST /api/auth/logout", d.Auth.Logout)
 	mux.Handle("POST /api/auth/logout-all", RequireUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, _ := UserFrom(r.Context())
@@ -83,6 +94,16 @@ func NewRouter(d Deps) http.Handler {
 
 	// Signed-in.
 	mux.Handle("GET /api/me", RequireUser(http.HandlerFunc(me)))
+
+	// The account's security settings: devices, sign-in history, passkeys.
+	mux.Handle("GET /api/account/sessions", RequireUser(http.HandlerFunc(d.Auth.Sessions)))
+	mux.Handle("DELETE /api/account/sessions/{id}", RequireUser(http.HandlerFunc(d.Auth.RevokeSession)))
+	mux.Handle("GET /api/account/activity", RequireUser(http.HandlerFunc(d.Auth.Activity)))
+	mux.Handle("GET /api/account/passkeys", RequireUser(http.HandlerFunc(d.Auth.Passkeys)))
+	mux.Handle("POST /api/account/passkeys/begin", RequireUser(http.HandlerFunc(d.Auth.PasskeyRegisterBegin)))
+	mux.Handle("POST /api/account/passkeys/finish", RequireUser(http.HandlerFunc(d.Auth.PasskeyRegisterFinish)))
+	mux.Handle("DELETE /api/account/passkeys/{id}", RequireUser(http.HandlerFunc(d.Auth.DeletePasskey)))
+	mux.Handle("PUT /api/account/require-passkey", RequireUser(http.HandlerFunc(d.Auth.RequirePasskey)))
 
 	// Operator-scoped: require a session and hand the job handlers the
 	// operator id, so the job package never imports the auth layer.
@@ -127,7 +148,7 @@ func NewRouter(d Deps) http.Handler {
 		SecurityHeaders(trust, buildCSP(d.Cfg.App.FrontendDir)),
 		CORS(d.Cfg.Server.CORSAllowedOrigins),
 		OriginCheck(guard),
-		Auth(d.AuthSvc, d.Cfg.Auth.SessionCookieName),
+		Auth(d.AuthSvc, d.Cfg.Auth.SessionCookieName, trust),
 	)
 }
 

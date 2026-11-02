@@ -3,6 +3,7 @@ package session
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"sade/internals/database"
@@ -23,6 +24,12 @@ type Repo interface {
 	DeleteByUser(userID string) error
 	// DeleteExpired removes every session past its expiry; returns the count.
 	DeleteExpired(now time.Time) (int, error)
+	// ListByUser returns userID's sessions, newest first.
+	ListByUser(userID string) ([]Session, error)
+	// DeleteByID removes userID's session id; ErrNotFound if it isn't theirs.
+	DeleteByID(userID, id string) error
+	// Touch stamps LastSeenAt (and the latest IP) on session id.
+	Touch(id, ip string, at time.Time) error
 }
 
 type repo struct {
@@ -70,4 +77,36 @@ func (r *repo) DeleteExpired(now time.Time) (int, error) {
 	}
 	n, _ := res.RowsAffected()
 	return int(n), nil
+}
+
+func (r *repo) ListByUser(userID string) ([]Session, error) {
+	var out []Session
+	err := r.db.CRUD().Read(Session{}, "user_id", userID, &out)
+	if errors.Is(err, crud.ErrNotFound) {
+		return []Session{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("session: list: %w", err)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (r *repo) DeleteByID(userID, id string) error {
+	res, err := r.db.Exec(r.db.Rebind("DELETE FROM sessions WHERE id = ? AND user_id = ?"), id, userID)
+	if err != nil {
+		return fmt.Errorf("session: delete: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *repo) Touch(id, ip string, at time.Time) error {
+	_, err := r.db.Exec(r.db.Rebind("UPDATE sessions SET last_seen_at = ?, ip = ? WHERE id = ?"), at, ip, id)
+	if err != nil {
+		return fmt.Errorf("session: touch: %w", err)
+	}
+	return nil
 }

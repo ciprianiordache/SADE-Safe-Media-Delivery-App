@@ -84,6 +84,7 @@
 					{#if menuOpen}
 						<div class="menu" role="menu">
 							<span class="menu-email mono">{auth.user.email}</span>
+							<a role="menuitem" href="/app/settings" onclick={() => (menuOpen = false)}>{i18n.t('nav.settings')}</a>
 							<button type="button" role="menuitem" onclick={signOut}>{i18n.t('nav.signOut')}</button>
 							<button type="button" role="menuitem" onclick={signOutEverywhere}>
 								{i18n.t('nav.signOutEverywhere')}
@@ -205,6 +206,18 @@
 		font-size: 0.75rem;
 		color: var(--text-faint);
 		overflow-wrap: anywhere;
+	}
+
+	.menu a {
+		padding: 0.5rem 0.65rem;
+		border-radius: 6px;
+		font-size: 0.82rem;
+		color: var(--text);
+	}
+
+	.menu a:hover {
+		background: var(--bg);
+		color: var(--text);
 	}
 
 	.menu button {

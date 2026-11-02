@@ -29,3 +29,10 @@ export function formatBytes(bytes: number): string {
 	if (mb < 1024) return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
 	return `${(mb / 1024).toFixed(2)} GB`;
 }
+
+// The server describes devices in English ("Chrome on Windows"); localise
+// the connective and the unknown case.
+export function deviceLabel(device: string, locale: Locale): string {
+	if (!device || device === 'Unknown device') return locale === 'ro' ? 'Dispozitiv necunoscut' : 'Unknown device';
+	return locale === 'ro' ? device.replace(' on ', ' pe ') : device;
+}
