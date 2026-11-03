@@ -34,6 +34,10 @@ type Repo interface {
 	StorageBytes(userID string) (int64, error)
 	// HasPaidPayment reports whether any payment for jobID is paid.
 	HasPaidPayment(jobID string) (bool, error)
+	// DeliverySummary reports, for each of jobIDs, when the recipient last
+	// opened the preview and whether the job was paid for. Jobs with
+	// neither are absent from the map. Two queries for the whole page.
+	DeliverySummary(jobIDs []string) (map[string]DeliverySummary, error)
 	// SetLinksDisabled switches the job's public links off (true) or on.
 	SetLinksDisabled(jobID string, disabled bool) error
 	// LinksDisabled reports whether the job's public links are switched
@@ -160,6 +164,60 @@ func (r *repo) HasPaidPayment(jobID string) (bool, error) {
 		return false, fmt.Errorf("job: check payments: %w", err)
 	}
 	return n > 0, nil
+}
+
+func (r *repo) DeliverySummary(jobIDs []string) (map[string]DeliverySummary, error) {
+	out := map[string]DeliverySummary{}
+	if len(jobIDs) == 0 {
+		return out, nil
+	}
+	in := strings.TrimSuffix(strings.Repeat("?,", len(jobIDs)), ",")
+	args := make([]any, len(jobIDs))
+	for i, id := range jobIDs {
+		args[i] = id
+	}
+
+	// Raw SQL against job_events/payments: those packages' tests import this
+	// one, so importing them here would be a cycle (see HasPaidPayment).
+	rows, err := r.db.Query(r.rebind(
+		"SELECT job_id, created_at FROM job_events WHERE kind = 'viewed' AND job_id IN ("+in+")"), args...)
+	if err != nil {
+		return nil, fmt.Errorf("job: delivery opened: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		var at time.Time
+		if err := rows.Scan(&id, &at); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("job: scan opened: %w", err)
+		}
+		s := out[id]
+		if at.After(s.OpenedAt) {
+			s.OpenedAt = at
+		}
+		out[id] = s
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err = r.db.Query(r.rebind(
+		"SELECT DISTINCT job_id FROM payments WHERE status = 'paid' AND job_id IN ("+in+")"), args...)
+	if err != nil {
+		return nil, fmt.Errorf("job: delivery paid: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("job: scan paid: %w", err)
+		}
+		s := out[id]
+		s.Paid = true
+		out[id] = s
+	}
+	return out, rows.Err()
 }
 
 func (r *repo) SetLinksDisabled(jobID string, disabled bool) error {

@@ -155,7 +155,20 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** SaaS phase 2 - delivery links and history on the job page (user: "Hai sa
+**Latest:** delivery signals on the dashboard list (user: "Luam totul in ordine sa incepem cu
+indicatorul"). `job.Response` gained `openedAt` (latest "viewed" event, omitted if never) and
+`paid`, filled for both `List` and `Get` by `service.addDelivery` from the new
+`job.Repo.DeliverySummary(ids)` - two raw-SQL queries per page (`job_events` kind `viewed`, and
+`payments` status `paid`; paid comes from payments, not events, so purchases from before the
+history existed still show). Raw SQL because `job_event`/`payment` tests import `job`, so `job`
+importing them would be a test import cycle. A failed lookup only logs - the list still loads.
+Frontend: per-row chips on `/app` - "Plătit" (green), "Deschis acum 2h" (accent, full date on
+hover; `format.ago`), "Nedeschis" (faint, done jobs with links on and no payment - the
+"maybe resend" signal), "Link-uri oprite" (red) - plus two filters, "Deschise" and "Plătite",
+shown only when they have matches. Test: `job/delivery_test.go`. Verified live on desktop and
+375px.
+
+**Before that:** SaaS phase 2 - delivery links and history on the job page (user: "Hai sa
 continuam", picking up the roadmap's next step). Verified in tests and live (headless browser +
 curl as the recipient):
 

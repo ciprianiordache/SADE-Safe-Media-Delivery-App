@@ -88,6 +88,16 @@ type Response struct {
 	UpdatedAt      time.Time        `json:"updatedAt"`
 	Assets         []asset.Response `json:"assets,omitempty"`
 	LinksDisabled  bool             `json:"linksDisabled"`
+	// Delivery signals for the dashboard: when the recipient last opened
+	// the preview (nil = never), and whether they paid for the original.
+	OpenedAt *time.Time `json:"openedAt,omitempty"`
+	Paid     bool       `json:"paid"`
+}
+
+// DeliverySummary is what Repo.DeliverySummary reports per job.
+type DeliverySummary struct {
+	OpenedAt time.Time // zero = never opened
+	Paid     bool
 }
 
 func toResponse(j Job) Response {

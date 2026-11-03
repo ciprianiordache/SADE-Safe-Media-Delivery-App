@@ -36,3 +36,10 @@ export function deviceLabel(device: string, locale: Locale): string {
 	if (!device || device === 'Unknown device') return locale === 'ro' ? 'Dispozitiv necunoscut' : 'Unknown device';
 	return locale === 'ro' ? device.replace(' on ', ' pe ') : device;
 }
+
+// "acum 2h" / "2h ago" - relativeTime phrased as a past moment.
+export function ago(iso: string, locale: Locale): string {
+	const r = relativeTime(iso, locale);
+	if (r === 'acum' || r === 'now') return r;
+	return locale === 'ro' ? `acum ${r}` : `${r} ago`;
+}

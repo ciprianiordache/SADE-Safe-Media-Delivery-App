@@ -232,7 +232,34 @@ func (s *service) Get(userID, jobID string) (Response, error) {
 	}
 	resp := toResponse(*j)
 	resp.Assets = asset.ToResponses(as)
-	return resp, nil
+	one := []Response{resp}
+	s.addDelivery(one)
+	return one[0], nil
+}
+
+// addDelivery fills the opened/paid signals in place. They are a nicety on
+// top of the job data, so a failed lookup is logged, not returned.
+func (s *service) addDelivery(rs []Response) {
+	ids := make([]string, len(rs))
+	for i := range rs {
+		ids[i] = rs[i].ID
+	}
+	sum, err := s.repo.DeliverySummary(ids)
+	if err != nil {
+		s.log.Warn("job: delivery summary", "error", err)
+		return
+	}
+	for i := range rs {
+		d, ok := sum[rs[i].ID]
+		if !ok {
+			continue
+		}
+		rs[i].Paid = d.Paid
+		if !d.OpenedAt.IsZero() {
+			at := d.OpenedAt
+			rs[i].OpenedAt = &at
+		}
+	}
 }
 
 func (s *service) Asset(userID, jobID, assetID string) (asset.Asset, error) {
@@ -265,6 +292,7 @@ func (s *service) List(userID string, offset, limit int) ([]Response, error) {
 	for i := range jobs {
 		out[i] = toResponse(jobs[i])
 	}
+	s.addDelivery(out)
 	return out, nil
 }
 

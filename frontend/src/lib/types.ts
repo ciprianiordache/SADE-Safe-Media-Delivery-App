@@ -77,6 +77,10 @@ export interface Job {
 	// Populated only by GET /api/jobs/{id}; the list endpoint leaves it out.
 	assets?: Asset[];
 	linksDisabled: boolean;
+	// Delivery signals: when the recipient last opened the preview, and
+	// whether they paid for the original.
+	openedAt?: string;
+	paid: boolean;
 }
 
 // Mirrors internals/app/share.Delivery - GET /api/jobs/{id}/delivery.

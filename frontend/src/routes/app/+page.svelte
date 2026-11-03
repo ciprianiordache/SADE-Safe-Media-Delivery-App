@@ -3,7 +3,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { isAllowedFile, mediaTypeOf } from '$lib/types';
 	import type { Job, JobStatus, Usage, WatermarkKind } from '$lib/types';
-	import { formatBytes, fullDate, relativeTime } from '$lib/format';
+	import { ago, formatBytes, fullDate, relativeTime } from '$lib/format';
 	import { toasts } from '$lib/toast.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import MediaIcon from '$lib/components/MediaIcon.svelte';
@@ -204,10 +204,11 @@
 	}
 
 	// --- list controls ----------------------------------------------------
-	type StatusFilter = 'all' | JobStatus;
+	// Status filters plus two delivery ones (recipient opened / paid).
+	type StatusFilter = 'all' | JobStatus | 'opened' | 'paid';
 	type Sort = 'newest' | 'oldest' | 'status';
 	const PAGE_SIZE = 15;
-	const FILTERS: StatusFilter[] = ['all', 'processing', 'pending', 'done', 'failed'];
+	const FILTERS: StatusFilter[] = ['all', 'processing', 'pending', 'done', 'failed', 'opened', 'paid'];
 
 	let search = $state('');
 	let statusFilter = $state<StatusFilter>('all');
@@ -221,8 +222,20 @@
 	);
 
 	let statusCounts = $derived.by(() => {
-		const c: Record<StatusFilter, number> = { all: searchedJobs.length, pending: 0, processing: 0, done: 0, failed: 0 };
-		for (const j of searchedJobs) c[j.status]++;
+		const c: Record<StatusFilter, number> = {
+			all: searchedJobs.length,
+			pending: 0,
+			processing: 0,
+			done: 0,
+			failed: 0,
+			opened: 0,
+			paid: 0
+		};
+		for (const j of searchedJobs) {
+			c[j.status]++;
+			if (j.openedAt) c.opened++;
+			if (j.paid) c.paid++;
+		}
 		return c;
 	});
 
@@ -232,7 +245,13 @@
 	const statusOrder: Record<JobStatus, number> = { processing: 0, pending: 1, failed: 2, done: 3 };
 
 	let sortedJobs = $derived(
-		(statusFilter === 'all' ? searchedJobs : searchedJobs.filter((j) => j.status === statusFilter))
+		searchedJobs
+			.filter((j) => {
+				if (statusFilter === 'all') return true;
+				if (statusFilter === 'opened') return !!j.openedAt;
+				if (statusFilter === 'paid') return j.paid;
+				return j.status === statusFilter;
+			})
 			.slice()
 			.sort((a, b) => {
 				if (sort === 'status') return statusOrder[a.status] - statusOrder[b.status];
@@ -460,8 +479,27 @@
 								<span class="row-icon"><MediaIcon type={job.mediaType} /></span>
 								<span class="row-main">
 									<span class="bold recipient">{job.recipientEmail}</span>
-									<span class="faint">
-										{i18n.t(`media.${job.mediaType}`)} · {i18n.t(`dashboard.watermarkKind.${job.watermarkKind}`)}
+									<span class="meta-line">
+										<span class="faint">
+											{i18n.t(`media.${job.mediaType}`)} · {i18n.t(`dashboard.watermarkKind.${job.watermarkKind}`)}
+										</span>
+										{#if job.paid}
+											<span class="signal paid" title={i18n.t('signal.paidTitle')}>
+												<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 L10 17.5 L19 7" /></svg>
+												{i18n.t('signal.paid')}
+											</span>
+										{/if}
+										{#if job.openedAt}
+											<span class="signal opened" title={i18n.t('signal.openedTitle', { date: fullDate(job.openedAt, i18n.locale) })}>
+												<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12 C5 6 19 6 22 12 C19 18 5 18 2 12 Z" /><circle cx="12" cy="12" r="3" /></svg>
+												{i18n.t('signal.opened', { when: ago(job.openedAt, i18n.locale) })}
+											</span>
+										{:else if job.status === 'done' && !job.linksDisabled && !job.paid}
+											<span class="signal unopened" title={i18n.t('signal.notOpenedTitle')}>{i18n.t('signal.notOpened')}</span>
+										{/if}
+										{#if job.linksDisabled}
+											<span class="signal off" title={i18n.t('signal.linksOffTitle')}>{i18n.t('signal.linksOff')}</span>
+										{/if}
 									</span>
 								</span>
 								<StatusBadge status={job.status} />
@@ -876,6 +914,50 @@
 		gap: 0.15rem;
 		min-width: 0;
 		font-size: 0.85rem;
+	}
+
+	.meta-line {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.3rem 0.5rem;
+	}
+
+	.signal {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.05rem 0.45rem;
+		border-radius: 999px;
+		font-size: 0.72rem;
+		font-weight: 600;
+		white-space: nowrap;
+		background: var(--bg);
+		color: var(--text-muted);
+		border: 1px solid var(--border);
+	}
+
+	.signal.paid {
+		background: var(--success-tint);
+		color: var(--success);
+		border-color: transparent;
+	}
+
+	.signal.opened {
+		background: var(--accent-tint);
+		color: var(--accent-tint-text);
+		border-color: transparent;
+	}
+
+	.signal.unopened {
+		font-weight: 500;
+		color: var(--text-faint);
+	}
+
+	.signal.off {
+		background: var(--danger-tint);
+		color: var(--danger);
+		border-color: transparent;
 	}
 
 	.recipient {
