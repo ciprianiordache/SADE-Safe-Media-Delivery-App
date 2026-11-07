@@ -49,6 +49,36 @@ type Request struct {
 	// OnProgress, when non-nil, is called for each ffmpeg -progress block.
 	// It runs on a background goroutine; keep it quick and non-blocking.
 	OnProgress func(Progress)
+
+	// Style is the operator's brand for this job. Its zero value means "use
+	// the configured defaults", exactly as before brands existed.
+	Style Style
+}
+
+// Style overrides the configured look of a visual watermark for one
+// request. Zero fields fall back to config.FFmpegConfig.
+type Style struct {
+	LogoPath     string // server-side path of the operator's logo (PNG)
+	Position     string // top-left|top-right|bottom-left|bottom-right|center|tiled
+	OpacityPct   int    // 1..100
+	LogoScalePct int    // logo width as a percentage of the frame width
+	// FrameWidth is the source's width (from Probe). With it, the logo
+	// (LogoScalePct), text size and margin scale with the picture instead of
+	// being fixed pixels - tiny on 4K, huge on a thumbnail.
+	FrameWidth int
+}
+
+// Positions a Style may name.
+var Positions = []string{"top-left", "top-right", "bottom-left", "bottom-right", "center", "tiled"}
+
+// ValidPosition reports whether p is one of Positions.
+func ValidPosition(p string) bool {
+	for _, v := range Positions {
+		if v == p {
+			return true
+		}
+	}
+	return false
 }
 
 // ProbeResult is the subset of ffprobe output the pipeline needs.

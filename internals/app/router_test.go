@@ -19,6 +19,7 @@ import (
 	"sade/config"
 	"sade/internals/app/asset"
 	"sade/internals/app/auth"
+	"sade/internals/app/brand"
 	"sade/internals/app/job"
 	"sade/internals/app/magic_token"
 	"sade/internals/app/payment"
@@ -78,7 +79,7 @@ const testShareSecret = "router-test-share-secret-00000000"
 // mailer, and the testApp internals.
 func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer, *testApp) {
 	t.Helper()
-	db := testutil.DB(t, user.User{}, magic_token.MagicToken{}, session.Session{}, job.Job{}, asset.Asset{})
+	db := testutil.DB(t, user.User{}, magic_token.MagicToken{}, session.Session{}, job.Job{}, asset.Asset{}, brand.Brand{})
 	cm := &capMailer{}
 
 	cfg := &config.Config{}
@@ -123,6 +124,7 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer, *te
 		Job:     job.NewHandler(jobSvc, store, cfg.Upload, testutil.Logger()),
 		Share:   share.NewHandler(signer, asset.NewRepo(db), store, testutil.Logger()),
 		Payment: payment.NewHandler(paymentSvc, testutil.Logger()),
+		Brand:   brand.NewHandler(brand.NewService(brand.NewRepo(db), store, testutil.Logger()), testutil.Logger()),
 	})
 
 	srv := httptest.NewServer(router)
@@ -776,6 +778,41 @@ func TestPaymentUnlockFlowEndToEnd(t *testing.T) {
 	// purpose entirely.
 	if s := get(t, noAuth, srv.URL+"/o/"+previewTok); s != http.StatusNotFound {
 		t.Errorf("/o/ with a preview token = %d, want 404", s)
+	}
+}
+
+// Every brand route needs a session; with one, it is the caller's own brand.
+func TestBrandRoutesNeedASession(t *testing.T) {
+	srv, client, cm, _ := buildTestApp(t)
+	routes := []struct{ method, path string }{
+		{http.MethodGet, "/api/brand"},
+		{http.MethodPut, "/api/brand"},
+		{http.MethodGet, "/api/brand/logo"},
+		{http.MethodPost, "/api/brand/logo"},
+		{http.MethodDelete, "/api/brand/logo"},
+		{http.MethodPost, "/api/brand/onboarded"},
+	}
+	for _, rt := range routes {
+		req, _ := http.NewRequest(rt.method, srv.URL+rt.path, strings.NewReader("{}"))
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s %s signed out = %d, want 401", rt.method, rt.path, resp.StatusCode)
+		}
+	}
+
+	signIn(t, srv, client, cm, "op@example.com")
+	resp, err := client.Get(srv.URL + "/api/brand")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var b brand.Response
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&b) != nil || b.Position != brand.DefaultPosition {
+		t.Errorf("GET /api/brand signed in = %d %+v, want 200 with defaults", resp.StatusCode, b)
 	}
 }
 

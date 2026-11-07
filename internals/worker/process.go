@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"sade/internals/ffmpeg"
+	"sade/internals/wmopts"
 )
 
 // process runs the watermark pipeline for one claimed job: locate the
@@ -42,13 +44,31 @@ func (p *Pool) process(ctx context.Context, j Job) error {
 		return fmt.Errorf("preview key %q has no local path", previewKey)
 	}
 
+	brand := wmopts.Decode(j.WatermarkOpts)
+	overlay := overlayKind(j.WatermarkKind)
+	style := ffmpeg.Style{
+		Position: brand.Position, OpacityPct: brand.OpacityPct,
+		LogoScalePct: brand.LogoScalePct, FrameWidth: probe.Width,
+	}
+	if brand.LogoKey != "" {
+		if path, ok := p.blob.LocalPath(brand.LogoKey); ok && fileExists(path) {
+			style.LogoPath = path
+		} else {
+			// The brand's logo is gone: watermark with the text rather than
+			// fall back to the server's default logo.
+			p.log.Warn("worker: brand logo missing, using text", "job", j.ID, "key", brand.LogoKey)
+			overlay = ffmpeg.OverlayText
+		}
+	}
+
 	if err := p.engine.Watermark(ctx, ffmpeg.Request{
 		SourcePath:  srcPath,
 		OutputPath:  outPath,
 		Media:       probe.Media,
-		Overlay:     overlayKind(j.WatermarkKind),
-		Text:        p.renderText(j),
+		Overlay:     overlay,
+		Text:        p.renderText(j, brand),
 		DurationSec: probe.DurationSec,
+		Style:       style,
 	}); err != nil {
 		return fmt.Errorf("watermark: %w", err)
 	}
@@ -100,17 +120,22 @@ func (p *Pool) checksum(ctx context.Context, key string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func (p *Pool) renderText(j Job) string {
+// renderText is the text burned in: the operator's own text for this file,
+// else the brand's template, else the server's.
+func (p *Pool) renderText(j Job, brand wmopts.Opts) string {
 	if s := strings.TrimSpace(j.WatermarkText); s != "" {
 		return s
 	}
-	t := p.cfg.TextTemplate
+	t := brand.TextTemplate
 	if t == "" {
-		t = "{recipient} · {date}"
+		t = p.cfg.TextTemplate
 	}
-	t = strings.ReplaceAll(t, "{recipient}", j.RecipientEmail)
-	t = strings.ReplaceAll(t, "{date}", time.Now().Format("2006-01-02"))
-	return t
+	return wmopts.RenderText(t, brand.Company, j.RecipientEmail, time.Now())
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // overlayKind normalises a job's watermark_kind to an ffmpeg overlay kind,

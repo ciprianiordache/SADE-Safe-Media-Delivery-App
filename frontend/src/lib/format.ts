@@ -43,3 +43,17 @@ export function ago(iso: string, locale: Locale): string {
 	if (r === 'acum' || r === 'now') return r;
 	return locale === 'ro' ? `acum ${r}` : `${r} ago`;
 }
+
+// Mirrors internals/wmopts.RenderText for the brand preview: {company},
+// {recipient}, {date}; an empty company takes its separator with it.
+export function renderWatermarkText(template: string, company: string, recipient: string): string {
+	let t = template.trim() || '{recipient} · {date}';
+	if (!company.trim()) {
+		for (const sep of ['{company} · ', ' · {company}', '{company} - ', ' - {company}', '{company}']) {
+			t = t.split(sep).join('');
+		}
+	}
+	const d = new Date();
+	const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	return t.split('{company}').join(company.trim()).split('{recipient}').join(recipient).split('{date}').join(date).trim();
+}

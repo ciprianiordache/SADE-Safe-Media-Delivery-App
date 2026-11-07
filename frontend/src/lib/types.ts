@@ -12,6 +12,23 @@ export interface User {
 	requirePasskey: boolean;
 }
 
+// --- brand (internals/app/brand) -------------------------------------------
+
+export type WatermarkPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' | 'tiled';
+
+export interface Brand {
+	companyName: string;
+	hasLogo: boolean;
+	logoVersion?: string;
+	position: WatermarkPosition;
+	opacityPct: number;
+	logoScalePct: number;
+	textTemplate: string;
+	onboarded: boolean;
+}
+
+export type BrandUpdate = Pick<Brand, 'companyName' | 'position' | 'opacityPct' | 'logoScalePct' | 'textTemplate'>;
+
 // --- sign-in & account security (internals/app/auth) ----------------------
 
 // What a finished email step returns: signed in, or a passkey still needed.

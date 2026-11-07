@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"sade/internals/emailtmpl"
 	"sade/internals/mailer"
 	"sade/internals/token"
 )
@@ -31,6 +32,14 @@ func TestEmailNotifierSendsSignedViewAndDownloadLinks(t *testing.T) {
 
 	if cm.last.To != "client@example.com" || cm.last.Subject == "" {
 		t.Errorf("message envelope = %+v", cm.last)
+	}
+	// The email stays SADE's own until senders can be verified (TODOS.md):
+	// generic subject, SADE's logo as the only inline image.
+	if cm.last.Subject != "Your preview is ready" {
+		t.Errorf("subject = %q, want the generic one", cm.last.Subject)
+	}
+	if len(cm.last.Inline) != 1 || cm.last.Inline[0].CID != emailtmpl.LogoCID {
+		t.Errorf("inline images = %+v, want only SADE's logo", cm.last.Inline)
 	}
 	body := cm.last.Text
 

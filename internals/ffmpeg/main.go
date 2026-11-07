@@ -214,10 +214,11 @@ func (e *Engine) buildArgs(req Request) ([]string, error) {
 }
 
 func (e *Engine) videoArgs(req Request) []string {
-	fc, outLabel := e.visualFilter(req.Overlay, req.textFile)
+	l := e.look(req.Style)
+	fc, outLabel := e.visualFilter(req.Overlay, req.textFile, l)
 	args := []string{"-y", "-i", req.SourcePath}
 	if needsLogo(req.Overlay) {
-		args = append(args, "-i", e.cfg.LogoPath)
+		args = append(args, "-i", l.logoPath)
 	}
 	args = append(args,
 		"-filter_complex", fc,
@@ -231,10 +232,11 @@ func (e *Engine) videoArgs(req Request) []string {
 }
 
 func (e *Engine) imageArgs(req Request) []string {
-	fc, outLabel := e.visualFilter(req.Overlay, req.textFile)
+	l := e.look(req.Style)
+	fc, outLabel := e.visualFilter(req.Overlay, req.textFile, l)
 	args := []string{"-y", "-i", req.SourcePath}
 	if needsLogo(req.Overlay) {
-		args = append(args, "-i", e.cfg.LogoPath)
+		args = append(args, "-i", l.logoPath)
 	}
 	args = append(args,
 		"-filter_complex", fc,

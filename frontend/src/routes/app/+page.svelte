@@ -5,6 +5,7 @@
 	import type { Job, JobStatus, Usage, WatermarkKind } from '$lib/types';
 	import { ago, formatBytes, fullDate, relativeTime } from '$lib/format';
 	import { toasts } from '$lib/toast.svelte';
+	import { brand } from '$lib/stores.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import MediaIcon from '$lib/components/MediaIcon.svelte';
 	import UsageMeter from '$lib/components/UsageMeter.svelte';
@@ -94,6 +95,15 @@
 	let dragging = $state(false);
 	let uploadAbort: AbortController | null = null;
 
+	// Without their own logo an operator's files get text only (the server
+	// enforces the same) - keep the form honest about it.
+	// Unknown brand (not loaded, or the request failed): assume no logo, so
+	// the form never offers what the server will not do.
+	let hasLogo = $derived(brand.value?.hasLogo ?? false);
+	// What is shown and sent. Derived, not written back into watermarkKind,
+	// so the operator's own choice returns once the brand has loaded.
+	let kind = $derived<WatermarkKind>(hasLogo ? watermarkKind : 'text');
+
 	function pickKind(k: WatermarkKind) {
 		watermarkKind = k;
 		try {
@@ -157,8 +167,8 @@
 				{
 					file,
 					recipientEmail,
-					watermarkKind,
-					watermarkText: (watermarkKind !== 'logo' && watermarkText.trim()) || undefined
+					watermarkKind: kind,
+					watermarkText: (kind !== 'logo' && watermarkText.trim()) || undefined
 				},
 				{ onProgress: (p) => (progress = p), signal: uploadAbort.signal }
 			);
@@ -365,14 +375,19 @@
 					<span class="label" id="kind-label">{i18n.t('dashboard.watermarkLabel')}</span>
 					<div class="segmented" role="group" aria-labelledby="kind-label">
 						{#each KINDS as k (k)}
-							<button type="button" aria-pressed={watermarkKind === k} onclick={() => pickKind(k)} disabled={submitting}>
+							<button type="button" aria-pressed={kind === k} onclick={() => pickKind(k)} disabled={submitting || (!hasLogo && k !== 'text')}>
 								{i18n.t(`dashboard.watermarkKind.${k}`)}
 							</button>
 						{/each}
 					</div>
+					{#if !hasLogo}
+						<span class="faint small">
+							{i18n.t('dashboard.logoNeeded')} <a href="/app/settings">{i18n.t('dashboard.logoAdd')}</a>
+						</span>
+					{/if}
 				</div>
 
-				{#if watermarkKind !== 'logo'}
+				{#if kind !== 'logo'}
 					<div class="field">
 						<label for="text"
 							>{i18n.t('dashboard.watermarkTextLabel')}

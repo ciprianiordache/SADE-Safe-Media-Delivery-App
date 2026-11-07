@@ -29,6 +29,7 @@ import (
 	"sade/config"
 	"sade/internals/app"
 	"sade/internals/app/asset"
+	"sade/internals/app/brand"
 	"sade/internals/app/job"
 	"sade/internals/app/payment"
 	"sade/internals/app/user"
@@ -137,7 +138,7 @@ func run(linksOnly bool) error {
 	if _, err := db.Exec(`TRUNCATE users, magic_tokens, sessions, jobs, assets, payments CASCADE`); err != nil {
 		return fmt.Errorf("truncate: %w", err)
 	}
-	for _, dir := range []string{"originals", "previews"} {
+	for _, dir := range []string{"originals", "previews", "brands"} {
 		if err := os.RemoveAll(filepath.Join(cfg.Storage.LocalPath, dir)); err != nil {
 			return err
 		}
@@ -161,6 +162,13 @@ func run(linksOnly bool) error {
 	if err != nil {
 		return err
 	}
+	// The demo operator has a brand with SADE's own logo, so the demo files
+	// follow the app's rule (an operator's own logo, never the server's).
+	brands := brand.NewService(brand.NewRepo(db), store, log)
+	if err := seedBrand(ctx, brands, op.ID); err != nil {
+		return err
+	}
+	jobs.(job.BrandAware).UseBrands(brands)
 	if _, err := db.Exec(`UPDATE users SET created_at = $1 WHERE id = $2`, time.Now().Add(-21*24*time.Hour), op.ID); err != nil {
 		return err
 	}
@@ -238,4 +246,26 @@ func printLinks(db *database.Database, cfg *config.Config, signer *token.Signer)
 		fmt.Printf("%s (%s)\n  %s/preview/%s\n", name, rcpt, cfg.App.PublicURL, tok)
 	}
 	return rows.Err()
+}
+
+// seedBrand gives the demo operator a company name and a logo, and marks the
+// welcome setup done so the dashboard opens straight away.
+func seedBrand(ctx context.Context, brands *brand.Service, userID string) error {
+	if _, err := brands.Update(userID, brand.UpdateRequest{
+		CompanyName: "Studio Demo", Position: brand.DefaultPosition,
+		OpacityPct: brand.DefaultOpacityPct, LogoScalePct: brand.DefaultLogoScalePct,
+		TextTemplate: brand.DefaultTextTemplate,
+	}); err != nil {
+		return fmt.Errorf("seed brand: %w", err)
+	}
+	f, err := os.Open("docs/icon150.png")
+	if err != nil {
+		return fmt.Errorf("seed brand logo (run from the repo root): %w", err)
+	}
+	defer f.Close()
+	if _, err := brands.SetLogo(ctx, userID, f); err != nil {
+		return fmt.Errorf("seed brand logo: %w", err)
+	}
+	_, err = brands.CompleteOnboarding(userID)
+	return err
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +20,7 @@ import (
 	"sade/internals/app/asset"
 	"sade/internals/ffmpeg"
 	"sade/internals/storage"
+	"sade/internals/wmopts"
 )
 
 // Service is the job domain's use cases: accept an upload (creating the job
@@ -58,7 +58,6 @@ type NewUpload struct {
 	RecipientEmail string
 	WatermarkKind  string // "" defaults to WatermarkBoth
 	WatermarkText  string // "" renders from the configured template
-	WatermarkOpts  string // raw JSON overriding ffmpeg defaults; "" = defaults
 
 	Filename string
 	// DeclaredSize is the part's self-reported size (0 when unknown). It only
@@ -74,7 +73,23 @@ type service struct {
 	engine *ffmpeg.Engine
 	cfg    config.UploadConfig
 	log    *slog.Logger
+
+	brands BrandSource // optional: the operator's brand, frozen onto each job
 }
+
+// BrandSource gives the brand snapshot (internals/wmopts JSON) to freeze on
+// a new job. brand.Service satisfies it.
+type BrandSource interface {
+	Snapshot(userID string) (string, error)
+}
+
+// BrandAware is implemented by the service NewService returns; app.go uses
+// it to plug in the brand domain (which tests leave out).
+type BrandAware interface {
+	UseBrands(BrandSource)
+}
+
+func (s *service) UseBrands(b BrandSource) { s.brands = b }
 
 // NewService wires the job service. store is the blob backend for originals;
 // assets is the asset repository (composed here the way auth composes
@@ -98,16 +113,29 @@ func (s *service) Create(ctx context.Context, userID string, in NewUpload) (Resp
 		return Response{}, ErrInvalidInput
 	}
 	text = ffmpeg.SanitizeText(text)
-	opts := strings.TrimSpace(in.WatermarkOpts)
-	if opts != "" && (len(opts) > maxOptsBytes || !isJSONObject(opts)) {
-		return Response{}, ErrInvalidInput
-	}
+	// The look comes only from the operator's brand (below); there is no
+	// client-sent watermark JSON. Without a BrandSource (tests): defaults.
+	opts := ""
 	kind := strings.TrimSpace(in.WatermarkKind)
 	if kind == "" {
 		kind = WatermarkBoth
 	}
 	if !validKind(kind) {
 		return Response{}, ErrInvalidInput
+	}
+	if s.brands != nil {
+		// The look comes from the operator's brand, frozen now so later
+		// brand changes never alter this file.
+		snap, err := s.brands.Snapshot(userID)
+		if err != nil {
+			return Response{}, fmt.Errorf("job: brand snapshot: %w", err)
+		}
+		opts = snap
+		// No logo of their own: never stamp someone else's (the server's
+		// default) on an operator's files - text only.
+		if wmopts.Decode(snap).LogoKey == "" && kind != WatermarkText {
+			kind = WatermarkText
+		}
 	}
 	media, ext, err := s.detectMedia(in.Filename)
 	if err != nil {
@@ -352,14 +380,6 @@ func (s *service) Usage(ctx context.Context, userID string) (Usage, error) {
 		StorageBytes:      used,
 		StorageLimitBytes: int64(s.cfg.StorageQuotaMiB) << 20,
 	}, nil
-}
-
-// maxOptsBytes bounds the watermarkOpts JSON an operator may store.
-const maxOptsBytes = 2048
-
-func isJSONObject(s string) bool {
-	var m map[string]any
-	return json.Unmarshal([]byte(s), &m) == nil
 }
 
 // verifyMedia ffprobes the just-stored blob and confirms its actual stream

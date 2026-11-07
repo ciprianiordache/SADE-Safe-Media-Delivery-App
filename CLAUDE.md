@@ -155,7 +155,53 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** delivery signals on the dashboard list (user: "Luam totul in ordine sa incepem cu
+**Latest:** operator brand, reviewed with /plan-ceo-review + /plan-eng-review before shipping
+(user: "Brandul operatorului", then "Implementez T0–T9 acum"). Plan + decision ledger + both review
+reports: `~/.gstack/projects/ciprianiordache-SADE-Safe-Media-Delivery-App/ceo-plans/2026-11-07-operator-brand.md`.
+
+- **What ships**: new domain `internals/app/brand` (one `brands` row per account: company, logo,
+  position `top-left|top-right|bottom-left|bottom-right|center|tiled`, opacity 10-100, logo scale
+  5-50 % of the frame width, text template `{company} · {recipient} · {date}`, `onboarded` 0/1).
+  Routes, session only: `GET/PUT /api/brand`, `GET/POST/DELETE /api/brand/logo`, `POST
+  /api/brand/onboarded`. `job.Service.Create` freezes a snapshot of it into `jobs.watermark_opts`
+  (`internals/wmopts`, `{"v":1,...}`) through the optional `job.BrandSource` / `job.BrandAware`
+  plug-in, so a later brand change never alters a queued or sent file. The worker turns the
+  snapshot into `ffmpeg.Style` (position/opacity/scale, logo path, a 3x3 tiled grid; text size and
+  margins scale with the frame width).
+- **Rules**: an operator with no logo of their own gets **text only**, whatever kind they pick -
+  the server's default logo is never stamped on an operator's files (D17). The upload API no
+  longer reads `watermarkOpts`, and `job.Response` no longer returns it (the snapshot holds a
+  storage key). The dashboard form disables Logo/Both without a logo, and treats a brand it could
+  not load as "no logo" (`kind` is derived, so the operator's choice comes back once it loads).
+- **Logo handling**: PNG/JPEG, <= 3 MB, each side 16-6000 px and **<= 4 MP** total (decompression
+  guard), at most **2 decodes at once** process-wide (`Service.decode` semaphore, ctx-aware),
+  re-encoded to PNG, longest side 800 px, stored as `brands/<user>/<sha256[:8]>.png`. **Only the
+  current logo is kept**: replacing or removing deletes the previous file, unless a
+  pending/processing job's snapshot still names it (`brand.Repo.LogoInUse`, raw SQL - the worker
+  reads the file during the encode, so deleting it mid-encode would fail that attempt). Upload
+  attempts are capped at **20 per account per 24h** (`internals/ratelimit`, in memory, 429).
+- **Deferred (TODOS.md)**: the company name/logo in the preview-ready email and on the recipient's
+  `/preview` page. With open signup anyone could name their "company" after a bank and have SADE
+  mail a link to a page with a card form. Gate it on verified/paid senders first. That code was
+  removed from main and kept on branch **`wip/brand-email-preview`** (pushed). The email and the
+  page are therefore unchanged; the company shows only in the watermark itself.
+- **Frontend**: `/app/welcome` (3 steps, shown once to every account incl. existing ones,
+  skippable), Settings split into tabs (`/app/settings` = Brand, `/app/settings/security` =
+  the former settings page), components `LogoPicker`, `PositionPicker`, `BrandPreview`,
+  `SettingsTabs`. `cmd/seed` gives the demo operator a brand ("Studio Demo", `docs/icon150.png`).
+- Verified: `go test ./...` green (except the known `TestWatermarkIntegration` Fontconfig crash),
+  `npm run check` clean, and live in a headless browser: welcome -> company + logo + position ->
+  upload -> worker done with the brand logo + "Studio Live · recipient · date" burned in ->
+  recipient email subject still "Your preview is ready" -> `/preview` unbranded, Stripe form loads,
+  desktop + 375px. Not verified live: the "brand API down" state of the upload form (the headless
+  browser cannot stub requests); covered by reading only.
+- Tests: `brand/service_test.go` (pixel cap, decode slots, only-current-logo + in-use check, 20/day),
+  `job/brand_test.go` (snapshot frozen, no-logo -> text, no snapshot in the response),
+  `worker_test.go` (logo file missing -> text, never the server logo), `router_test.go`
+  (`/api/brand*` needs a session), `notify_test.go` (email stays generic), `wmopts_test.go`,
+  `ffmpeg/style_test.go`.
+
+**Before that:** delivery signals on the dashboard list (user: "Luam totul in ordine sa incepem cu
 indicatorul"). `job.Response` gained `openedAt` (latest "viewed" event, omitted if never) and
 `paid`, filled for both `List` and `Get` by `service.addDelivery` from the new
 `job.Repo.DeliverySummary(ids)` - two raw-SQL queries per page (`job_events` kind `viewed`, and
@@ -832,6 +878,7 @@ package-level string consts.
 | `login_event.LoginEvent` → `login_events` | `method` (`link`/`code`/`passkey`), `user_agent`, `ip`, `created_at` indexed | `user_id` → `users` cascade |
 | `passkey.Passkey` → `passkeys` | `credential_id` unique (base64url), `credential` (go-webauthn JSON), `name`, `last_used_at` | `user_id` → `users` cascade |
 | `job_event.JobEvent` → `job_events` | `kind` (sent/resent/viewed/downloaded/paid/original_downloaded/links_disabled/links_enabled), `detail`, `created_at` indexed | `job_id` → `jobs` cascade |
+| `brand.Brand` → `brands` | `user_id` unique, `company_name`, `logo_key` (`brands/<user>/<hash>.png`, "" = none), `position`, `opacity_pct`, `logo_scale_pct`, `text_template`, `onboarded` (0/1) | `user_id` → `users` cascade. Snapshot copied into `jobs.watermark_opts` at upload |
 
 **Every component that logs takes the shared `*slog.Logger` by injection** — `server.New` and
 `database.New` already do; feature packages follow the same rule. Do not create a second logger

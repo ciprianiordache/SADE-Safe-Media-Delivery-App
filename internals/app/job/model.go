@@ -41,7 +41,7 @@ type Job struct {
 	RecipientEmail string `db:"recipient_email,notnull"`
 	WatermarkKind  string `db:"watermark_kind,notnull,default:both"`
 	WatermarkText  string `db:"watermark_text"` // "" = render from the configured template
-	WatermarkOpts  string `db:"watermark_opts"` // JSON overriding ffmpeg defaults; "" = defaults
+	WatermarkOpts  string `db:"watermark_opts"` // brand snapshot frozen at upload (internals/wmopts); "" = defaults. Server-side only, never in Response
 	Attempts       int    `db:"attempts,notnull,default:0"`
 	Error          string `db:"error"` // last failure message; "" = none
 	// NextAttemptAt gates when the worker may (re)claim this row: a pending
@@ -69,7 +69,6 @@ type CreateRequest struct {
 	RecipientEmail string `json:"recipientEmail"`
 	WatermarkKind  string `json:"watermarkKind"`
 	WatermarkText  string `json:"watermarkText"`
-	WatermarkOpts  string `json:"watermarkOpts"`
 }
 
 // Response is the API view of a job. Status transitions are internal (the

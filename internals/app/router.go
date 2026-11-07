@@ -6,6 +6,7 @@ import (
 
 	"sade/config"
 	"sade/internals/app/auth"
+	"sade/internals/app/brand"
 	"sade/internals/app/job"
 	"sade/internals/app/payment"
 	"sade/internals/app/share"
@@ -25,6 +26,7 @@ type Deps struct {
 	Job             *job.Handler
 	Share           *share.Handler
 	Delivery        *share.OperatorHandler
+	Brand           *brand.Handler
 	Payment         *payment.Handler
 	AuthRateLimiter *ratelimit.Limiter // bounds POST /api/auth/request; nil/limit<=0 disables it
 	AuthCodeLimiter *ratelimit.Limiter // bounds POST /api/auth/code + passkey begin; nil disables it
@@ -95,6 +97,22 @@ func NewRouter(d Deps) http.Handler {
 
 	// Signed-in.
 	mux.Handle("GET /api/me", RequireUser(http.HandlerFunc(me)))
+
+	// The account's brand: company, logo, watermark look, first-run setup.
+	if d.Brand != nil {
+		account := func(h http.HandlerFunc) http.Handler {
+			return RequireUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				u, _ := UserFrom(r.Context())
+				h(w, r.WithContext(brand.WithUserID(r.Context(), u.ID)))
+			}))
+		}
+		mux.Handle("GET /api/brand", account(d.Brand.Get))
+		mux.Handle("PUT /api/brand", account(d.Brand.Update))
+		mux.Handle("GET /api/brand/logo", account(d.Brand.Logo))
+		mux.Handle("POST /api/brand/logo", account(d.Brand.UploadLogo))
+		mux.Handle("DELETE /api/brand/logo", account(d.Brand.DeleteLogo))
+		mux.Handle("POST /api/brand/onboarded", account(d.Brand.Onboarded))
+	}
 
 	// The account's security settings: devices, sign-in history, passkeys.
 	mux.Handle("GET /api/account/sessions", RequireUser(http.HandlerFunc(d.Auth.Sessions)))

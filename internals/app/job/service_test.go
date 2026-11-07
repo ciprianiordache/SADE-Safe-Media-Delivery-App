@@ -462,11 +462,6 @@ func TestCreateValidatesWatermarkTextAndOpts(t *testing.T) {
 	if _, err := svc.Create(ctx, uid, long); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("over-long text = %v, want ErrInvalidInput", err)
 	}
-	bad := upload("a.mp4", "data")
-	bad.WatermarkOpts = "not json"
-	if _, err := svc.Create(ctx, uid, bad); !errors.Is(err, ErrInvalidInput) {
-		t.Errorf("non-JSON opts = %v, want ErrInvalidInput", err)
-	}
 
 	ok := upload("a.mp4", "data")
 	ok.WatermarkText = "line one" + string(rune(10)) + "line two"

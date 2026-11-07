@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { i18n } from '$lib/i18n.svelte';
-	import { auth } from '$lib/stores.svelte';
+	import { auth, brand } from '$lib/stores.svelte';
+	import { page } from '$app/state';
 	import logo from '$lib/assets/logo.png';
 	import LangThemeToggle from '$lib/components/LangThemeToggle.svelte';
 	import { onMount } from 'svelte';
@@ -10,8 +11,14 @@
 	let { children } = $props();
 
 	onMount(() => {
-		auth.ensureLoaded().then(() => {
-			if (!auth.user) goto('/login');
+		auth.ensureLoaded().then(async () => {
+			if (!auth.user) {
+				goto('/login');
+				return;
+			}
+			// A new account sets up its brand first (skippable).
+			const b = await brand.load();
+			if (b && !b.onboarded && page.url.pathname !== '/app/welcome') goto('/app/welcome');
 		});
 		const onUnauthorized = () => {
 			auth.user = null;

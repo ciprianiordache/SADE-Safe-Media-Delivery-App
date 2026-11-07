@@ -70,8 +70,7 @@ func UserIDFrom(ctx context.Context) (string, bool) {
 // --- handlers ----------------------------------------------------------
 
 // Create handles POST /api/jobs. The body is a multipart form with a "file"
-// part plus recipientEmail / watermarkKind / watermarkText / watermarkOpts
-// fields. On success it returns 201 with the job and its original asset.
+// part plus recipientEmail / watermarkKind / watermarkText fields. On success it returns 201 with the job and its original asset.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {
@@ -106,7 +105,6 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		RecipientEmail: r.FormValue("recipientEmail"),
 		WatermarkKind:  r.FormValue("watermarkKind"),
 		WatermarkText:  r.FormValue("watermarkText"),
-		WatermarkOpts:  r.FormValue("watermarkOpts"),
 		Filename:       header.Filename,
 		DeclaredSize:   header.Size,
 		File:           file,

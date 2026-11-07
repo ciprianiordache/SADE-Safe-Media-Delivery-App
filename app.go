@@ -15,6 +15,7 @@ import (
 	"sade/internals/app"
 	"sade/internals/app/asset"
 	"sade/internals/app/auth"
+	"sade/internals/app/brand"
 	"sade/internals/app/job"
 	"sade/internals/app/job_event"
 	"sade/internals/app/login_event"
@@ -171,6 +172,15 @@ func NewApp(ctx context.Context) (*App, error) {
 	jobEvents := job_event.NewRepo(db)
 	notifier := worker.NewEmailNotifier(mail, signer, cfg.App.PublicURL, cfg.Auth.ShareTokenTTL.Std())
 
+	// The operator's brand: frozen onto each upload and burned into the
+	// watermark. Not shown in the email or on the recipient's page yet -
+	// that waits for verified senders (TODOS.md).
+	brandSvc := brand.NewService(brand.NewRepo(db), store, log)
+	brandH := brand.NewHandler(brandSvc, log)
+	if b, ok := jobSvc.(job.BrandAware); ok {
+		b.UseBrands(brandSvc)
+	}
+
 	shareH := share.NewHandler(signer, assetRepo, store, log)
 	shareH.UseDelivery(jobRepo, jobEvents)
 	deliveryH := share.NewOperatorHandler(jobSvc, jobRepo, jobEvents, notifier,
@@ -196,7 +206,7 @@ func NewApp(ctx context.Context) (*App, error) {
 
 	router := app.NewRouter(app.Deps{
 		Cfg: cfg, Log: log, Auth: authH, AuthSvc: authSvc,
-		User: userH, Job: jobH, Share: shareH, Delivery: deliveryH, Payment: paymentH,
+		User: userH, Job: jobH, Share: shareH, Delivery: deliveryH, Payment: paymentH, Brand: brandH,
 		AuthRateLimiter:    authRateLimiter,
 		AuthCodeLimiter:    authCodeLimiter,
 		PaymentRateLimiter: ratelimit.New(cfg.Payment.RateLimit, cfg.Payment.RateWindow.Std()),

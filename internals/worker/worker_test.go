@@ -14,6 +14,7 @@ import (
 	"sade/internals/ffmpeg"
 	"sade/internals/storage"
 	"sade/internals/testutil"
+	"sade/internals/wmopts"
 )
 
 // --- fakes ---------------------------------------------------------------
@@ -277,6 +278,48 @@ func TestProcessWritesPreviewAndNotifies(t *testing.T) {
 	}
 	if !strings.Contains(engine.lastReq.Text, "client@example.com") {
 		t.Errorf("rendered text = %q, want the recipient from the template", engine.lastReq.Text)
+	}
+}
+
+// The brand's logo file is gone (deleted after a replacement): the job still
+// finishes, with the text only - never the server's own logo instead.
+func TestProcessBrandLogoMissingFallsBackToText(t *testing.T) {
+	store := localStore(t)
+	origKey := "originals/job2/original.png"
+	if _, err := store.Put(context.Background(), origKey, strings.NewReader("SOURCE")); err != nil {
+		t.Fatalf("seed original: %v", err)
+	}
+	logoKey := "brands/u1/0123456789abcdef.png"
+	if _, err := store.Put(context.Background(), logoKey, strings.NewReader("PNG")); err != nil {
+		t.Fatal(err)
+	}
+	assets := &fakeAssets{original: Original{StorageKey: origKey, Filename: "photo.png"}}
+	engine := &fakeEngine{probe: &ffmpeg.ProbeResult{Media: ffmpeg.MediaImage, Width: 800}, output: "WATERMARKED"}
+	p := New(testConfig(), newFakeJobStore(), assets, store, engine, &fakeNotifier{}, testutil.Logger())
+	j := Job{ID: "job2", MediaType: "image", RecipientEmail: "client@example.com", WatermarkKind: "both", Attempts: 1,
+		WatermarkOpts: wmopts.Encode(wmopts.Opts{Company: "Studio X", LogoKey: logoKey, TextTemplate: "{company} · {recipient}"})}
+
+	// Present: the brand's logo is used.
+	if err := p.process(context.Background(), j); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	want, _ := store.LocalPath(logoKey)
+	if engine.lastReq.Overlay != "both" || engine.lastReq.Style.LogoPath != want {
+		t.Fatalf("with logo: overlay=%q logo=%q, want both and %q", engine.lastReq.Overlay, engine.lastReq.Style.LogoPath, want)
+	}
+
+	// Deleted: text only, and no logo path at all.
+	if err := store.Delete(context.Background(), logoKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.process(context.Background(), j); err != nil {
+		t.Fatalf("process without the logo file: %v", err)
+	}
+	if engine.lastReq.Overlay != ffmpeg.OverlayText || engine.lastReq.Style.LogoPath != "" {
+		t.Errorf("without logo: overlay=%q logo=%q, want text and none", engine.lastReq.Overlay, engine.lastReq.Style.LogoPath)
+	}
+	if !strings.Contains(engine.lastReq.Text, "Studio X") {
+		t.Errorf("text = %q, want the company from the brand template", engine.lastReq.Text)
 	}
 }
 
