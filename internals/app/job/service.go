@@ -21,6 +21,7 @@ import (
 	"sade/internals/app/asset"
 	"sade/internals/ffmpeg"
 	"sade/internals/storage"
+	"sade/internals/wmopts"
 )
 
 // Service is the job domain's use cases: accept an upload (creating the job
@@ -74,7 +75,23 @@ type service struct {
 	engine *ffmpeg.Engine
 	cfg    config.UploadConfig
 	log    *slog.Logger
+
+	brands BrandSource // optional: the operator's brand, frozen onto each job
 }
+
+// BrandSource gives the brand snapshot (internals/wmopts JSON) to freeze on
+// a new job. brand.Service satisfies it.
+type BrandSource interface {
+	Snapshot(userID string) (string, error)
+}
+
+// BrandAware is implemented by the service NewService returns; app.go uses
+// it to plug in the brand domain (which tests leave out).
+type BrandAware interface {
+	UseBrands(BrandSource)
+}
+
+func (s *service) UseBrands(b BrandSource) { s.brands = b }
 
 // NewService wires the job service. store is the blob backend for originals;
 // assets is the asset repository (composed here the way auth composes
@@ -108,6 +125,20 @@ func (s *service) Create(ctx context.Context, userID string, in NewUpload) (Resp
 	}
 	if !validKind(kind) {
 		return Response{}, ErrInvalidInput
+	}
+	if s.brands != nil {
+		// The look comes from the operator's brand, frozen now so later
+		// brand changes never alter this file. Client-sent opts are ignored.
+		snap, err := s.brands.Snapshot(userID)
+		if err != nil {
+			return Response{}, fmt.Errorf("job: brand snapshot: %w", err)
+		}
+		opts = snap
+		// No logo of their own: never stamp someone else's (the server's
+		// default) on an operator's files - text only.
+		if wmopts.Decode(snap).LogoKey == "" && kind != WatermarkText {
+			kind = WatermarkText
+		}
 	}
 	media, ext, err := s.detectMedia(in.Filename)
 	if err != nil {

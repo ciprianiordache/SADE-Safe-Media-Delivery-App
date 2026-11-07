@@ -22,6 +22,10 @@ type EmailNotifier struct {
 	signer    *token.Signer
 	publicURL string
 	ttl       time.Duration
+
+	// Branding, when set, names the sending company (and its logo PNG, if
+	// any) for a preview asset, so the email reads as theirs.
+	Branding func(ctx context.Context, previewID string) (company string, logoPNG []byte)
 }
 
 // NewEmailNotifier builds the notifier. publicURL is the API base that serves
@@ -47,11 +51,19 @@ func (n *EmailNotifier) PreviewReady(ctx context.Context, recipient, previewID s
 	if err != nil {
 		return fmt.Errorf("sign download token: %w", err)
 	}
+	company, logo := "", []byte(nil)
+	if n.Branding != nil {
+		company, logo = n.Branding(ctx, previewID)
+	}
+	sender, subject := "Someone", "Your preview is ready"
+	if company != "" {
+		sender, subject = company, company+" sent you a preview"
+	}
 	viewLink := n.publicURL + "/preview/" + viewTok
 	dlLink := n.publicURL + "/d/" + dlTok
 	human := emailtmpl.HumanDuration(n.ttl)
 	body := fmt.Sprintf(
-		"Your watermarked preview is ready.\n\n"+
+		sender+" shared a watermarked preview with you.\n\n"+
 			"View it:     %s\n"+
 			"Download it: %s\n\n"+
 			"The links are valid for %s.\n"+
@@ -59,10 +71,12 @@ func (n *EmailNotifier) PreviewReady(ctx context.Context, recipient, previewID s
 		viewLink, dlLink, n.ttl,
 	)
 	html, err := emailtmpl.Render(emailtmpl.Data{
-		Subject:   "Your preview is ready",
+		Subject:   subject,
 		Preheader: "Your watermarked preview is ready to view",
-		Heading:   "Your preview is ready",
-		Intro:     "Someone shared a watermarked media preview with you through SADE. View it in your browser, or download it directly.",
+		Heading:   subject,
+		Intro:     sender + " shared a watermarked media preview with you through SADE. View it in your browser, or download it directly.",
+		BrandName: company,
+		BrandLogo: len(logo) > 0,
 		Buttons: []emailtmpl.Button{
 			{Label: "View preview", URL: viewLink, Primary: true},
 			{Label: "Download", URL: dlLink},
@@ -72,11 +86,15 @@ func (n *EmailNotifier) PreviewReady(ctx context.Context, recipient, previewID s
 	if err != nil {
 		return fmt.Errorf("render preview email: %w", err)
 	}
+	inline := []mailer.Inline{{CID: emailtmpl.LogoCID, ContentType: "image/png", Data: emailtmpl.LogoPNG}}
+	if len(logo) > 0 {
+		inline = []mailer.Inline{{CID: emailtmpl.BrandLogoCID, ContentType: "image/png", Data: logo}}
+	}
 	return n.mail.Send(ctx, mailer.Message{
 		To:      recipient,
-		Subject: "Your preview is ready",
+		Subject: subject,
 		Text:    body,
 		HTML:    html,
-		Inline:  []mailer.Inline{{CID: emailtmpl.LogoCID, ContentType: "image/png", Data: emailtmpl.LogoPNG}},
+		Inline:  inline,
 	})
 }

@@ -3,12 +3,15 @@
 // call goes with credentials: 'include' - no token to attach by hand.
 import type {
 	ActivityEntry,
+	Brand,
+	BrandUpdate,
 	Delivery,
 	Job,
 	NewJobInput,
 	PasskeyChallenge,
 	PasskeyInfo,
 	PaymentStatus,
+	PublicBrand,
 	SessionInfo,
 	SignInResult,
 	Usage,
@@ -123,6 +126,39 @@ export const api = {
 	// The new-device alert email's "this wasn't me".
 	revokeFromAlert(token: string): Promise<{ email: string }> {
 		return request('/api/auth/revoke', { method: 'POST', body: JSON.stringify({ token }) });
+	},
+
+	// --- brand ---------------------------------------------------------------
+	brand(): Promise<Brand> {
+		return request('/api/brand');
+	},
+
+	updateBrand(b: BrandUpdate): Promise<Brand> {
+		return request('/api/brand', { method: 'PUT', body: JSON.stringify(b) });
+	},
+
+	uploadLogo(file: File): Promise<Brand> {
+		const form = new FormData();
+		form.set('logo', file);
+		return request('/api/brand/logo', { method: 'POST', body: form });
+	},
+
+	deleteLogo(): Promise<Brand> {
+		return request('/api/brand/logo', { method: 'DELETE' });
+	},
+
+	completeOnboarding(): Promise<Brand> {
+		return request('/api/brand/onboarded', { method: 'POST' });
+	},
+
+	// The account's own logo; version busts the cache when it changes.
+	brandLogoUrl(version?: string): string {
+		return `${API_BASE}/api/brand/logo?v=${encodeURIComponent(version ?? '')}`;
+	},
+
+	// Who sent a preview (public, authorised by the preview token).
+	publicBrand(previewToken: string): Promise<PublicBrand> {
+		return request(`/api/public/brand?token=${encodeURIComponent(previewToken)}`);
 	},
 
 	// --- account security ---------------------------------------------------

@@ -42,6 +42,10 @@ var LogoPNG []byte
 // references it as "cid:sade-logo" literally; keep the two in sync.
 const LogoCID = "sade-logo"
 
+// BrandLogoCID is the Content-ID of an operator's own logo, attached instead
+// of SADE's when Data.BrandLogo is set.
+const BrandLogoCID = "brand-logo"
+
 // Button is one call to action in an email body.
 type Button struct {
 	Label   string
@@ -62,6 +66,11 @@ type Data struct {
 	// 6-digit code), with CodeLabel above it.
 	Code      string
 	CodeLabel string
+	// BrandName / BrandLogo put the sending company in the header instead of
+	// SADE's mark: its name as the caption, and (BrandLogo) its logo, which
+	// the caller attaches under BrandLogoCID.
+	BrandName string
+	BrandLogo bool
 }
 
 var tmpl = template.Must(template.New("email").Parse(layoutTmpl))
@@ -128,8 +137,8 @@ const layoutTmpl = `<!doctype html>
 <tr><td align="center" style="padding:48px 16px;">
 <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px;max-width:560px;">
 <tr><td align="center" style="padding-bottom:28px;">
-<img src="cid:sade-logo" width="44" height="44" alt="SADE" style="display:block;border-radius:10px;">
-<div style="font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:600;letter-spacing:.06em;color:#9c9287;text-transform:uppercase;margin-top:10px;">Safe Media Delivery</div>
+{{if .BrandLogo}}<img src="cid:brand-logo" height="48" alt="{{.BrandName}}" style="display:block;height:48px;width:auto;max-width:200px;">{{else}}<img src="cid:sade-logo" width="44" height="44" alt="SADE" style="display:block;border-radius:10px;">{{end}}
+<div style="font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:600;letter-spacing:.06em;color:#9c9287;text-transform:uppercase;margin-top:10px;">{{if .BrandName}}{{.BrandName}}{{else}}Safe Media Delivery{{end}}</div>
 </td></tr>
 <tr><td class="sade-card sade-pad" style="background-color:#ffffff;border:1px solid #ebe3d7;border-radius:14px;padding:40px 44px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">

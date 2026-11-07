@@ -11,7 +11,7 @@
 	import { page } from '$app/state';
 	import { i18n } from '$lib/i18n.svelte';
 	import { api, API_BASE, ApiError } from '$lib/api';
-	import type { PaymentStatus } from '$lib/types';
+	import type { PaymentStatus, PublicBrand } from '$lib/types';
 	import MarkBar from '$lib/components/MarkBar.svelte';
 	import PaymentForm from '$lib/components/PaymentForm.svelte';
 	import { onMount } from 'svelte';
@@ -41,6 +41,14 @@
 	async function loadStatus() {
 		payment = await api.paymentStatus(token);
 	}
+
+	// Who sent it: the brand frozen on the job when it was uploaded.
+	let sender = $state<PublicBrand>({});
+	onMount(() => {
+		api.publicBrand(token)
+			.then((b) => (sender = b))
+			.catch(() => {});
+	});
 
 	onMount(async () => {
 		try {
@@ -95,7 +103,20 @@
 				<p class="muted">{i18n.t('preview.disabledBody')}</p>
 			</div>
 		{:else}
-		<h1>{i18n.t('preview.title')}</h1>
+		{#if sender.logoUrl || sender.company}
+			<div class="sender">
+				{#if sender.logoUrl}
+					<img class="sender-logo" src={`${API_BASE}${sender.logoUrl}`} alt={sender.company ?? ''} />
+				{/if}
+				{#if sender.company}
+					<h1>{i18n.t('preview.titleFrom', { company: sender.company })}</h1>
+				{:else}
+					<h1>{i18n.t('preview.title')}</h1>
+				{/if}
+			</div>
+		{:else}
+			<h1>{i18n.t('preview.title')}</h1>
+		{/if}
 
 		<div class="layout" class:single={!showSide}>
 			<div class="media-col">
@@ -329,6 +350,20 @@
 	.disabled-card p {
 		margin: 0;
 		line-height: 1.5;
+	}
+
+	.sender {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.75rem;
+	}
+
+	.sender-logo {
+		max-height: 48px;
+		max-width: 220px;
+		width: auto;
+		display: block;
 	}
 
 	.footer {

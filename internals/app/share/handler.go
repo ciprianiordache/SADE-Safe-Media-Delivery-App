@@ -53,9 +53,11 @@ type Handler struct {
 	blob   Blob
 	log    *slog.Logger
 
-	// Optional (nil-safe): the operator's on/off switch and the history.
+	// Optional (nil-safe): the operator's on/off switch, the history, and
+	// the job lookup behind the recipient page's branding (brand.go).
 	links  Links
 	events Events
+	jobs   JobReader
 }
 
 // UseDelivery turns on the links switch and delivery history.

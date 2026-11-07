@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"time"
 
 	"sade/internals/app/asset"
 	"sade/internals/app/job"
 	"sade/internals/app/job_event"
+	"sade/internals/storage"
+	"sade/internals/wmopts"
 	"sade/internals/worker"
 )
 
@@ -97,4 +100,34 @@ func (n recordingNotifier) PreviewReady(ctx context.Context, recipient, previewI
 		n.log.Warn("delivery: record sent", "job", a.JobID, "error", err)
 	}
 	return nil
+}
+
+// emailBranding finds the brand frozen on a preview's job, for the
+// preview-ready email: the company name and its logo bytes (best effort -
+// any miss just means an unbranded email).
+func emailBranding(assets asset.Repo, jobs job.Repo, store storage.Storage) func(context.Context, string) (string, []byte) {
+	return func(ctx context.Context, previewID string) (string, []byte) {
+		a, err := assets.GetByID(previewID)
+		if err != nil {
+			return "", nil
+		}
+		j, err := jobs.GetByID(a.JobID)
+		if err != nil {
+			return "", nil
+		}
+		b := wmopts.Decode(j.WatermarkOpts)
+		if b.LogoKey == "" {
+			return b.Company, nil
+		}
+		rc, err := store.Open(ctx, b.LogoKey)
+		if err != nil {
+			return b.Company, nil
+		}
+		defer rc.Close()
+		logo, err := io.ReadAll(io.LimitReader(rc, 2<<20))
+		if err != nil {
+			return b.Company, nil
+		}
+		return b.Company, logo
+	}
 }

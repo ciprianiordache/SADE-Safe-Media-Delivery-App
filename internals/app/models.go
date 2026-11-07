@@ -5,6 +5,7 @@ package app
 
 import (
 	"sade/internals/app/asset"
+	"sade/internals/app/brand"
 	"sade/internals/app/job"
 	"sade/internals/app/job_event"
 	"sade/internals/app/login_event"
@@ -21,6 +22,7 @@ import (
 func Models() []any {
 	return []any{
 		user.User{},
+		brand.Brand{},
 		magic_token.MagicToken{},
 		session.Session{},
 		login_event.LoginEvent{},

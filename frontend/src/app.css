@@ -469,3 +469,8 @@ input[type='search']::-webkit-search-cancel-button {
 		transition-duration: 0.01ms !important;
 	}
 }
+
+.segmented button:disabled {
+	color: var(--text-hint);
+	cursor: not-allowed;
+}

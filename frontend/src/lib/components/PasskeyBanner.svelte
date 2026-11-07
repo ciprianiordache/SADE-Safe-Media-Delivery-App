@@ -46,7 +46,7 @@
 			<span class="muted">{i18n.t('banner.passkeyBody')}</span>
 		</div>
 		<div class="actions">
-			<a class="btn" href="/app/settings#passkeys">{i18n.t('banner.passkeyCta')}</a>
+			<a class="btn" href="/app/settings/security#passkeys">{i18n.t('banner.passkeyCta')}</a>
 			<button type="button" class="later" onclick={dismiss}>{i18n.t('banner.dismiss')}</button>
 		</div>
 	</div>
