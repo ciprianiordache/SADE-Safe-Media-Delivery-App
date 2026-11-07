@@ -1,80 +1,177 @@
+<script module lang="ts">
+	let instances = 0;
+</script>
+
 <script lang="ts">
-	// Where the watermark sits: four corners, centre, or tiled over the
-	// whole picture. Each option is a tiny drawing of the result.
+	// Where the watermark sits, picked on a small frame shaped like the
+	// picture: each spot is clicked where it will appear. "Whole picture"
+	// (tiled) is a separate choice below the frame. Real radio buttons, one
+	// group: Tab enters once, arrow keys move between the six choices.
 	import { i18n, type MessageKey } from '$lib/i18n.svelte';
 	import type { WatermarkPosition } from '$lib/types';
 
-	let { value, onchange }: { value: WatermarkPosition; onchange: (p: WatermarkPosition) => void } = $props();
+	let {
+		value,
+		onchange,
+		labelledby
+	}: { value: WatermarkPosition; onchange: (p: WatermarkPosition) => void; labelledby?: string } = $props();
 
-	const OPTIONS: WatermarkPosition[] = ['top-left', 'top-right', 'center', 'bottom-left', 'bottom-right', 'tiled'];
-	const DOTS: Record<WatermarkPosition, [number, number][]> = {
-		'top-left': [[7, 6]],
-		'top-right': [[25, 6]],
-		center: [[16, 10]],
-		'bottom-left': [[7, 14]],
-		'bottom-right': [[25, 14]],
-		tiled: [
-			[6, 5], [16, 5], [26, 5],
-			[6, 10], [16, 10], [26, 10],
-			[6, 15], [16, 15], [26, 15]
-		]
-	};
+	const name = `position-${++instances}`;
+	const SPOTS: WatermarkPosition[] = ['top-left', 'top-right', 'center', 'bottom-left', 'bottom-right'];
+	const label = (p: WatermarkPosition) => i18n.t(`brand.pos.${p}` as MessageKey);
 </script>
 
-<div class="positions" role="radiogroup" aria-label={i18n.t('brand.position')}>
-	{#each OPTIONS as p (p)}
-		<button
-			type="button"
-			role="radio"
-			aria-checked={value === p}
-			class:on={value === p}
-			onclick={() => onchange(p)}
-			title={i18n.t(`brand.pos.${p}` as MessageKey)}
-		>
-			<svg width="34" height="20" viewBox="0 0 32 20" aria-hidden="true">
-				<rect x="0.5" y="0.5" width="31" height="19" rx="2.5" fill="none" stroke="currentColor" stroke-opacity="0.35" />
-				{#each DOTS[p] as [x, y], i (i)}
-					<rect x={x - (p === 'tiled' ? 2.5 : 4)} y={y - (p === 'tiled' ? 1.5 : 2.5)} width={p === 'tiled' ? 5 : 8} height={p === 'tiled' ? 3 : 5} rx="1" fill="currentColor" />
+<div class="picker" role="radiogroup" aria-labelledby={labelledby}>
+	<div class="frame">
+		{#each SPOTS as p (p)}
+			<label class="spot {p}" class:on={value === p} title={label(p)}>
+				<input type="radio" {name} value={p} checked={value === p} onchange={() => onchange(p)} />
+				<span class="mark" aria-hidden="true"></span>
+				<span class="sr-only">{label(p)}</span>
+			</label>
+		{/each}
+	</div>
+	<label class="tiled" class:on={value === 'tiled'}>
+		<input type="radio" {name} value="tiled" checked={value === 'tiled'} onchange={() => onchange('tiled')} />
+		<svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true">
+			{#each [2, 9, 16] as x (x)}
+				{#each [2, 6, 10] as y (y)}
+					<rect {x} {y} width="4" height="2" rx="0.5" fill="currentColor" />
 				{/each}
-			</svg>
-			<span>{i18n.t(`brand.pos.${p}` as MessageKey)}</span>
-		</button>
-	{/each}
+			{/each}
+		</svg>
+		<span>{label('tiled')}</span>
+	</label>
+	<span class="chosen muted" aria-hidden="true">{label(value)}</span>
 </div>
 
 <style>
-	.positions {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: 0.45rem;
-	}
-
-	button {
-		appearance: none;
+	.picker {
 		display: flex;
 		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.frame {
+		position: relative;
+		width: 100%;
+		max-width: 280px;
+		aspect-ratio: 16 / 10;
+		border-radius: var(--radius-sm);
+		border: 1.5px solid var(--border-strong);
+		background: var(--surface);
+	}
+
+	.spot {
+		position: absolute;
+		width: 44px;
+		height: 44px;
+		display: flex;
 		align-items: center;
-		gap: 0.3rem;
-		padding: 0.55rem 0.3rem;
+		justify-content: center;
+		cursor: pointer;
+		border-radius: var(--radius-sm);
+	}
+
+	.spot.top-left {
+		top: 0;
+		left: 0;
+	}
+	.spot.top-right {
+		top: 0;
+		right: 0;
+	}
+	.spot.center {
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+	}
+	.spot.bottom-left {
+		bottom: 0;
+		left: 0;
+	}
+	.spot.bottom-right {
+		bottom: 0;
+		right: 0;
+	}
+
+	.mark {
+		width: 24px;
+		height: 14px;
+		border-radius: 3px;
+		border: 1.5px solid var(--border-strong);
+		background: var(--bg);
+	}
+
+	.spot:hover .mark {
+		border-color: var(--accent);
+	}
+
+	.spot.on .mark {
+		border-color: var(--accent);
+		background: var(--accent);
+	}
+
+	/* These are <label>s for their radio inputs: undo the global form-label look. */
+	.spot,
+	.tiled {
+		margin: 0;
+		text-transform: none;
+		letter-spacing: normal;
+		font-weight: 400;
+	}
+
+	.tiled {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		min-height: 44px;
+		max-width: 280px;
+		padding: 0 0.75rem;
 		border-radius: var(--radius-sm);
 		border: 1.5px solid var(--border-strong);
 		background: var(--surface);
 		color: var(--text-muted);
-		font: inherit;
-		font-size: 0.72rem;
-		line-height: 1.2;
-		text-align: center;
+		font-size: 0.82rem;
 		cursor: pointer;
 	}
 
-	button:hover {
+	.tiled:hover {
 		border-color: var(--accent);
 	}
 
-	button.on {
+	.tiled.on {
 		border-color: var(--accent);
 		background: var(--accent-tint);
 		color: var(--accent-tint-text);
 		font-weight: 600;
+	}
+
+	input {
+		position: absolute;
+		opacity: 0;
+		width: 1px;
+		height: 1px;
+		margin: 0;
+		pointer-events: none;
+	}
+
+	.spot:has(input:focus-visible),
+	.tiled:has(input:focus-visible) {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+
+	.chosen {
+		font-size: 0.8rem;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
 	}
 </style>

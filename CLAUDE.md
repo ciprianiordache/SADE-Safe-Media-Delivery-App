@@ -155,7 +155,57 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** operator brand, reviewed with /plan-ceo-review + /plan-eng-review before shipping
+**Latest:** brand UX pass from /plan-design-review (22 decisions, 3/10 -> 8/10) + a second
+/plan-eng-review of those tasks (user: "Implementez DT1-DT9 acum"). Decisions and tasks are in the
+same plan file as the brand work (sections "Design review" and "Eng review of the design tasks").
+
+- **Watermark text never leaves the picture, and never loses the recipient** (`internals/ffmpeg/
+  textfit.go`, `wmopts.RenderTextFit`). ffmpeg cannot size a font from the text's own width, so
+  `Engine.fitText` estimates it (0.62 x font size per character) and fits one line to 90% of the
+  frame width (30% per copy when tiled, copies sit a third apart). Text that already fits keeps
+  exactly today's size. Too-long template text gives up, in order: the end of the company name
+  ("..." ASCII, the deployment font may lack U+2026), the company, the date - **never the
+  recipient** (it is what ties a leaked file to its receiver); if the recipient alone is too long
+  the font goes below the normal floor (min 6px). The operator's own per-upload text is never cut,
+  only shrunk. Callers pass `Request.TextFor(budget)`; the worker's `renderText` supplies it.
+  No frame width from ffprobe -> 1280 assumed + Warn. Shared examples: `internals/ffmpeg/testdata/
+  textfit.json`; the browser preview mirrors the numbers in `frontend/src/lib/format.ts`
+  (`fitWatermarkText`, `renderWatermarkTextFit`, counted in code points) on a 1920px reference
+  frame - parity is promised only above ~820px, below that the 18px floor decides on the server.
+- **`Probe` is rotation-aware**: a phone video stored 1920x1080 with a 90 degree display matrix
+  (or legacy `rotate` tag) is reported 1080x1920, as ffmpeg renders it; cover art (`attached_pic`)
+  never wins over the real picture. Logo size and text fit use the rendered width.
+- **Brand store** (`stores.svelte.ts`): explicit `status` idle/loading/ready/error, concurrent
+  loads share one request, a refresh keeps `ready`, 8 s timeout -> `error`. Welcome and Settings
+  show "Reîncearcă" on error instead of an endless "Se încarcă…"; the `/app` dashboard waits for
+  the brand before rendering (no dashboard flash before the welcome redirect); the upload form's
+  Logo/Text control is neutral while unknown and only says "no logo" once the server confirmed it.
+- **Welcome** (`/app/welcome`): step 1 is the question as heading + a live preview; the name is
+  optional; name and position are saved once (Continue from step 2, or Skip - Skip keeps what was
+  typed); step 2 says "fără logo = doar text"; step 3 copy differs with/without a logo; the CTA goes
+  to `/app?upload=1` (upload zone focused, flag removed). Focus moves to each step's heading;
+  progress bar has `role=progressbar`.
+- **PositionPicker**: a frame shaped like the picture with the five spots where they appear, plus
+  a separate "Pe toată imaginea"; real radio inputs in one group (arrow keys, one Tab stop).
+- **LogoPicker**: remove asks twice (the file is deleted for good since eng D7), "Logo-ul se
+  salvează imediat", `role=alert` errors, `aria-busy`. **Dashboard**: "Adaugă logo" opens the
+  LogoPicker inline (chosen file and recipient stay); the text field's placeholder is the exact
+  text that would be burned in; `BrandBanner` nudges accounts that skipped setup (no name, no logo).
+- **Settings > Brand**: leave-confirm with unsaved edits (not for redirects to /login), sticky
+  compact preview + sticky Save bar at <= 860px, the disabled size slider says why.
+- Informative notes moved from `--text-faint` (2.9:1) to `--text-muted`. New `DESIGN.md` at the
+  repo root documents tokens, components and these rules.
+- Verified: `go test ./...` green except the known `TestWatermarkIntegration` Fontconfig crash
+  (new: `textfit_test.go` incl. a real rotated MP4 via ffprobe, `wmopts` fit tests); `npm run
+  check` clean; live in the headless browser: new account -> welcome (no flash), long name fits,
+  arrow keys, no-logo copy, upload CTA focus, inline logo keeps the form, reload keeps "Logo +
+  text", Settings at 375px light + dark, and a real upload rendered "Studio Foto si Video pentru
+  Evenimente Nunti Botezuri si Corporate Romania · client-x@example.com · 2026-11-07" at 25px,
+  inside the frame. **Not verified live**: the brand-load error states and the leave-confirm
+  dialog (the headless browser can neither stub requests on Windows nor safely answer a confirm
+  dialog) - covered by reading only.
+
+**Before that:** operator brand, reviewed with /plan-ceo-review + /plan-eng-review before shipping
 (user: "Brandul operatorului", then "Implementez T0–T9 acum"). Plan + decision ledger + both review
 reports: `~/.gstack/projects/ciprianiordache-SADE-Safe-Media-Delivery-App/ceo-plans/2026-11-07-operator-brand.md`.
 

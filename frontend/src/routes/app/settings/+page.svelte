@@ -3,13 +3,14 @@
 	import { api, ApiError } from '$lib/api';
 	import { brand } from '$lib/stores.svelte';
 	import { toasts } from '$lib/toast.svelte';
-	import { renderWatermarkText } from '$lib/format';
+	import { renderWatermarkTextFit } from '$lib/format';
 	import type { Brand, BrandUpdate } from '$lib/types';
 	import SettingsTabs from '$lib/components/SettingsTabs.svelte';
 	import BrandPreview from '$lib/components/BrandPreview.svelte';
 	import LogoPicker from '$lib/components/LogoPicker.svelte';
 	import PositionPicker from '$lib/components/PositionPicker.svelte';
 	import { onMount } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
 
 	let current = $state<Brand | null>(null);
 	let draft = $state<BrandUpdate | null>(null);
@@ -28,9 +29,26 @@
 		};
 	}
 
-	onMount(async () => {
+	async function load() {
 		const b = await brand.load();
 		if (b) edit(b);
+	}
+
+	onMount(() => {
+		load();
+		// Closing or reloading the tab with unsaved edits: the browser asks.
+		const onUnload = (e: BeforeUnloadEvent) => {
+			if (dirty) e.preventDefault();
+		};
+		window.addEventListener('beforeunload', onUnload);
+		return () => window.removeEventListener('beforeunload', onUnload);
+	});
+
+	// Leaving inside the app with unsaved edits asks first - except a forced
+	// trip to the sign-in page (session ended, signed out), which must win.
+	beforeNavigate((nav) => {
+		if (!dirty || nav.type === 'leave' || nav.to?.url.pathname === '/login') return;
+		if (!confirm(i18n.t('brand.leaveConfirm'))) nav.cancel();
 	});
 
 	let dirty = $derived(
@@ -79,8 +97,9 @@
 		});
 	}
 
-	let sampleText = $derived(
-		draft ? renderWatermarkText(draft.textTemplate, draft.companyName, i18n.t('brand.sampleRecipient')) : ''
+	// The preview shortens like the server: company first, never the recipient.
+	let sampleFor = $derived((budget: number) =>
+		draft ? renderWatermarkTextFit(draft.textTemplate, draft.companyName, i18n.t('brand.sampleRecipient'), budget) : ''
 	);
 </script>
 
@@ -91,8 +110,13 @@
 <div class="container page">
 	<SettingsTabs />
 
-	{#if !current || !draft}
-		<p class="muted">{i18n.t('common.loading')}</p>
+	{#if (!current || !draft) && brand.status === 'error'}
+		<div class="card load-error" role="alert">
+			<p class="muted">{i18n.t('brand.loadError')}</p>
+			<button class="btn" type="button" onclick={load}>{i18n.t('common.retry')}</button>
+		</div>
+	{:else if !current || !draft}
+		<p class="muted" aria-busy="true">{i18n.t('common.loading')}</p>
 	{:else}
 		<p class="muted intro">{i18n.t('brand.subtitle')}</p>
 		<div class="layout">
@@ -100,19 +124,19 @@
 				<div class="field">
 					<label for="company">{i18n.t('brand.company')}</label>
 					<input id="company" type="text" maxlength="80" placeholder={i18n.t('brand.companyPlaceholder')} bind:value={draft.companyName} />
-					<span class="faint hint">{i18n.t('brand.companyHint')}</span>
+					<span class="muted hint">{i18n.t('brand.companyHint')}</span>
 				</div>
 
 				<div class="field">
-					<span class="label">{i18n.t('brand.logo')}</span>
+					<span class="label" id="logo">{i18n.t('brand.logo')}</span>
 					<LogoPicker brand={current} onchange={logoChanged} />
 				</div>
 
 				<div class="field">
-					<span class="label">{i18n.t('brand.position')}</span>
-					<PositionPicker value={draft.position} onchange={(p) => draft && (draft.position = p)} />
+					<span class="label" id="pos-label">{i18n.t('brand.position')}</span>
+					<PositionPicker value={draft.position} onchange={(p) => draft && (draft.position = p)} labelledby="pos-label" />
 					{#if draft.position === 'tiled'}
-						<span class="faint hint">{i18n.t('brand.tiledHint')}</span>
+						<span class="muted hint">{i18n.t('brand.tiledHint')}</span>
 					{/if}
 				</div>
 
@@ -124,7 +148,11 @@
 					<div class="field">
 						<label for="size">{i18n.t('brand.size')} <span class="value mono">{draft.logoScalePct}%</span></label>
 						<input id="size" type="range" min="5" max="50" step="1" bind:value={draft.logoScalePct} disabled={!current.hasLogo} />
-						<span class="faint hint">{i18n.t('brand.sizeHint')}</span>
+						{#if current.hasLogo}
+							<span class="muted hint">{i18n.t('brand.sizeHint')}</span>
+						{:else}
+							<span class="muted hint"><a href="#logo">{i18n.t('brand.sizeNoLogo')}</a></span>
+						{/if}
 					</div>
 				</div>
 
@@ -132,16 +160,16 @@
 					<label for="template">{i18n.t('brand.text')}</label>
 					<input id="template" class="mono" type="text" maxlength="120" bind:this={templateInput} bind:value={draft.textTemplate} />
 					<div class="vars">
-						<span class="faint">{i18n.t('brand.insert')}</span>
+						<span class="muted">{i18n.t('brand.insert')}</span>
 						<button type="button" onclick={() => insert('{company}')}>{i18n.t('brand.var.company')}</button>
 						<button type="button" onclick={() => insert('{recipient}')}>{i18n.t('brand.var.recipient')}</button>
 						<button type="button" onclick={() => insert('{date}')}>{i18n.t('brand.var.date')}</button>
 					</div>
-					<span class="faint hint">{i18n.t('brand.textHint')}</span>
+					<span class="muted hint">{i18n.t('brand.textHint')}</span>
 				</div>
 
-				<div class="save-row">
-					{#if dirty}<span class="faint hint">{i18n.t('brand.unsaved')}</span>{/if}
+				<div class="save-row" class:pending={dirty}>
+					{#if dirty}<span class="muted hint">{i18n.t('brand.unsaved')}</span>{/if}
 					<button class="btn" type="button" onclick={save} disabled={!dirty || saving}>
 						{saving ? i18n.t('brand.saving') : i18n.t('brand.save')}
 					</button>
@@ -155,11 +183,11 @@
 					position={draft.position}
 					opacityPct={draft.opacityPct}
 					logoScalePct={draft.logoScalePct}
-					text={sampleText}
+					textFor={sampleFor}
 				/>
-				<span class="faint hint">{i18n.t('brand.previewHint')}</span>
+				<span class="muted hint">{i18n.t('brand.previewHint')}</span>
 				{#if !current.hasLogo}
-					<span class="faint hint">{i18n.t('brand.noLogoNote')}</span>
+					<span class="muted hint">{i18n.t('brand.noLogoNote')}</span>
 				{/if}
 			</section>
 		</div>
@@ -192,12 +220,34 @@
 		align-items: start;
 	}
 
+	/* Phones/tablets: the preview stays in view (compact, pinned to the top)
+	   while the sliders below it move, and Save is pinned to the bottom while
+	   there is something to save. */
 	@media (max-width: 860px) {
 		.layout {
 			grid-template-columns: minmax(0, 1fr);
 		}
 		.preview {
 			order: -1;
+			position: sticky;
+			top: 0;
+			z-index: 5;
+			max-height: 35vh;
+			overflow: hidden;
+			padding-top: 0.6rem;
+			padding-bottom: 0.6rem;
+		}
+		.preview .hint {
+			display: none;
+		}
+		.save-row.pending {
+			position: sticky;
+			bottom: 0;
+			z-index: 5;
+			margin: 0.5rem -1rem -1rem;
+			padding: 0.7rem 1rem;
+			background: var(--surface);
+			border-top: 1px solid var(--border);
 		}
 	}
 
@@ -233,8 +283,19 @@
 		font-size: 0.72rem;
 		font-weight: 600;
 		letter-spacing: 0.06em;
-		color: var(--text-faint);
+		color: var(--text-muted);
 		text-transform: uppercase;
+	}
+
+	.load-error {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+
+	.load-error p {
+		margin: 0;
 	}
 
 	.hint {

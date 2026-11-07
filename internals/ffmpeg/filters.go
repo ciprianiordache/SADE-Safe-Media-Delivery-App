@@ -54,6 +54,9 @@ func (e *Engine) look(st Style) look {
 		l.fontSize = max(l.fontSize, st.FrameWidth*22/1000)
 		l.margin = max(l.margin, st.FrameWidth*2/100)
 	}
+	if st.FontPx > 0 {
+		l.fontSize = st.FontPx // fitted to the text by Watermark
+	}
 	if l.logoWidth <= 0 {
 		l.logoWidth = -1 // keep native width
 	}

@@ -1,51 +1,70 @@
 <script lang="ts">
 	// First-run setup: company name, then logo + placement, then done. The
 	// /app layout sends a new account here until it is finished or skipped.
+	// Name and position are kept locally and saved once - on Continue from
+	// step 2, or on Skip - so quick clicks never race each other.
 	import { goto } from '$app/navigation';
 	import { i18n } from '$lib/i18n.svelte';
 	import { api } from '$lib/api';
 	import { brand } from '$lib/stores.svelte';
 	import { toasts } from '$lib/toast.svelte';
-	import { renderWatermarkText } from '$lib/format';
-	import type { Brand } from '$lib/types';
+	import { renderWatermarkTextFit } from '$lib/format';
+	import type { WatermarkPosition } from '$lib/types';
 	import BrandPreview from '$lib/components/BrandPreview.svelte';
 	import LogoPicker from '$lib/components/LogoPicker.svelte';
 	import PositionPicker from '$lib/components/PositionPicker.svelte';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 
 	let step = $state(1);
-	let b = $state<Brand | null>(null);
 	let company = $state('');
+	let position = $state<WatermarkPosition>('bottom-right');
 	let busy = $state(false);
+	let seeded = false;
+	let heading = $state<HTMLHeadingElement | null>(null);
 
-	onMount(async () => {
-		b = brand.value ?? (await brand.load());
-		if (b) company = b.companyName;
+	let b = $derived(brand.value);
+
+	// Seed the local fields once, from the first brand we get.
+	$effect(() => {
+		if (b && !seeded) {
+			seeded = true;
+			company = b.companyName;
+			position = b.position;
+		}
 	});
 
-	async function saveBrand(patch: Partial<Brand>) {
+	onMount(() => {
+		if (brand.status !== 'ready') brand.load();
+	});
+
+	async function saveFields() {
 		if (!b) return;
-		const next = await api.updateBrand({
-			companyName: patch.companyName ?? b.companyName,
-			position: patch.position ?? b.position,
-			opacityPct: b.opacityPct,
-			logoScalePct: b.logoScalePct,
-			textTemplate: b.textTemplate
-		});
-		b = next;
-		brand.set(next);
+		if (company.trim() === b.companyName && position === b.position) return;
+		brand.set(
+			await api.updateBrand({
+				companyName: company.trim(),
+				position,
+				opacityPct: b.opacityPct,
+				logoScalePct: b.logoScalePct,
+				textTemplate: b.textTemplate
+			})
+		);
+	}
+
+	async function goTo(n: number) {
+		step = n;
+		await tick();
+		heading?.focus(); // screen readers hear the new step
 	}
 
 	async function next() {
 		busy = true;
 		try {
-			if (step === 1) await saveBrand({ companyName: company.trim() });
 			if (step === 2) {
-				const done = await api.completeOnboarding();
-				b = done;
-				brand.set(done);
+				await saveFields();
+				brand.set(await api.completeOnboarding());
 			}
-			step++;
+			await goTo(step + 1);
 		} catch {
 			toasts.show(i18n.t('common.error'), { kind: 'error' });
 		} finally {
@@ -54,26 +73,20 @@
 	}
 
 	async function skip() {
+		busy = true;
 		try {
+			await saveFields(); // keep what was already typed or picked
 			brand.set(await api.completeOnboarding());
 		} catch {
-			// Not fatal - the dashboard works either way.
+			// Not fatal - the dashboard works either way; say so and go on.
+			toasts.show(i18n.t('common.error'), { kind: 'error' });
 		}
 		goto('/app');
 	}
 
-	async function setPosition(p: Brand['position']) {
-		if (!b) return;
-		b.position = p; // instant preview; saved with the step
-		try {
-			await saveBrand({ position: p });
-		} catch {
-			toasts.show(i18n.t('common.error'), { kind: 'error' });
-		}
-	}
-
-	let sampleText = $derived(
-		b ? renderWatermarkText(b.textTemplate, company, i18n.t('brand.sampleRecipient')) : ''
+	// The preview shortens like the server: company first, never the recipient.
+	let sampleFor = $derived((budget: number) =>
+		b ? renderWatermarkTextFit(b.textTemplate, company, i18n.t('brand.sampleRecipient'), budget) : ''
 	);
 </script>
 
@@ -83,19 +96,39 @@
 
 <div class="container page">
 	<div class="card wizard">
-		{#if !b}
-			<p class="muted">{i18n.t('common.loading')}</p>
+		{#if brand.status === 'error' && !b}
+			<div class="head" role="alert">
+				<h1>{i18n.t('welcome.title')}</h1>
+				<p class="muted">{i18n.t('brand.loadError')}</p>
+			</div>
+			<div class="actions">
+				<a class="link-btn" href="/app">{i18n.t('welcome.skip')}</a>
+				<button class="btn" type="button" onclick={() => brand.load()}>{i18n.t('common.retry')}</button>
+			</div>
+		{:else if !b}
+			<div class="skeleton" aria-busy="true" aria-label={i18n.t('common.loading')}>
+				<span class="sk sk-line"></span>
+				<span class="sk sk-title"></span>
+				<span class="sk sk-input"></span>
+			</div>
 		{:else}
 			<div class="top">
-				<span class="faint step">{i18n.t('welcome.step', { n: step })}</span>
-				<div class="bar"><div class="fill" style="width:{(step / 3) * 100}%"></div></div>
+				<span class="muted step" aria-hidden="true">
+					{step === 1 ? i18n.t('welcome.eyebrow', { n: step }) : i18n.t('welcome.step', { n: step })}
+				</span>
+				<div
+					class="bar"
+					role="progressbar"
+					aria-valuemin={1}
+					aria-valuemax={3}
+					aria-valuenow={step}
+					aria-valuetext={i18n.t('welcome.step', { n: step })}
+				>
+					<div class="fill" style="width:{(step / 3) * 100}%"></div>
+				</div>
 			</div>
 
 			{#if step === 1}
-				<div class="head">
-					<h1>{i18n.t('welcome.title')}</h1>
-					<p class="muted">{i18n.t('welcome.subtitle')}</p>
-				</div>
 				<form
 					class="body"
 					onsubmit={(e) => {
@@ -103,36 +136,54 @@
 						next();
 					}}
 				>
-					<label for="company">{i18n.t('welcome.step1Title')}</label>
+					<h1 id="company-q" tabindex="-1" bind:this={heading}>{i18n.t('welcome.step1Title')}</h1>
+					<p class="muted lead">{i18n.t('welcome.step1Body')}</p>
 					<!-- svelte-ignore a11y_autofocus -->
-					<input id="company" type="text" maxlength="80" autofocus placeholder={i18n.t('brand.companyPlaceholder')} bind:value={company} />
-					<span class="faint hint">{i18n.t('welcome.step1Body')}</span>
+					<input
+						id="company"
+						type="text"
+						maxlength="80"
+						autofocus
+						aria-labelledby="company-q"
+						aria-describedby="company-hint"
+						placeholder={i18n.t('brand.companyPlaceholder')}
+						bind:value={company}
+					/>
+					<span id="company-hint" class="muted hint">{i18n.t('welcome.step1Hint')}</span>
+					<div class="preview-1">
+						<BrandPreview logoUrl="" {position} opacityPct={b.opacityPct} logoScalePct={b.logoScalePct} textFor={sampleFor} />
+					</div>
 					<div class="actions">
-						<button type="button" class="link-btn" onclick={skip}>{i18n.t('welcome.skip')}</button>
-						<button class="btn" type="submit" disabled={busy || !company.trim()}>{i18n.t('welcome.next')}</button>
+						<button type="button" class="link-btn" onclick={skip} disabled={busy}>{i18n.t('welcome.skip')}</button>
+						<button class="btn" type="submit" disabled={busy}>{i18n.t('welcome.next')}</button>
 					</div>
 				</form>
 			{:else if step === 2}
 				<div class="head">
-					<h1>{i18n.t('welcome.step2Title')}</h1>
+					<h1 tabindex="-1" bind:this={heading}>{i18n.t('welcome.step2Title')}</h1>
 					<p class="muted">{i18n.t('welcome.step2Body')}</p>
 				</div>
 				<div class="split">
 					<div class="body">
-						<LogoPicker brand={b} onchange={(nb) => ((b = nb), brand.set(nb))} />
-						<span class="label">{i18n.t('brand.position')}</span>
-						<PositionPicker value={b.position} onchange={setPosition} />
+						<LogoPicker brand={b} onchange={(nb) => brand.set(nb)} />
+						<span class="label" id="pos-label">{i18n.t('brand.position')}</span>
+						<PositionPicker value={position} onchange={(p) => (position = p)} labelledby="pos-label" />
 					</div>
-					<BrandPreview
-						logoUrl={b.hasLogo ? api.brandLogoUrl(b.logoVersion) : ''}
-						position={b.position}
-						opacityPct={b.opacityPct}
-						logoScalePct={b.logoScalePct}
-						text={sampleText}
-					/>
+					<div class="body">
+						<BrandPreview
+							logoUrl={b.hasLogo ? api.brandLogoUrl(b.logoVersion) : ''}
+							{position}
+							opacityPct={b.opacityPct}
+							logoScalePct={b.logoScalePct}
+							textFor={sampleFor}
+						/>
+						{#if !b.hasLogo}
+							<span class="muted hint">{i18n.t('brand.noLogoNote')}</span>
+						{/if}
+					</div>
 				</div>
 				<div class="actions">
-					<button type="button" class="link-btn" onclick={() => (step = 1)}>{i18n.t('welcome.back')}</button>
+					<button type="button" class="link-btn" onclick={() => goTo(1)} disabled={busy}>{i18n.t('welcome.back')}</button>
 					<button class="btn" type="button" onclick={next} disabled={busy}>{i18n.t('welcome.next')}</button>
 				</div>
 			{:else}
@@ -142,11 +193,18 @@
 					>
 				</span>
 				<div class="head">
-					<h1>{i18n.t('welcome.step3Title')}</h1>
-					<p class="muted">{i18n.t('welcome.step3Body')}</p>
+					<h1 tabindex="-1" bind:this={heading}>{i18n.t('welcome.step3Title')}</h1>
+					{#if b.hasLogo}
+						<p class="muted">{i18n.t('welcome.step3Body')}</p>
+					{:else}
+						<p class="muted">
+							{i18n.t('welcome.step3BodyNoLogo')}
+							<a href="/app/settings">{i18n.t('welcome.addLogoLater')}</a>
+						</p>
+					{/if}
 				</div>
 				<div class="actions end">
-					<a class="btn" href="/app">{i18n.t('welcome.start')}</a>
+					<a class="btn" href="/app?upload=1">{i18n.t('welcome.start')}</a>
 				</div>
 			{/if}
 		{/if}
@@ -233,7 +291,7 @@
 	}
 
 	.hint {
-		font-size: 0.78rem;
+		font-size: 0.8rem;
 		line-height: 1.45;
 	}
 
@@ -262,7 +320,53 @@
 		justify-content: flex-end;
 	}
 
+	.lead {
+		margin: 0 0 0.35rem;
+		font-size: 0.9rem;
+		line-height: 1.5;
+	}
+
+	.preview-1 {
+		margin-top: 0.6rem;
+		max-width: 520px;
+	}
+
+	h1:focus {
+		outline: none;
+	}
+
+	.skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 0.8rem;
+	}
+
+	.sk {
+		display: block;
+		border-radius: var(--radius-sm);
+		background: var(--border);
+	}
+
+	.sk-line {
+		width: 30%;
+		height: 0.7rem;
+	}
+
+	.sk-title {
+		width: 60%;
+		height: 1.5rem;
+	}
+
+	.sk-input {
+		width: 100%;
+		height: 2.6rem;
+	}
+
 	.link-btn {
+		min-height: 44px;
+		display: inline-flex;
+		align-items: center;
+		text-decoration: none;
 		appearance: none;
 		background: none;
 		border: none;

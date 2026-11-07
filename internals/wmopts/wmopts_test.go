@@ -1,6 +1,7 @@
 package wmopts
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -33,5 +34,48 @@ func TestDecodeRejectsForeignLogoKeys(t *testing.T) {
 	round := Decode(Encode(Opts{Company: "X", LogoKey: "brands/u/abc.png", Position: "tiled"}))
 	if round.Company != "X" || round.LogoKey != "brands/u/abc.png" || round.V != Version {
 		t.Errorf("round trip = %+v", round)
+	}
+}
+
+// A long text gives up the company first, then the date - never the
+// recipient, which is what ties a leaked file to whoever received it.
+func TestRenderTextFitKeepsTheRecipient(t *testing.T) {
+	now := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
+	tpl := "{company} · {recipient} · {date}"
+	company := strings.Repeat("Studio Foto si Video ", 4) // 84 runes
+	rcpt := "alice.popescu@example.com"
+
+	full := RenderText(tpl, company, rcpt, now)
+	if got := RenderTextFit(tpl, company, rcpt, now, 0); got != full {
+		t.Errorf("no budget: %q, want the full text", got)
+	}
+	cases := []struct {
+		budget int
+		want   string
+	}{
+		// No room for any company: dropped with its separator.
+		{38, "alice.popescu@example.com · 2026-11-07"},
+		// No room for the date either.
+		{30, "alice.popescu@example.com"},
+		// Not even the recipient fits: it stays whole (the font shrinks instead).
+		{10, "alice.popescu@example.com"},
+	}
+	for _, c := range cases {
+		got := RenderTextFit(tpl, company, rcpt, now, c.budget)
+		if got != c.want {
+			t.Errorf("budget %d: %q, want %q", c.budget, got, c.want)
+		}
+		if !strings.Contains(got, rcpt) {
+			t.Errorf("budget %d: recipient cut: %q", c.budget, got)
+		}
+	}
+	short := RenderTextFit(tpl, company, rcpt, now, 50)
+	if !strings.HasSuffix(strings.SplitN(short, " · ", 2)[0], Ellipsis) || len([]rune(short)) > 50 {
+		t.Errorf("budget 50: %q, want a shortened company ending in %q within 50 runes", short, Ellipsis)
+	}
+
+	// The operator's own template without a company: only the date can go.
+	if got := RenderTextFit("{recipient} · {date}", company, rcpt, now, 30); got != rcpt {
+		t.Errorf("no-company template: %q", got)
 	}
 }

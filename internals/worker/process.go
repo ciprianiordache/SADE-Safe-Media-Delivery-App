@@ -46,9 +46,16 @@ func (p *Pool) process(ctx context.Context, j Job) error {
 
 	brand := wmopts.Decode(j.WatermarkOpts)
 	overlay := overlayKind(j.WatermarkKind)
+	frameW := probe.Width
+	if frameW <= 0 && probe.Media != ffmpeg.MediaAudio {
+		// No width from ffprobe: size the logo and text for a common
+		// width rather than skip scaling silently.
+		frameW = ffmpeg.FallbackFrameWidth
+		p.log.Warn("worker: no frame width from ffprobe, assuming default", "job", j.ID, "width", frameW)
+	}
 	style := ffmpeg.Style{
 		Position: brand.Position, OpacityPct: brand.OpacityPct,
-		LogoScalePct: brand.LogoScalePct, FrameWidth: probe.Width,
+		LogoScalePct: brand.LogoScalePct, FrameWidth: frameW,
 	}
 	if brand.LogoKey != "" {
 		if path, ok := p.blob.LocalPath(brand.LogoKey); ok && fileExists(path) {
@@ -66,7 +73,8 @@ func (p *Pool) process(ctx context.Context, j Job) error {
 		OutputPath:  outPath,
 		Media:       probe.Media,
 		Overlay:     overlay,
-		Text:        p.renderText(j, brand),
+		Text:        p.renderText(j, brand, 0),
+		TextFor:     func(budget int) string { return p.renderText(j, brand, budget) },
 		DurationSec: probe.DurationSec,
 		Style:       style,
 	}); err != nil {
@@ -121,8 +129,10 @@ func (p *Pool) checksum(ctx context.Context, key string) (string, error) {
 }
 
 // renderText is the text burned in: the operator's own text for this file,
-// else the brand's template, else the server's.
-func (p *Pool) renderText(j Job, brand wmopts.Opts) string {
+// else the brand's template, else the server's. budget (characters, 0 = no
+// limit) shortens a template's company/date but never the recipient; the
+// operator's own text is never cut - only its font shrinks.
+func (p *Pool) renderText(j Job, brand wmopts.Opts, budget int) string {
 	if s := strings.TrimSpace(j.WatermarkText); s != "" {
 		return s
 	}
@@ -130,7 +140,7 @@ func (p *Pool) renderText(j Job, brand wmopts.Opts) string {
 	if t == "" {
 		t = p.cfg.TextTemplate
 	}
-	return wmopts.RenderText(t, brand.Company, j.RecipientEmail, time.Now())
+	return wmopts.RenderTextFit(t, brand.Company, j.RecipientEmail, time.Now(), budget)
 }
 
 func fileExists(path string) bool {

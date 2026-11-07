@@ -10,6 +10,7 @@
 	let busy = $state(false);
 	let error = $state('');
 	let dragging = $state(false);
+	let confirming = $state(false);
 
 	async function upload(file: File | undefined) {
 		if (!file) return;
@@ -40,7 +41,9 @@
 		}
 	}
 
+	// Removing deletes the stored file for good, so it takes a second click.
 	async function remove() {
+		confirming = false;
 		busy = true;
 		try {
 			onchange(await api.deleteLogo());
@@ -58,7 +61,7 @@
 	}
 </script>
 
-<div class="logo-picker">
+<div class="logo-picker" aria-busy={busy}>
 	{#if brand.hasLogo}
 		<div class="current">
 			<span class="thumb"><img src={api.brandLogoUrl(brand.logoVersion)} alt="" /></span>
@@ -66,7 +69,15 @@
 				<button type="button" class="btn btn-ghost small" onclick={() => input?.click()} disabled={busy}>
 					{busy ? i18n.t('brand.logoUploading') : i18n.t('brand.logoChange')}
 				</button>
-				<button type="button" class="text-btn" onclick={remove} disabled={busy}>{i18n.t('brand.logoRemove')}</button>
+				{#if confirming}
+					<span class="confirm" role="group" aria-label={i18n.t('brand.logoRemoveConfirm')}>
+						<span class="muted small-text">{i18n.t('brand.logoRemoveConfirm')}</span>
+						<button type="button" class="text-btn danger" onclick={remove} disabled={busy}>{i18n.t('brand.logoRemoveYes')}</button>
+						<button type="button" class="text-btn" onclick={() => (confirming = false)}>{i18n.t('brand.logoRemoveNo')}</button>
+					</span>
+				{:else}
+					<button type="button" class="text-btn" onclick={() => (confirming = true)} disabled={busy}>{i18n.t('brand.logoRemove')}</button>
+				{/if}
 			</div>
 		</div>
 	{:else}
@@ -95,8 +106,8 @@
 			</span>
 		</button>
 	{/if}
-	<span class="faint hint">{i18n.t('brand.logoHint')}</span>
-	{#if error}<span class="error-text hint">{error}</span>{/if}
+	<span class="muted hint">{i18n.t('brand.logoHint')} {i18n.t('brand.logoSavesNow')}</span>
+	{#if error}<span class="error-text hint" role="alert">{error}</span>{/if}
 	<input bind:this={input} type="file" accept="image/png,image/jpeg" style="display:none" onchange={(e) => upload(e.currentTarget.files?.[0])} />
 </div>
 
@@ -154,10 +165,27 @@
 		color: var(--text-muted);
 		cursor: pointer;
 		padding: 0.3rem;
+		min-height: 44px;
 	}
 
-	.text-btn:hover {
+	.text-btn:hover,
+	.text-btn.danger {
 		color: var(--danger);
+	}
+
+	.text-btn.danger {
+		font-weight: 600;
+	}
+
+	.confirm {
+		display: inline-flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+	}
+
+	.small-text {
+		font-size: 0.8rem;
 	}
 
 	.dropzone {

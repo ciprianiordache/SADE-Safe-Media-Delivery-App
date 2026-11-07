@@ -10,6 +10,12 @@
 	import MediaIcon from '$lib/components/MediaIcon.svelte';
 	import UsageMeter from '$lib/components/UsageMeter.svelte';
 	import PasskeyBanner from '$lib/components/PasskeyBanner.svelte';
+	import BrandBanner from '$lib/components/BrandBanner.svelte';
+	import LogoPicker from '$lib/components/LogoPicker.svelte';
+	import { renderWatermarkText } from '$lib/format';
+	import { page } from '$app/state';
+	import { replaceState } from '$app/navigation';
+	import { tick } from 'svelte';
 	import { onDestroy, onMount } from 'svelte';
 
 	// --- data -----------------------------------------------------------
@@ -100,6 +106,37 @@
 	// Unknown brand (not loaded, or the request failed): assume no logo, so
 	// the form never offers what the server will not do.
 	let hasLogo = $derived(brand.value?.hasLogo ?? false);
+	// What we know about the logo: 'unknown' while the brand loads (the kind
+	// control is shown neutral, with no message), 'none' once the server
+	// confirmed there is none, 'yes', or 'error'.
+	let logoState = $derived<'unknown' | 'none' | 'yes' | 'error'>(
+		brand.status === 'ready' ? (hasLogo ? 'yes' : 'none') : brand.status === 'error' ? 'error' : 'unknown'
+	);
+	let logoPanel = $state(false); // inline LogoPicker (keeps the chosen file and recipient)
+
+	// The text that would be burned in if the field is left empty.
+	let defaultText = $derived(
+		brand.value
+			? renderWatermarkText(brand.value.textTemplate, brand.value.companyName, recipientEmail.trim() || i18n.t('brand.sampleRecipient'))
+			: i18n.t('dashboard.watermarkTextPlaceholder')
+	);
+
+	// Arriving from the welcome page (?upload=1): bring the upload card into
+	// view and focus it once it is on screen, then drop the flag so a reload
+	// or Back does not do it again.
+	let uploadCard = $state<HTMLElement | null>(null);
+	let uploadFocused = false;
+	$effect(() => {
+		if (uploadFocused || !uploadCard || page.url.searchParams.get('upload') !== '1') return;
+		uploadFocused = true;
+		tick().then(() => {
+			uploadCard?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+			uploadCard?.querySelector<HTMLElement>('.dropzone, input')?.focus({ preventScroll: true });
+			const url = new URL(page.url);
+			url.searchParams.delete('upload');
+			replaceState(url, page.state);
+		});
+	});
 	// What is shown and sent. Derived, not written back into watermarkKind,
 	// so the operator's own choice returns once the brand has loaded.
 	let kind = $derived<WatermarkKind>(hasLogo ? watermarkKind : 'text');
@@ -289,11 +326,12 @@
 	<h1>{i18n.t('dashboard.title')}</h1>
 	<p class="subtitle muted">{i18n.t('dashboard.subtitle')}</p>
 	<PasskeyBanner />
+	<BrandBanner />
 	<UsageMeter {usage} />
 
 	<div class="layout">
 		<!-- new job -->
-		<section class="card new-job">
+		<section class="card new-job" bind:this={uploadCard}>
 			<span class="section-label">{i18n.t('dashboard.newJob')}</span>
 			<form onsubmit={submit}>
 				<div class="field">
@@ -373,17 +411,34 @@
 
 				<div class="field">
 					<span class="label" id="kind-label">{i18n.t('dashboard.watermarkLabel')}</span>
-					<div class="segmented" role="group" aria-labelledby="kind-label">
+					<div class="segmented" class:unknown={logoState === 'unknown'} role="group" aria-labelledby="kind-label" aria-busy={logoState === 'unknown'}>
 						{#each KINDS as k (k)}
-							<button type="button" aria-pressed={kind === k} onclick={() => pickKind(k)} disabled={submitting || (!hasLogo && k !== 'text')}>
+							<button
+								type="button"
+								aria-pressed={logoState === 'unknown' ? false : kind === k}
+								onclick={() => pickKind(k)}
+								disabled={submitting || logoState === 'unknown' || (!hasLogo && k !== 'text')}
+							>
 								{i18n.t(`dashboard.watermarkKind.${k}`)}
 							</button>
 						{/each}
 					</div>
-					{#if !hasLogo}
-						<span class="faint small">
-							{i18n.t('dashboard.logoNeeded')} <a href="/app/settings">{i18n.t('dashboard.logoAdd')}</a>
+					{#if logoState === 'none' && !logoPanel}
+						<span class="muted small">
+							{i18n.t('dashboard.logoNeeded')}
+							<button type="button" class="inline-link" onclick={() => (logoPanel = true)}>{i18n.t('dashboard.logoAdd')}</button>
 						</span>
+					{:else if logoState === 'error'}
+						<span class="muted small" role="alert">
+							{i18n.t('dashboard.brandLoadError')}
+							<button type="button" class="inline-link" onclick={() => brand.load()}>{i18n.t('common.retry')}</button>
+						</span>
+					{/if}
+					{#if logoPanel && brand.value}
+						<div class="logo-panel">
+							<LogoPicker brand={brand.value} onchange={(b) => brand.set(b)} />
+							<button type="button" class="inline-link" onclick={() => (logoPanel = false)}>{i18n.t('dashboard.logoClose')}</button>
+						</div>
 					{/if}
 				</div>
 
@@ -397,11 +452,11 @@
 							id="text"
 							type="text"
 							maxlength="200"
-							placeholder={i18n.t('dashboard.watermarkTextPlaceholder')}
+							placeholder={defaultText}
 							bind:value={watermarkText}
 							disabled={submitting}
 						/>
-						<span class="faint small">{i18n.t('dashboard.watermarkHint')}</span>
+						<span class="muted small">{i18n.t('dashboard.watermarkHint')}</span>
 					</div>
 				{/if}
 
@@ -622,6 +677,33 @@
 	.optional {
 		text-transform: none;
 		font-weight: 400;
+	}
+
+	.segmented.unknown button {
+		color: var(--text-muted);
+	}
+
+	.inline-link {
+		appearance: none;
+		background: none;
+		border: none;
+		padding: 0;
+		font: inherit;
+		color: var(--accent-tint-text);
+		text-decoration: underline;
+		cursor: pointer;
+	}
+
+	.logo-panel {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.5rem;
+		margin-top: 0.6rem;
+		padding: 0.8rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--bg);
 	}
 
 	.dropzone {

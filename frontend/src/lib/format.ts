@@ -57,3 +57,81 @@ export function renderWatermarkText(template: string, company: string, recipient
 	const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 	return t.split('{company}').join(company.trim()).split('{recipient}').join(recipient).split('{date}').join(date).trim();
 }
+
+// --- watermark text fit ----------------------------------------------------
+// Mirrors internals/ffmpeg/textfit.go (shared examples:
+// internals/ffmpeg/testdata/textfit.json). The preview has no real pixel
+// width, so it works in cqw on a 1920px reference frame - above the width
+// where the server's 18px font floor takes over, which is the only range
+// where the two promise to match. Change both sides together.
+const FIT = {
+	charWidth: 0.62, // estimated glyph advance, x font size
+	corner: 0.9, // share of the width one line may use
+	tiled: 0.3, // ... per copy when tiled (copies sit a third apart)
+	minScale: 0.6, // shrink this far before shortening the text
+	baseCqw: 2.2, // normal font size: 2.2% of the width
+	borderCqw: 8 / 19.2, // drawtext box border (8px at 1920px), each side
+	absMinCqw: 6 / 19.2 // never smaller (6px at 1920px)
+};
+
+export interface TextFit {
+	budget: number; // characters that fit at the smallest normal size
+	fontCqw: (chars: number) => number;
+}
+
+export function fitWatermarkText(position: string): TextFit {
+	const avail = (position === 'tiled' ? FIT.tiled : FIT.corner) * 100 - 2 * FIT.borderCqw;
+	const minCqw = FIT.baseCqw * FIT.minScale;
+	return {
+		budget: Math.max(1, Math.floor(avail / (FIT.charWidth * minCqw))),
+		fontCqw: (n) => (n <= 0 ? FIT.baseCqw : Math.min(FIT.baseCqw, Math.max(FIT.absMinCqw, avail / (FIT.charWidth * n))))
+	};
+}
+
+// Characters as Go counts them (code points, not UTF-16 units).
+export const charCount = (s: string) => [...s].length;
+
+// renderWatermarkTextFit mirrors wmopts.RenderTextFit: a too-long text
+// gives up the end of the company name, then the company, then the date -
+// never the recipient.
+export function renderWatermarkTextFit(template: string, company: string, recipient: string, budget: number): string {
+	const date = today();
+	const co = company.trim();
+	const full = renderParts(template, co, recipient, date);
+	if (budget <= 0 || charCount(full) <= budget) return full;
+	let current = full;
+	let keptCompany = co;
+	if (co) {
+		const without = renderParts(template, '', recipient, date);
+		if (charCount(without) < charCount(full)) {
+			const chars = [...co];
+			for (let n = chars.length - 1; n >= 3; n--) {
+				const t = renderParts(template, chars.slice(0, n).join('').trim() + '...', recipient, date);
+				if (charCount(t) <= budget) return t;
+			}
+			if (charCount(without) <= budget) return without;
+			current = without;
+			keptCompany = '';
+		}
+	}
+	const noDate = renderParts(template, keptCompany, recipient, '');
+	return charCount(noDate) < charCount(current) ? noDate : current;
+}
+
+function today(): string {
+	const d = new Date();
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function renderParts(template: string, company: string, recipient: string, date: string): string {
+	let t = template.trim() || '{recipient} · {date}';
+	for (const [ph, value] of [
+		['{company}', company],
+		['{date}', date]
+	] as const) {
+		if (!value) {
+			for (const sep of [`${ph} · `, ` · ${ph}`, `${ph} - `, ` - ${ph}`, ph]) t = t.split(sep).join('');
+		}
+	}
+	return t.split('{company}').join(company).split('{recipient}').join(recipient).split('{date}').join(date).trim();
+}

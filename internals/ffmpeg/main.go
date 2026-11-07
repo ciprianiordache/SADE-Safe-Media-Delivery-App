@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,10 +70,19 @@ func (e *Engine) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 
 	var raw struct {
 		Streams []struct {
-			CodecType string `json:"codec_type"`
-			Width     int    `json:"width"`
-			Height    int    `json:"height"`
-			NbFrames  string `json:"nb_frames"`
+			CodecType   string `json:"codec_type"`
+			Width       int    `json:"width"`
+			Height      int    `json:"height"`
+			NbFrames    string `json:"nb_frames"`
+			Disposition struct {
+				AttachedPic int `json:"attached_pic"`
+			} `json:"disposition"`
+			Tags struct {
+				Rotate string `json:"rotate"` // older muxers
+			} `json:"tags"`
+			SideData []struct {
+				Rotation float64 `json:"rotation"` // display matrix
+			} `json:"side_data_list"`
 		} `json:"streams"`
 		Format struct {
 			FormatName string `json:"format_name"`
@@ -85,12 +95,25 @@ func (e *Engine) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 
 	res := &ProbeResult{FormatName: raw.Format.FormatName}
 	res.DurationSec, _ = strconv.ParseFloat(raw.Format.Duration, 64)
+	sizedFromPicture := false // res.Width came from a real (non-cover) video stream
 	for _, s := range raw.Streams {
 		switch s.CodecType {
 		case "video":
 			res.HasVideo = true
-			if s.Width > res.Width {
-				res.Width, res.Height = s.Width, s.Height
+			cover := s.Disposition.AttachedPic == 1
+			if cover && sizedFromPicture {
+				break // cover art next to the real picture: not what gets watermarked
+			}
+			w, h := s.Width, s.Height
+			// ffmpeg auto-rotates on decode, so a phone video stored 1920x1080
+			// with a 90 degree rotation is rendered 1080 wide.
+			if quarterTurn(rotationOf(s.Tags.Rotate, s.SideData)) {
+				w, h = h, w
+			}
+			// A real picture always beats cover art; among equals, the widest.
+			if (!cover && !sizedFromPicture) || w > res.Width {
+				res.Width, res.Height = w, h
+				sizedFromPicture = !cover
 			}
 		case "audio":
 			res.HasAudio = true
@@ -115,6 +138,26 @@ func (e *Engine) Probe(ctx context.Context, path string) (*ProbeResult, error) {
 // derived from an assumed frame rate (25fps by default) rather than leaving
 // duration at zero - notably "image2", the demuxer JPEG/MJPEG stills go
 // through - so DurationSec == 0 alone misclassifies a plain .jpg as video.
+// rotationOf returns a stream's rotation in degrees: the display matrix
+// (side data) when present, else the legacy "rotate" tag.
+func rotationOf(tag string, side []struct {
+	Rotation float64 `json:"rotation"`
+}) float64 {
+	for _, sd := range side {
+		if sd.Rotation != 0 {
+			return sd.Rotation
+		}
+	}
+	r, _ := strconv.ParseFloat(strings.TrimSpace(tag), 64)
+	return r
+}
+
+// quarterTurn reports whether a rotation swaps width and height (+-90, +-270).
+func quarterTurn(deg float64) bool {
+	d := int(math.Round(deg)) % 180
+	return d == 90 || d == -90
+}
+
 // Every Probe call here is against a single already-stored file, never an
 // actual image-sequence pattern, so this name always means "still image".
 func isStillImageFormat(name string) bool {
@@ -139,7 +182,8 @@ func (e *Engine) Watermark(ctx context.Context, req Request) error {
 			return fmt.Errorf("ffmpeg: create text file: %w", err)
 		}
 		defer os.Remove(f.Name())
-		_, werr := f.WriteString(SanitizeText(req.Text))
+		text := e.fitText(&req)
+		_, werr := f.WriteString(text)
 		if cerr := f.Close(); werr == nil {
 			werr = cerr
 		}

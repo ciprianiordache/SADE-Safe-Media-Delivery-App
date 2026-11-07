@@ -53,6 +53,12 @@ type Request struct {
 	// Style is the operator's brand for this job. Its zero value means "use
 	// the configured defaults", exactly as before brands existed.
 	Style Style
+
+	// TextFor, when set, builds the watermark text for a character budget
+	// (see FitText): text longer than the budget must be shortened by the
+	// caller, who knows which part may go (the company, never the
+	// recipient). It replaces Text. Watermark calls it once.
+	TextFor func(budget int) string
 }
 
 // Style overrides the configured look of a visual watermark for one
@@ -62,6 +68,9 @@ type Style struct {
 	Position     string // top-left|top-right|bottom-left|bottom-right|center|tiled
 	OpacityPct   int    // 1..100
 	LogoScalePct int    // logo width as a percentage of the frame width
+	// FontPx, when set, is the text size chosen by FitText (Watermark sets
+	// it); 0 keeps the frame's normal size.
+	FontPx int
 	// FrameWidth is the source's width (from Probe). With it, the logo
 	// (LogoScalePct), text size and margin scale with the picture instead of
 	// being fixed pixels - tiny on 4K, huge on a thumbnail.

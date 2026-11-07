@@ -28,6 +28,16 @@
 		return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
 	});
 
+	// The dashboard waits for the brand (or its failure) before it renders:
+	// a brand-new account goes straight to the welcome page instead of
+	// glimpsing an empty dashboard first. Other /app pages render at once.
+	let holdDashboard = $derived(
+		page.url.pathname === '/app' &&
+			(brand.status === 'idle' ||
+				brand.status === 'loading' ||
+				(brand.status === 'ready' && !!brand.value && !brand.value.onboarded))
+	);
+
 	let menuOpen = $state(false);
 	let chipEl = $state<HTMLDivElement | undefined>();
 
@@ -102,10 +112,41 @@
 			</div>
 		</div>
 	</div>
-	{@render children()}
+	{#if holdDashboard}
+		<div class="container hold" aria-busy="true" aria-label={i18n.t('common.loading')}>
+			<span class="sk sk-title"></span>
+			<span class="sk sk-row"></span>
+			<span class="sk sk-row"></span>
+		</div>
+	{:else}
+		{@render children()}
+	{/if}
 {/if}
 
 <style>
+	.hold {
+		display: flex;
+		flex-direction: column;
+		gap: 0.9rem;
+		padding-top: 2rem;
+	}
+
+	.sk {
+		display: block;
+		border-radius: var(--radius-sm);
+		background: var(--border);
+	}
+
+	.sk-title {
+		width: 40%;
+		height: 1.6rem;
+	}
+
+	.sk-row {
+		width: 100%;
+		height: 3.2rem;
+	}
+
 	.loading {
 		padding: 2rem 0;
 	}

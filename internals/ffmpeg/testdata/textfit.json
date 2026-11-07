@@ -1,0 +1,8 @@
+[
+  {"name": "1080p corner, short text keeps its size", "frameW": 1920, "pos": "bottom-right", "basePx": 42, "chars": 41, "wantPx": 42, "wantBudget": 110},
+  {"name": "1080p corner, long text shrinks", "frameW": 1920, "pos": "bottom-right", "basePx": 42, "chars": 115, "wantPx": 24, "wantBudget": 110},
+  {"name": "720p tiled, one copy per third", "frameW": 1280, "pos": "tiled", "basePx": 28, "chars": 41, "wantPx": 14, "wantBudget": 37},
+  {"name": "narrow 375px image, corner", "frameW": 375, "pos": "top-left", "basePx": 18, "chars": 41, "wantPx": 12, "wantBudget": 51},
+  {"name": "no width reported: 1280 assumed", "frameW": 0, "pos": "bottom-right", "basePx": 18, "chars": 41, "wantPx": 18, "wantBudget": 183},
+  {"name": "recipient alone too long: below the floor, never below 6", "frameW": 375, "pos": "tiled", "basePx": 18, "chars": 60, "wantPx": 6, "wantBudget": 15}
+]
