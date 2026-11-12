@@ -155,7 +155,20 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** `/impeccable critique` of the WHOLE web frontend (26/40, snapshot
+**Latest:** new README screenshots + README rewrite (user: delete the stray root PNGs, new shots,
+update the README). `docs/`: `dashboard.png`, `dashboard-dark.png`, `job.png`, `brand.png`,
+`email.png`, `preview.png`, `mobile.png`, `unlocked.png` (1600px wide, from 2x captures; mobile
+600, email 900). Taken from the demo operator on a temporary 8091 instance: today's test jobs
+deleted, four deliveries uploaded from the marketing page's licensed wedding photos +
+`docs/test.mp4`, one paid in Stripe TEST mode by confirming its PaymentIntent with `pm_card_visa`,
+Stripe's test-mode badge hidden for the shots. Found on the way and fixed: on the recipient page
+(>= 900px) a payment form taller than the picture stretched the dark stage, leaving a black band
+above the photo - the stage now `align-self: start`; "Linkul rămâne valabil — ..." lost its em
+dash. README: new intro/flow (one email, `/preview` page, recipient in every watermark), a
+screenshot tour, architecture adds the installed app and email, commands add `cmd/emailpreview`,
+`cmd/seed`, `npm run build:app`, Status rewritten. Not committed.
+
+**Before that:** `/impeccable critique` of the WHOLE web frontend (26/40, snapshot
 `.impeccable/critique/2026-11-12T08-53-19Z__frontend-src.md`; detector CLI clean, overlay found one
 real contrast issue) and all five fixes (user: watermark + recipient first, show the sender's
 account email on the recipient page, all 5):

@@ -319,6 +319,14 @@
 		grid-template-columns: minmax(0, 1fr);
 	}
 
+	/* Beside a taller payment form, the stage hugs the picture instead of
+	   stretching to the form's height (a black band above and below it). */
+	@media (min-width: 900px) {
+		.viewer-body > .media {
+			align-self: start;
+		}
+	}
+
 	@media (max-width: 899px) {
 		.viewer-body {
 			grid-template-columns: minmax(0, 1fr);

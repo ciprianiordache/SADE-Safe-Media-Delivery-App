@@ -1,36 +1,61 @@
 # SADE — Safe Media Delivery
 
-SADE lets an operator upload a video/audio/image file, watermarks it
-asynchronously, and emails the recipient a signed link to the watermarked
-preview — no account needed on the recipient's end. The recipient can pay
-(Stripe) to unlock the clean original.
+SADE delivers video, audio and image files to an operator's clients with a
+watermark that carries the operator's brand **and the recipient's own email
+address**, so a leaked copy points to the person it was sent to. The
+recipient opens the file in the browser with no account, and can pay
+(Stripe, embedded in SADE's own page) to unlock the clean original.
 
-Flow: operator signs in via magic link → uploads a file from the dashboard →
-the job is queued → a worker watermarks it in the background → the recipient
-gets emailed a `/p/<token>` (view) and `/d/<token>` (download) link to the
-preview → they can pay to unlock the original via a third signed link,
-`/o/<token>`.
+Flow: the operator signs in with a magic link (or a 6-digit code, or a
+passkey) → uploads a file and the recipient's address → a worker watermarks
+it in the background → the recipient gets one email with a link to their
+`/preview/<token>` page → they watch the watermarked copy and, when payments
+are on, pay to download the original → the operator sees every step (sent,
+opened, paid) on the dashboard, and can copy the link, resend it, or switch
+it off.
+
+The interface is Romanian first, with English as the second language.
 
 ## Screenshots
 
-**Operator dashboard** — upload form, plus a searchable, filterable job list
-with live status.
+**Deliveries** — every file sent, who it went to and what the client did
+with it (sent, opened, paid). The list and the open delivery sit side by
+side: the watermarked picture, the payment, the recipient's link and the
+history.
 
-![Operator dashboard](docs/dashboard.png)
+![Deliveries dashboard](docs/dashboard.png)
 
-**Job detail** — status stepper, an inline player for the operator's own
-files, and file metadata.
+The same in the dark theme:
 
-![Job detail](docs/job.png)
+![Deliveries dashboard, dark theme](docs/dashboard-dark.png)
 
-**Recipient preview** — the public, login-free page a recipient lands on from
-the email: the watermarked preview next to an embedded Stripe Payment Element
-to unlock the clean original.
+**One delivery** — the watermarked copy and the original, the payment row,
+copy / resend / switch the links off, and the delivery history.
 
-![Recipient preview](docs/preview.png)
+![Delivery page](docs/job.png)
 
-**Original unlocked** — the same page once the payment clears: the recipient
-gets a download of the clean, unwatermarked original.
+**Brand** — what goes into every watermark: the logo, the company name, the
+date, the whole-picture grid. The client's address is always on, and the
+preview shows the result as it will be burned in.
+
+![Brand settings](docs/brand.png)
+
+**The email the recipient gets** — who sent the file, what it is, and one
+button to the page. Replies go to the operator.
+
+<img src="docs/email.png" alt="Delivery email" width="600">
+
+**The recipient's page** — the file name, the verified sender, the
+watermarked copy and the Stripe Payment Element, all on SADE's own page.
+
+![Recipient page](docs/preview.png)
+
+On a phone:
+
+<img src="docs/mobile.png" alt="Recipient page on a phone" width="300">
+
+**Original unlocked** — once the payment clears, the recipient downloads the
+clean original.
 
 ![Original unlocked](docs/unlocked.png)
 
@@ -39,17 +64,30 @@ gets a download of the clean, unwatermarked original.
 - **Backend**: Go, no ORM. `internals/database` wraps two libraries over the
   same `db`-tagged structs — [schema-builder](https://github.com/ciprianiordache/schema-builder)
   migrates the schema at boot, [crud-depot](https://github.com/ciprianiordache/crud-depot) does
-  runtime CRUD. Postgres in production, SQLite in tests.
+  runtime CRUD, plus a small append-only migration list for column changes.
+  Postgres in production, SQLite in tests.
 - **Frontend**: SvelteKit 2 / Svelte 5, built as a static SPA (`adapter-static`)
-  and served by the Go binary itself — one process, one deploy artifact.
+  and served by the Go binary itself — one process, one deploy artifact. The
+  marketing page (`frontend/static/index.html`) is served at `/`, the app at
+  `/app`.
+- **Installed app**: the same SvelteKit code built with `npm run build:app`
+  and wrapped in Tauri 2 (`frontend/src-tauri`) for Windows, macOS and Linux.
+  It signs in with a bearer token instead of a cookie and loads media through
+  short-lived signed links. Installers are built by
+  `.github/workflows/desktop.yml` and offered on `/descarca`.
 - **Worker**: an in-process pool polls for pending jobs and drives them through
-  `ffmpeg`/`ffprobe` (shelled out directly, no wrapper library).
+  `ffmpeg`/`ffprobe` (shelled out directly, no wrapper library). Every copy
+  names its recipient: the brand's template, the operator's own text and the
+  logo-only kind all burn the recipient's address in.
 - **Payments**: Stripe Elements (a `PaymentIntent` + the client-side Payment
   Element embedded in SADE's own page), not a redirect to Stripe's hosted
   Checkout.
+- **Email**: branded HTML + plain text (`internals/emailtmpl`), table-based
+  with Outlook-specific markup, the logo embedded as an inline part.
 
 See `CLAUDE.md` for the full per-domain breakdown and the project's decision
-history; `docs/SADE-plan.pdf` for the original build plan.
+history, `PRODUCT.md` and `DESIGN.md` for the product and visual records, and
+`docs/SADE-plan.pdf` for the original build plan.
 
 ## Prerequisites
 
@@ -268,8 +306,23 @@ runs the watermark engine on one file with a live progress bar — a manual
 smoke test of `internals/ffmpeg` independent of the rest of the app; needs
 `ffmpeg`/`ffprobe` on `PATH`.
 
+```bash
+go run ./cmd/emailpreview -out DIR [-send ADDRESS]
+```
+renders the three transactional emails (sign-in, new sign-in alert, delivery)
+to `.html` files with sample data; `-send` also mails them through the
+configured mailer, to see them in a real inbox.
+
+```bash
+go run ./cmd/seed          # destructive: empties every table, seeds a demo
+go run ./cmd/seed -links   # read-only: prints /preview links for done jobs
+```
+
 Frontend (from `frontend/`): `npm run dev`, `npm run build`, `npm run
-preview`, `npm run check` (type checking; no separate lint step).
+preview`, `npm run check` (type checking; no separate lint step). The installed
+app: `npm run build:app` (static build in `frontend/build-app`), then
+`npx tauri build` from `frontend/` (needs Rust; installers land in
+`frontend/src-tauri/target/release/bundle`).
 
 ## Testing
 
@@ -296,10 +349,15 @@ skip automatically when those aren't on `PATH`, rather than failing.
 
 ## Status
 
-M1–M6 in progress — the whole app works end to end (upload → watermark →
-signed preview link → optional paid unlock of the original). See
-`CLAUDE.md`'s "Resume here" section for exactly what's shipped and what's
-left on the M6 hardening pass (currently: a retry/backoff review, done; rate
-limiting on the magic-link request route, done; ffprobe-based upload
-validation, done; remaining: wiring the frontend build into deployment, and
-production Stripe webhook registration).
+The whole product works end to end: sign-in (magic link bound to the
+browser, 6-digit code, passkeys, new-device alerts), brand setup, upload →
+watermark with the recipient's address → one email → the recipient's page →
+optional paid unlock of the original, plus delivery history, resend and
+links on/off for the operator. The web app and the installed desktop app
+share one codebase.
+
+Still open: code signing and an updater for the desktop app, iOS and
+Android builds, a production deployment (a stable domain for
+`APP_PUBLIC_URL` and a registered Stripe webhook), S3 storage, and
+operator plans/billing. `CLAUDE.md`'s "Resume here" section has the
+detailed log.
