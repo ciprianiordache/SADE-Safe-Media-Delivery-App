@@ -284,20 +284,17 @@
 			{/if}
 		{/if}
 	{#if IS_APP}
-		<div class="server">
-			{#if editingServer}
-				<form class="server-form" onsubmit={saveServer}>
-					<label for="server">{i18n.t('login.serverLabel')}</label>
-					<div class="server-row">
-						<input id="server" type="url" required placeholder="https://" bind:value={server} />
-						<button class="btn btn-ink btn-sm" type="submit">{i18n.t('login.serverSave')}</button>
-					</div>
-				</form>
-			{:else}
-				<span class="muted small">{i18n.t('login.serverLabel')}: <span class="mono">{server}</span></span>
-				<button type="button" class="link-btn" onclick={() => (editingServer = true)}>{i18n.t('login.serverChange')}</button>
-			{/if}
-		</div>
+		<details class="server" bind:open={editingServer}>
+			<summary>{i18n.t('login.advanced')}</summary>
+			<form class="server-form" onsubmit={saveServer}>
+				<label for="server">{i18n.t('login.serverLabel')}</label>
+				<div class="server-row">
+					<input id="server" type="url" required placeholder="https://" bind:value={server} />
+					<button class="btn btn-ink btn-sm" type="submit">{i18n.t('login.serverSave')}</button>
+				</div>
+				<span class="muted small">{i18n.t('login.serverHint')}</span>
+			</form>
+		</details>
 	{/if}
 </AuthShell>
 
@@ -467,16 +464,29 @@
 	}
 
 	.server {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 0 6px;
-		padding-top: 14px;
+		padding-top: 10px;
 		border-top: 1px solid var(--line);
+	}
+
+	.server summary {
+		display: inline-flex;
+		align-items: center;
+		min-height: 36px;
+		font-size: 0.85rem;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.server summary:hover {
+		color: var(--text);
 	}
 
 	.server-form {
 		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding-top: 6px;
 	}
 
 	.server-row {

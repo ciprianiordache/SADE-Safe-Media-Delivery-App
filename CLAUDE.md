@@ -155,7 +155,41 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** new README screenshots + README rewrite (user: delete the stray root PNGs, new shots,
+**Latest:** ninth `/impeccable critique` of the installed app (26/40, snapshot
+`.impeccable/critique/2026-11-12T16-49-08Z__frontend-src-tauri.md`; detector over CDP: only the
+cream-palette / PositionPicker false positives, contrast clean) and all six fixes (user: behaviour
+first, all 6; login: my recommendation = hide the server, no sade:// deep link yet - the email's
+6-digit code already covers sign-in from the app):
+- **File drops**: `tauri.conf.json` window `dragDropEnabled: false` - Tauri 2's default swallowed
+  OS file drops on Windows before the page's HTML5 `drop` (upload dropzone, LogoPicker). Not
+  tested with a real Explorer drag (CDP cannot do an OS drag) - try it once by hand.
+- **Server down**: `routes/app/+page.svelte` `loadJobs` now catches: `loadError` + `lastLoaded`;
+  with no jobs yet it shows "Nu ne putem conecta la server" + Reîncearcă (never the empty account /
+  upload form - `showUpload` requires `!loadError`); with jobs it keeps the list and the bar says
+  "Fără conexiune · actualizat la HH:MM · Reîncearcă". The poll also refreshes every ~32s when
+  nothing is processing (opened/paid show up, a returning server is noticed). `routes/app/
+  +layout.svelte` boots through `boot()` with a catch: a full-window "Nu ne putem conecta la
+  server" + Reîncearcă (with window controls in the app) instead of a blank window. Verified live:
+  app started with the server down -> error screen -> server up -> Reîncearcă -> list; server
+  stopped mid-session -> offline line, list kept.
+- **Look**: in the app `.st` is a dot and a word (no border/fill; `html.is-app .st`); menu items
+  in `AccountMenu` focus as a filled row (no orange ring); the account menu no longer repeats
+  "Livrări" in the app; Brand's settings icon is a picture, not a shield; Security's passkey note
+  (the app cannot use passkeys) moved from first to last; Security's window title is
+  "Securitate · SADE". Settings' white groups on the tinted ground were kept on purpose - that is
+  Windows 11 Settings' own pattern.
+- **Keyboard**: the delivery rows are one Tab stop (`focusRowId`: the open row, else the first;
+  `tabindex` 0/-1 when `wide`), arrows + Home/End move inside the list.
+- **Bug**: an in-app link to `/app?job=<id>` while on /app now opens the pane (`$effect` on
+  `page.url`).
+- **Login (app)**: the server address sits in a `<details>` "Opțiuni avansate" ("Adresa serverului
+  SADE", with a hint), not on the sign-in screen itself.
+- Not done: multi-select/batch, header sort, a "System" theme option, native notifications, a
+  `sade://` deep link, the file page vs pane duplication (open product question).
+- `npm run check` clean; app rebuilt (`npx tauri build --no-bundle`). Installer not rebuilt /
+  not copied to `downloads/`. Not committed.
+
+**Before that:** new README screenshots + README rewrite (user: delete the stray root PNGs, new shots,
 update the README). `docs/`: `dashboard.png`, `dashboard-dark.png`, `job.png`, `brand.png`,
 `email.png`, `preview.png`, `mobile.png`, `unlocked.png` (1600px wide, from 2x captures; mobile
 600, email 900). Taken from the demo operator on a temporary 8091 instance: today's test jobs

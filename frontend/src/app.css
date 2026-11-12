@@ -634,6 +634,17 @@ summary:focus-visible {
 	box-shadow: none;
 }
 
+html.is-app .st {
+	height: auto;
+	padding: 0;
+	background: none;
+	box-shadow: none;
+}
+
+html.is-app .st::before {
+	opacity: 1;
+}
+
 /* The round chip of the job panel ("Plătit", "Link-uri active"). */
 .chip {
 	display: inline-flex;

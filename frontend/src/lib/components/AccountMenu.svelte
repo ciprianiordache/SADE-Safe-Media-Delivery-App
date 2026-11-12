@@ -96,7 +96,9 @@
 					<span class="avatar" data-tone={tone(auth.user.email)} aria-hidden="true">{initials(auth.user.email)}</span>
 					<span class="mono">{auth.user.email}</span>
 				</div>
-				<a class="menu-item" class:narrow-only={!alwaysNav} href="/app" onclick={() => (menuOpen = false)}>{i18n.t('nav.deliveries')}</a>
+				{#if !alwaysNav}
+					<a class="menu-item narrow-only" href="/app" onclick={() => (menuOpen = false)}>{i18n.t('nav.deliveries')}</a>
+				{/if}
 				<a class="menu-item" href="/app/settings" onclick={() => (menuOpen = false)}>{i18n.t('nav.settings')}</a>
 				<div class="menu-sep"></div>
 				<div class="menu-pref">
@@ -247,9 +249,11 @@
 		cursor: pointer;
 	}
 
-	.menu-item:hover {
+	.menu-item:hover,
+	.menu-item:focus-visible {
 		background: var(--fill);
 		color: var(--text);
+		outline: none;
 	}
 
 	.menu-pref {

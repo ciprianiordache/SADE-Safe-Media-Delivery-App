@@ -20,7 +20,7 @@
 			{#each SECTIONS as s (s.href)}
 				<a class="side-item" href={s.href} aria-current={page.url.pathname === s.href ? 'page' : undefined}>
 					{#if s.icon === 'brand'}
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 L20 6 V12 C20 16.5 16.5 20 12 21 C7.5 20 4 16.5 4 12 V6 Z" /></svg>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M3.5 15.5 9 10.5l4 4 2.5-2.5 5 4.5" /><path d="M14.5 8.5h3" /></svg>
 					{:else}
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5" /><path d="M8 11 V8 a4 4 0 0 1 8 0 v3" /></svg>
 					{/if}

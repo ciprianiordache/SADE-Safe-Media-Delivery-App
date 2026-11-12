@@ -62,15 +62,38 @@
 		}
 	}
 
+	// A failed load is its own state: never shown as an empty account (which
+	// would also open the upload form), and an already-loaded list stays, with
+	// when it was last fresh.
+	let loadError = $state(false);
+	let lastLoaded = $state<Date | null>(null);
+	let retrying = $state(false);
+
 	async function loadJobs() {
 		try {
 			const next = await api.listJobs(0, 200);
 			if (!jobsLoading) announceFinished(jobs, next);
 			jobs = next;
+			loadError = false;
+			lastLoaded = new Date();
+		} catch {
+			// A 401 is handled by the layout (back to sign-in); anything else
+			// means the server could not be reached or failed.
+			loadError = true;
 		} finally {
 			jobsLoading = false;
 		}
 	}
+
+	async function retryLoad() {
+		retrying = true;
+		await loadJobs();
+		retrying = false;
+	}
+
+	let lastLoadedText = $derived(
+		lastLoaded ? lastLoaded.toLocaleTimeString(i18n.locale === 'ro' ? 'ro-RO' : 'en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
+	);
 
 	// --- the split view --------------------------------------------------
 		// From 1024px the window is the marketing page's picture: the list on the
@@ -82,7 +105,16 @@
 	let paneMode = $state<'job' | 'upload'>('job');
 	let selectedId = $state(page.url.searchParams.get('job') ?? '');
 	let selectedJob = $derived(jobs.find((j) => j.id === selectedId));
-		let showUpload = $derived(paneMode === 'upload' || (!jobsLoading && jobs.length === 0));
+	// A link to /app?job=<id> while already here is a real navigation that
+	// keeps this page: follow it (shallow replaceState never changes page.url).
+	$effect(() => {
+		const q = page.url.searchParams.get('job');
+		if (q) {
+			selectedId = q;
+			paneMode = 'job';
+		}
+	});
+		let showUpload = $derived(paneMode === 'upload' || (!jobsLoading && !loadError && jobs.length === 0));
 	// The web opens the newest delivery by default; the installed app keeps
 	// the list full width until a row (or "Fișier nou") opens the pane.
 	let paneOpen = $derived(!IS_APP || showUpload || !!selectedJob);
@@ -131,10 +163,12 @@
 
 	// Wide: Up/Down on a row open the previous/next delivery and keep focus
 	// on it, as in a mail client. Narrow: rows are plain links.
+
 	function onRowsKey(e: KeyboardEvent) {
-		if (!wide || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+		if (!wide || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
 		const i = pageJobs.findIndex((j) => j.id === selectedId);
-		const next = pageJobs[e.key === 'ArrowDown' ? Math.min(pageJobs.length - 1, i + 1) : Math.max(0, i - 1)];
+		const at = e.key === 'Home' ? 0 : e.key === 'End' ? pageJobs.length - 1 : e.key === 'ArrowDown' ? Math.min(pageJobs.length - 1, i + 1) : Math.max(0, i - 1);
+		const next = pageJobs[at];
 		if (!next) return;
 		e.preventDefault();
 		selectedId = next.id;
@@ -306,9 +340,14 @@
 		} catch {
 			// no storage - keep the default
 		}
+		let ticks = 0;
 		pollHandle = setInterval(() => {
 			if (document.hidden) return;
-			if (jobs.some((j) => j.status === 'pending' || j.status === 'processing')) loadJobs();
+			ticks++;
+			// Fast while a file is being watermarked; otherwise every ~30s, so
+			// "opened" and "paid" show up without a reload, and a server that
+			// came back is noticed.
+			if (jobs.some((j) => j.status === 'pending' || j.status === 'processing') || loadError || ticks % 8 === 0) loadJobs();
 		}, 4000);
 				return () => {
 			mq.removeEventListener('change', onMq);
@@ -617,6 +656,9 @@
 
 	let totalPages = $derived(Math.max(1, Math.ceil(sortedJobs.length / PAGE_SIZE)));
 	let pageJobs = $derived(sortedJobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE));
+	// The rows are one Tab stop (the open row, else the first): Tab moves past
+	// the list, the arrows, Home and End move inside it.
+	let focusRowId = $derived(pageJobs.some((j) => j.id === selectedId) ? selectedId : (pageJobs[0]?.id ?? ''));
 
 	$effect(() => {
 		// Narrowing the result set can strand currentPage past the last page.
@@ -869,6 +911,13 @@
 					<b>{overlay && paneOpen ? (showUpload ? i18n.t('dashboard.newJob') : (selectedJob?.fileName ?? selectedJob?.recipientEmail ?? '')) : typeFilter === 'all' ? i18n.t(`dashboard.filter.${filter}`) : i18n.t(`dashboard.type.${typeFilter}`)}</b>
 				</span>
 								<span class="sp" data-tauri-drag-region></span>
+				{#if loadError && jobs.length > 0}
+					<span class="offline" role="status">
+						<i aria-hidden="true"></i>
+						{i18n.t('dashboard.offline', { time: lastLoadedText })}
+						<button type="button" class="link-u" onclick={retryLoad} disabled={retrying}>{i18n.t('common.retry')}</button>
+					</span>
+				{/if}
 				{#if jobs.length > 0}
 					<label class="search">
 						<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
@@ -945,6 +994,14 @@
 							<div class="sk-list" aria-hidden="true">
 								{#each [0, 1, 2, 3] as i (i)}<span class="sk sk-line"></span>{/each}
 							</div>
+						{:else if loadError && jobs.length === 0}
+							<div class="empty load-error" role="alert">
+								<h2>{i18n.t('dashboard.loadErrorTitle')}</h2>
+								<p class="muted">{i18n.t('dashboard.loadErrorBody')}</p>
+								<button type="button" class="btn btn-ink btn-sm" onclick={retryLoad} disabled={retrying}>
+									{retrying ? i18n.t('dashboard.retrying') : i18n.t('common.retry')}
+								</button>
+							</div>
 						{:else if jobs.length === 0}
 							<div class="empty">
 								<span class="empty-files" aria-hidden="true">
@@ -974,12 +1031,12 @@
 								</div>
 							{:else}
 																<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-								<ul class="rows" bind:this={rowsEl} onkeydown={onRowsKey} aria-keyshortcuts="ArrowUp ArrowDown" aria-label={i18n.t('dashboard.listLabel')}>
+								<ul class="rows" bind:this={rowsEl} onkeydown={onRowsKey} aria-keyshortcuts="ArrowUp ArrowDown Home End" aria-label={i18n.t('dashboard.listLabel')}>
 									{#each pageJobs as job (job.id)}
 										{@const st = deliveryState(job)}
 										{@const sel = wide && !showUpload && job.id === selectedId}
 										<li>
-											<a class="row" class:is-sel={sel} class:is-ctx={ctx?.id === job.id} data-id={job.id} href={`/app/jobs/${job.id}`} onclick={(e) => select(e, job.id)} oncontextmenu={(e) => openCtx(e, job.id)} onkeydown={(e) => onRowKey(e, job.id)} aria-current={sel ? 'true' : undefined} aria-haspopup={IS_APP ? 'menu' : undefined}>
+											<a class="row" class:is-sel={sel} class:is-ctx={ctx?.id === job.id} data-id={job.id} href={`/app/jobs/${job.id}`} onclick={(e) => select(e, job.id)} oncontextmenu={(e) => openCtx(e, job.id)} onkeydown={(e) => onRowKey(e, job.id)} tabindex={wide ? (job.id === focusRowId ? 0 : -1) : undefined} aria-current={sel ? 'true' : undefined} aria-haspopup={IS_APP ? 'menu' : undefined}>
 												<span class="avatar" data-tone={tone(job.recipientEmail)} aria-hidden="true">{initials(job.recipientEmail)}</span>
 												<span class="who">{job.recipientEmail}</span>
 												<span class="sub">{subLine(job)}</span>
@@ -1121,6 +1178,40 @@
 	.crumb b {
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	/* The server stopped answering: the list stays, saying how old it is. */
+	.offline {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		flex: none;
+		font-size: 0.82rem;
+		color: var(--text-muted);
+		white-space: nowrap;
+	}
+
+	.offline i {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--warning);
+	}
+
+	.offline button {
+		appearance: none;
+		border: none;
+		background: none;
+		padding: 0;
+		font: inherit;
+		color: var(--text);
+		text-decoration: underline;
+		text-underline-offset: 3px;
+		cursor: pointer;
+	}
+
+	.load-error .btn {
+		margin-top: 6px;
 	}
 
 	.search {

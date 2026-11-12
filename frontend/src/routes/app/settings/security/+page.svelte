@@ -167,7 +167,7 @@
 </script>
 
 <svelte:head>
-	<title>{i18n.t('settings.title')} · SADE</title>
+	<title>{i18n.t('settings.tabSecurity')} · SADE</title>
 </svelte:head>
 
 <div class="container page">
@@ -182,14 +182,7 @@
 		<!-- passkeys: a heading and its text on the left, the panel on the right -->
 		<!-- Passkeys are tied to the server's domain, so the app cannot create
 		     or use them; they are managed from SADE in the browser. -->
-		{#if IS_APP}
-		<section class="set-row" aria-labelledby="pk-title">
-			<div class="set-head">
-				<h2 id="pk-title">{i18n.t('settings.passkeysTitle')}</h2>
-				<p class="muted intro">{i18n.t('settings.passkeysAppNote')}</p>
-			</div>
-		</section>
-		{:else}
+		{#if !IS_APP}
 		<section class="set-row" id="passkeys" aria-labelledby="pk-title">
 			<div class="set-head">
 				<h2 id="pk-title">{i18n.t('settings.passkeysTitle')}</h2>
@@ -351,6 +344,17 @@
 			{/if}
 			</div>
 		</section>
+
+		{#if IS_APP}
+			<!-- In the app passkeys can only be pointed to (they belong to the
+			     server's domain), so this note comes last, not first. -->
+			<section class="set-row" aria-labelledby="pk-title">
+				<div class="set-head">
+					<h2 id="pk-title">{i18n.t('settings.passkeysTitle')}</h2>
+					<p class="muted intro">{i18n.t('settings.passkeysAppNote')}</p>
+				</div>
+			</section>
+		{/if}
 	{/if}
 </div>
 

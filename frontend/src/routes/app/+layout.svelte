@@ -13,16 +13,40 @@
 
 	let { children } = $props();
 
+	// The server could not be reached while checking the session: say so,
+	// with a retry, instead of a blank window (or a sign-in screen that would
+	// fail the same way).
+	let bootError = $state(false);
+	let booting = $state(false);
+
+	async function boot() {
+		booting = true;
+		try {
+			await auth.refresh();
+			bootError = false;
+		} catch {
+			bootError = true;
+			return;
+		} finally {
+			booting = false;
+		}
+		if (!auth.user) {
+			goto('/login');
+			return;
+		}
+		// A new account sets up its brand first (skippable).
+		const b = await brand.load();
+		if (b && !b.onboarded && page.url.pathname !== '/app/welcome') goto('/app/welcome');
+	}
+
 	onMount(() => {
-		auth.ensureLoaded().then(async () => {
-			if (!auth.user) {
-				goto('/login');
-				return;
-			}
-			// A new account sets up its brand first (skippable).
-			const b = await brand.load();
-			if (b && !b.onboarded && page.url.pathname !== '/app/welcome') goto('/app/welcome');
-		});
+		if (auth.loaded && auth.user) {
+			brand.load().then((b) => {
+				if (b && !b.onboarded && page.url.pathname !== '/app/welcome') goto('/app/welcome');
+			});
+		} else {
+			boot();
+		}
 		const onUnauthorized = () => {
 			auth.user = null;
 			goto('/login');
@@ -63,7 +87,25 @@
 
 <svelte:window onkeydown={onAppKey} />
 
-{#if auth.loading}
+{#if bootError}
+	<div class="boot-error" class:in-app={IS_APP}>
+		{#if IS_APP}
+			<header class="titlebar" data-tauri-drag-region>
+				<WindowControls />
+				<span class="sp" data-tauri-drag-region></span>
+				<WindowControls side="right" />
+			</header>
+		{/if}
+		<div class="boot-card" role="alert">
+			<img src={logo} alt="" width="36" height="36" />
+			<h1>{i18n.t('app.offlineTitle')}</h1>
+			<p class="muted">{i18n.t('app.offlineBody')}</p>
+			<button type="button" class="btn btn-ink" onclick={boot} disabled={booting}>
+				{booting ? i18n.t('dashboard.retrying') : i18n.t('common.retry')}
+			</button>
+		</div>
+	</div>
+{:else if auth.loading}
 	<div class="container">
 		<p class="muted loading">{i18n.t('common.loading')}</p>
 	</div>
@@ -153,6 +195,38 @@
 
 	.loading {
 		padding: 2rem 0;
+	}
+
+	.boot-error {
+		min-height: 100%;
+		display: flex;
+		flex-direction: column;
+		background: var(--bg);
+	}
+
+	.boot-error.in-app {
+		height: 100%;
+	}
+
+	.boot-card {
+		margin: auto;
+		max-width: 420px;
+		padding: 32px 24px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+		text-align: center;
+	}
+
+	.boot-card h1 {
+		margin: 6px 0 0;
+		font-size: 1.5rem;
+	}
+
+	.boot-card p {
+		margin: 0 0 8px;
+		line-height: 1.55;
 	}
 
 	/* ---- the installed app's window ---------------------------------- */
