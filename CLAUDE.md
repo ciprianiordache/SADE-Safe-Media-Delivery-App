@@ -155,7 +155,31 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** ninth `/impeccable critique` of the installed app (26/40, snapshot
+**Latest:** tenth `/impeccable critique` of the installed app (25/40 - stricter run: status and
+error recovery up, new findings on theme/efficiency/help; snapshot
+`.impeccable/critique/2026-11-12T17-17-58Z__frontend-src-tauri.md`) and all five fixes (user: the
+two P1 first, all 5; file page vs pane left to me - kept as is for now, the pane lacks Details,
+the original/preview switch and Download):
+- **Distinct names** (a reviewer closed the whole app by clicking "Închide"): window close is
+  "Închide SADE" (`window.close`), pane closes are "Închide panoul" (`common.closePane`, JobPanel +
+  upload pane); Security's group buttons carry the device ("Arată sesiunile: Chrome pe Windows",
+  `settings.sessionsShowFor` / `sessionsRevokeAllFor`).
+- **Maximise says "Restabilește"** when the window is maximised, with Windows' two-squares glyph:
+  `lib/window.ts` `watchMaximized` (isMaximized + onResized, both in core:default),
+  `WindowControls` `maxLabel`. Verified live: Mărește -> Restabilește -> Mărește.
+- **Theme "Ca sistemul"**: AccountMenu and LangThemeToggle offer system / light / dark
+  (`aria-pressed` on the stored choice; the old `isDark` derivations are gone), so the app can
+  follow Windows again.
+- **Window title** follows the open delivery in the app ("<file> · Livrări · SADE").
+- **App look**: `.chip` ("Linkuri active") is a dot and a word; Brand's two windows lose their
+  shadow (`html.is-app .app-body .win.form/.preview`); the file page is one white surface
+  (`.app-file` background); `input[type=range]` min-height 24px; the disabled send button says
+  why ("Alege întâi un fișier.", `aria-describedby`).
+- Not done: one identical title bar on every page (search/sort make no sense off the list), a
+  custom video player, multi-select, a shortcut sheet, notifications.
+- `npm run check` clean; app rebuilt and checked over CDP. Installer not rebuilt. Not committed.
+
+**Before that:** ninth `/impeccable critique` of the installed app (26/40, snapshot
 `.impeccable/critique/2026-11-12T16-49-08Z__frontend-src-tauri.md`; detector over CDP: only the
 cream-palette / PositionPicker false positives, contrast clean) and all six fixes (user: behaviour
 first, all 6; login: my recommendation = hide the server, no sade:// deep link yet - the email's

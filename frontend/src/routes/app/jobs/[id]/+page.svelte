@@ -571,6 +571,8 @@
 		display: flex;
 		flex-direction: column;
 		padding-bottom: 0 !important;
+		/* One surface: the head and the delivery on the same white. */
+		background: var(--surface);
 	}
 
 	.app-file .page-head {

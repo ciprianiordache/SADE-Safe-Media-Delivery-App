@@ -687,7 +687,7 @@
 </script>
 
 <svelte:head>
-	<title>{i18n.t('dashboard.title')} · SADE</title>
+	<title>{IS_APP && selectedJob ? `${selectedJob.fileName ?? selectedJob.recipientEmail} · ` : ''}{i18n.t('dashboard.title')} · SADE</title>
 </svelte:head>
 
 <svelte:window onkeydown={onKey} onpointerdown={(e) => ctx && !ctxEl?.contains(e.target as Node) && closeCtx()} onblur={() => closeCtx()} onresize={() => closeCtx()} />
@@ -876,7 +876,10 @@
 					</div>
 				</dl>
 			{/if}
-			<button class="btn btn-block" type="submit" disabled={!file || !!fileError}>
+			{#if !file || fileError}
+				<p class="muted small submit-why" id="submit-why">{i18n.t(file ? 'dashboard.submitNeedsValidFile' : 'dashboard.submitNeedsFile')}</p>
+			{/if}
+			<button class="btn btn-block" type="submit" disabled={!file || !!fileError} aria-describedby={!file || fileError ? 'submit-why' : undefined}>
 				{i18n.t('dashboard.submit')}
 			</button>
 		{/if}
@@ -1078,7 +1081,7 @@
 								<div class="pane-head">
 									<h2 id="new-title">{i18n.t('dashboard.newJob')}</h2>
 																		{#if jobs.length > 0}
-										<button type="button" class="close-pane" aria-label={i18n.t('common.close')} title={i18n.t('common.close')} onclick={closeUpload}>
+										<button type="button" class="close-pane" aria-label={i18n.t('common.closePane')} title={i18n.t('common.closePane')} onclick={closeUpload}>
 											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18" /></svg>
 										</button>
 									{/if}
@@ -1208,6 +1211,11 @@
 		text-decoration: underline;
 		text-underline-offset: 3px;
 		cursor: pointer;
+	}
+
+	.submit-why {
+		margin: 0;
+		font-size: 0.85rem;
 	}
 
 	.load-error .btn {

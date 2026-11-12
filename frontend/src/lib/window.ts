@@ -19,3 +19,13 @@ export async function minimizeWindow() {
 export async function toggleMaximizeWindow() {
 	if (IS_APP) (await current()).toggleMaximize();
 }
+
+// Calls back with the window's maximised state now and on every resize, so
+// the maximise button can say "Restabilește" (and draw two squares) like
+// Windows does. Returns the unsubscribe.
+export async function watchMaximized(cb: (maximized: boolean) => void): Promise<() => void> {
+	if (!IS_APP) return () => {};
+	const win = await current();
+	cb(await win.isMaximized());
+	return win.onResized(async () => cb(await win.isMaximized()));
+}

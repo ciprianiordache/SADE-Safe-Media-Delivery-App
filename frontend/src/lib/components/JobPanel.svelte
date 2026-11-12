@@ -83,7 +83,7 @@
 					<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 L17 7 M9 7 H17 V15" /></svg>
 				</a>
 				{#if onclose}
-					<button type="button" class="close-pane" aria-label={i18n.t('common.close')} title={i18n.t('common.close')} onclick={onclose}>
+					<button type="button" class="close-pane" aria-label={i18n.t('common.closePane')} title={i18n.t('common.closePane')} onclick={onclose}>
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18" /></svg>
 					</button>
 				{/if}

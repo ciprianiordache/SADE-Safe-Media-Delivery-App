@@ -10,12 +10,27 @@
 	// marketing picture's decorative dots.
 	import { IS_APP, desktopOS } from '$lib/platform';
 	import { i18n } from '$lib/i18n.svelte';
-	import { closeWindow, minimizeWindow, toggleMaximizeWindow } from '$lib/window';
+	import { closeWindow, minimizeWindow, toggleMaximizeWindow, watchMaximized } from '$lib/window';
+	import { onMount } from 'svelte';
 
 	let { side = 'left' }: { side?: 'left' | 'right' } = $props();
 
 	const os = desktopOS();
 	const mine = IS_APP ? (os === 'mac' ? 'left' : 'right') : 'left';
+
+	// Maximised, the button restores - and says so, as Windows' own does.
+	let maximized = $state(false);
+	let maxLabel = $derived(i18n.t(maximized ? 'window.restore' : 'window.maximize'));
+	onMount(() => {
+		if (!IS_APP || side !== mine) return;
+		let stop: (() => void) | undefined;
+		let gone = false;
+		watchMaximized((m) => (maximized = m)).then((u) => (gone ? u() : (stop = u)));
+		return () => {
+			gone = true;
+			stop?.();
+		};
+	});
 </script>
 
 {#if side === mine}
@@ -29,7 +44,7 @@
 			<button type="button" tabindex="-1" class="light min" aria-label={i18n.t('window.minimize')} title={i18n.t('window.minimize')} onclick={minimizeWindow}>
 				<svg viewBox="0 0 8 8" aria-hidden="true"><path d="M1.5 4h5" /></svg>
 			</button>
-			<button type="button" tabindex="-1" class="light max" aria-label={i18n.t('window.maximize')} title={i18n.t('window.maximize')} onclick={toggleMaximizeWindow}>
+			<button type="button" tabindex="-1" class="light max" aria-label={maxLabel} title={maxLabel} onclick={toggleMaximizeWindow}>
 				<svg viewBox="0 0 8 8" aria-hidden="true"><path d="M2 6 6 2M3.2 2H6v2.8M4.8 6H2V3.2" /></svg>
 			</button>
 		</div>
@@ -38,8 +53,12 @@
 			<button type="button" tabindex="-1" class="cap" aria-label={i18n.t('window.minimize')} title={i18n.t('window.minimize')} onclick={minimizeWindow}>
 				<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5.5h10" /></svg>
 			</button>
-			<button type="button" tabindex="-1" class="cap" aria-label={i18n.t('window.maximize')} title={i18n.t('window.maximize')} onclick={toggleMaximizeWindow}>
-				<svg viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" rx="1" /></svg>
+			<button type="button" tabindex="-1" class="cap" aria-label={maxLabel} title={maxLabel} onclick={toggleMaximizeWindow}>
+				{#if maximized}
+					<svg viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="2.5" width="7" height="7" rx="1" /><path d="M2.5 2.5V1.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1" /></svg>
+				{:else}
+					<svg viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" rx="1" /></svg>
+				{/if}
 			</button>
 			<button type="button" tabindex="-1" class="cap close" aria-label={i18n.t('window.close')} title={i18n.t('window.close')} onclick={closeWindow}>
 				<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5 9.5 9.5M9.5 0.5 0.5 9.5" /></svg>
@@ -50,7 +69,7 @@
 			<button type="button" tabindex="-1" class="round" aria-label={i18n.t('window.minimize')} title={i18n.t('window.minimize')} onclick={minimizeWindow}>
 				<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 10.5h7" /></svg>
 			</button>
-			<button type="button" tabindex="-1" class="round" aria-label={i18n.t('window.maximize')} title={i18n.t('window.maximize')} onclick={toggleMaximizeWindow}>
+			<button type="button" tabindex="-1" class="round" aria-label={maxLabel} title={maxLabel} onclick={toggleMaximizeWindow}>
 				<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1" /></svg>
 			</button>
 			<button type="button" tabindex="-1" class="round" aria-label={i18n.t('window.close')} title={i18n.t('window.close')} onclick={closeWindow}>

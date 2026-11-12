@@ -278,10 +278,10 @@
 							<span class="bold">{g.label} <span class="muted count">· {i18n.t('settings.sessionsCount', { n: g.items.length })}</span></span>
 							<span class="muted small">{i18n.t('settings.sessionsLastSeen', { when: ago(latest(g.items), i18n.locale) })}</span>
 						</span>
-						<button type="button" class="btn btn-ghost btn-sm" aria-expanded={!!expanded[g.key]} onclick={() => (expanded[g.key] = !expanded[g.key])}>
+						<button type="button" class="btn btn-ghost btn-sm" aria-expanded={!!expanded[g.key]} aria-label={expanded[g.key] ? undefined : i18n.t('settings.sessionsShowFor', { device: g.label })} onclick={() => (expanded[g.key] = !expanded[g.key])}>
 							{expanded[g.key] ? i18n.t('settings.sessionsHide') : i18n.t('settings.sessionsShow')}
 						</button>
-						<button type="button" class="btn btn-line btn-sm" disabled={revokingGroup === g.key} onclick={() => revokeGroup(g)}>
+						<button type="button" class="btn btn-line btn-sm" disabled={revokingGroup === g.key} aria-label={i18n.t('settings.sessionsRevokeAllFor', { device: g.label })} onclick={() => revokeGroup(g)}>
 							{i18n.t('settings.sessionsRevokeAll')}
 						</button>
 					</li>

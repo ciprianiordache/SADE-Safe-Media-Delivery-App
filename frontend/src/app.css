@@ -645,6 +645,31 @@ html.is-app .st::before {
 	opacity: 1;
 }
 
+html.is-app .chip {
+	height: auto;
+	padding: 0;
+	gap: 6px;
+	background: none;
+}
+
+html.is-app .chip::before {
+	content: '';
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+	flex: none;
+}
+
+html.is-app .app-body .win.form,
+html.is-app .app-body .win.preview {
+	box-shadow: none;
+}
+
+input[type='range'] {
+	min-height: 24px;
+}
+
 /* The round chip of the job panel ("Plătit", "Link-uri active"). */
 .chip {
 	display: inline-flex;
