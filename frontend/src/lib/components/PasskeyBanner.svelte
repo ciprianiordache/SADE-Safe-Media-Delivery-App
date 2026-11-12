@@ -46,7 +46,7 @@
 			<span class="muted">{i18n.t('banner.passkeyBody')}</span>
 		</div>
 		<div class="actions">
-			<a class="btn" href="/app/settings/security#passkeys">{i18n.t('banner.passkeyCta')}</a>
+			<a class="btn btn-ink btn-sm" href="/app/settings/security#passkeys">{i18n.t('banner.passkeyCta')}</a>
 			<button type="button" class="later" onclick={dismiss}>{i18n.t('banner.dismiss')}</button>
 		</div>
 	</div>
@@ -57,12 +57,11 @@
 		display: flex;
 		align-items: center;
 		gap: 0.9rem;
-		padding: 0.85rem 1rem;
-		margin-bottom: 1.25rem;
-		border: 1px solid var(--border);
-		border-left: 3px solid var(--accent);
-		border-radius: var(--radius-sm);
+		padding: 12px 12px 12px 14px;
+		margin-bottom: 20px;
+		border-radius: var(--radius);
 		background: var(--surface);
+		box-shadow: var(--shadow-card);
 	}
 
 	@media (max-width: 640px) {
@@ -78,7 +77,7 @@
 		width: 36px;
 		height: 36px;
 		flex-shrink: 0;
-		border-radius: 9px;
+		border-radius: 50%;
 		background: var(--accent-tint);
 		color: var(--accent-tint-text);
 		display: inline-flex;
@@ -92,7 +91,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.15rem;
-		font-size: 0.85rem;
+		font-size: 0.9rem;
 		line-height: 1.45;
 	}
 
@@ -102,11 +101,6 @@
 		gap: 0.5rem;
 	}
 
-	.actions .btn {
-		padding: 0.5rem 0.9rem;
-		font-size: 0.83rem;
-		white-space: nowrap;
-	}
 
 	.later {
 		appearance: none;
@@ -114,9 +108,10 @@
 		border: none;
 		color: var(--text-muted);
 		font: inherit;
-		font-size: 0.83rem;
+		font-size: 0.88rem;
 		cursor: pointer;
-		padding: 0.4rem;
+		min-height: 44px;
+		padding: 0 0.6rem;
 	}
 
 	.later:hover {

@@ -56,6 +56,9 @@ type StatusResult struct {
 	AmountCents    int64
 	Currency       string
 	PublishableKey string // set whenever Enabled - the frontend needs it to mount Stripe.js
+	// OriginalSize is the clean file's size in bytes, so the unlock can say
+	// what it buys ("the original, 24 MB").
+	OriginalSize int64
 }
 
 type service struct {
@@ -194,9 +197,9 @@ func (s *service) CreateIntent(ctx context.Context, previewToken string) (string
 	intent, err := s.stripe.V1PaymentIntents.Create(ctx, &stripe.PaymentIntentCreateParams{
 		Amount:   stripe.Int64(s.cfg.PriceCents),
 		Currency: stripe.String(s.cfg.Currency),
-		AutomaticPaymentMethods: &stripe.PaymentIntentCreateAutomaticPaymentMethodsParams{
-			Enabled: stripe.Bool(true),
-		},
+		// Card only (wallets such as Apple Pay ride on it): the unlock is one
+		// card field, not a list of local payment methods.
+		PaymentMethodTypes: stripe.StringSlice([]string{"card"}),
 		Description: stripe.String("SADE — original file"),
 		Metadata:    map[string]string{"payment_id": id, "job_id": jobID},
 	})
@@ -238,6 +241,7 @@ func (s *service) Status(ctx context.Context, previewToken string) (StatusResult
 		return StatusResult{
 			Enabled: true, PublishableKey: s.cfg.StripePublishableKey,
 			AmountCents: s.cfg.PriceCents, Currency: s.cfg.Currency,
+			OriginalSize: originalAsset.SizeBytes,
 		}, nil
 	}
 
@@ -255,6 +259,7 @@ func (s *service) Status(ctx context.Context, previewToken string) (StatusResult
 		return StatusResult{
 			Enabled: true, PublishableKey: s.cfg.StripePublishableKey,
 			AmountCents: p.AmountCents, Currency: p.Currency,
+			OriginalSize: originalAsset.SizeBytes,
 		}, nil
 	}
 
@@ -265,6 +270,7 @@ func (s *service) Status(ctx context.Context, previewToken string) (StatusResult
 	return StatusResult{
 		Enabled: true, Paid: true, OriginalURL: s.publicURL + "/o/" + tok,
 		AmountCents: p.AmountCents, Currency: p.Currency,
+		OriginalSize: originalAsset.SizeBytes,
 	}, nil
 }
 

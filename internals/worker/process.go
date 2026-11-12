@@ -68,13 +68,21 @@ func (p *Pool) process(ctx context.Context, j Job) error {
 		}
 	}
 
+	textFor := func(budget int) string { return p.renderText(j, brand, budget) }
+	if overlay == ffmpeg.OverlayLogo && probe.Media != ffmpeg.MediaAudio {
+		// "Logo" still names the recipient: a logo alone ties a leaked copy
+		// to the sender, not to whoever it was sent to.
+		overlay = ffmpeg.OverlayBoth
+		textFor = func(int) string { return j.RecipientEmail }
+	}
+
 	if err := p.engine.Watermark(ctx, ffmpeg.Request{
 		SourcePath:  srcPath,
 		OutputPath:  outPath,
 		Media:       probe.Media,
 		Overlay:     overlay,
-		Text:        p.renderText(j, brand, 0),
-		TextFor:     func(budget int) string { return p.renderText(j, brand, budget) },
+		Text:        textFor(0),
+		TextFor:     textFor,
 		DurationSec: probe.DurationSec,
 		Style:       style,
 	}); err != nil {
@@ -128,13 +136,15 @@ func (p *Pool) checksum(ctx context.Context, key string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// renderText is the text burned in: the operator's own text for this file,
-// else the brand's template, else the server's. budget (characters, 0 = no
-// limit) shortens a template's company/date but never the recipient; the
-// operator's own text is never cut - only its font shrinks.
+// renderText is the text burned in: the operator's own text for this file
+// (with the recipient appended when it lacks it), else the brand's template,
+// else the server's - a template without {recipient} gets it too. budget
+// (characters, 0 = no limit) shortens a template's company/date but never
+// the recipient; the operator's own text is not cut for the budget - only
+// its font shrinks.
 func (p *Pool) renderText(j Job, brand wmopts.Opts, budget int) string {
 	if s := strings.TrimSpace(j.WatermarkText); s != "" {
-		return s
+		return wmopts.WithRecipient(s, j.RecipientEmail, ffmpeg.MaxTextRunes)
 	}
 	t := brand.TextTemplate
 	if t == "" {

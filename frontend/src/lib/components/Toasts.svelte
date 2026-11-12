@@ -5,7 +5,14 @@
 
 <div class="toasts" aria-live="polite">
 	{#each toasts.items as t (t.id)}
-		<div class="toast toast-{t.kind}" role={t.kind === 'error' ? 'alert' : 'status'}>
+		<div
+			class="toast toast-{t.kind}"
+			role={t.kind === 'error' ? 'alert' : 'status'}
+			onmouseenter={() => toasts.pause(t.id)}
+			onmouseleave={() => toasts.resume(t.id)}
+			onfocusin={() => toasts.pause(t.id)}
+			onfocusout={() => toasts.resume(t.id)}
+		>
 			<span class="dot"></span>
 			<span class="msg">{t.message}</span>
 			{#if t.href}
@@ -46,12 +53,11 @@
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
-		padding: 0.7rem 0.75rem 0.7rem 0.9rem;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: 10px;
-		box-shadow: 0 10px 28px rgb(0 0 0 / 0.14);
-		font-size: 0.85rem;
+		padding: 0.35rem 0.75rem 0.35rem 0.9rem;
+				background: var(--surface);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
+		font-size: 0.9rem;
 		animation: slide-in 0.18s ease-out;
 	}
 
@@ -75,7 +81,7 @@
 	}
 
 	.toast-info .dot {
-		background: var(--accent);
+		background: var(--accent-bright);
 	}
 
 	.msg {
@@ -84,18 +90,27 @@
 	}
 
 	a {
-		font-weight: 600;
+		font-weight: 500;
 		white-space: nowrap;
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
+		padding: 0 0.25rem;
 	}
 
 	button {
 		appearance: none;
 		background: none;
 		border: none;
-		padding: 0.2rem;
-		color: var(--text-faint);
+		width: 44px;
+		height: 44px;
+		margin: -0.5rem -0.4rem -0.5rem 0;
+		color: var(--text-muted);
 		cursor: pointer;
 		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: var(--radius-sm);
 	}
 
 	button:hover {

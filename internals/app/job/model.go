@@ -91,12 +91,18 @@ type Response struct {
 	// the preview (nil = never), and whether they paid for the original.
 	OpenedAt *time.Time `json:"openedAt,omitempty"`
 	Paid     bool       `json:"paid"`
+	// The original upload's name and size, so the list can show the file
+	// without fetching every job's assets.
+	FileName  string `json:"fileName,omitempty"`
+	SizeBytes int64  `json:"sizeBytes,omitempty"`
 }
 
 // DeliverySummary is what Repo.DeliverySummary reports per job.
 type DeliverySummary struct {
-	OpenedAt time.Time // zero = never opened
-	Paid     bool
+	OpenedAt  time.Time // zero = never opened
+	Paid      bool
+	FileName  string // the original upload's name ("" = no original row)
+	SizeBytes int64
 }
 
 func toResponse(j Job) Response {

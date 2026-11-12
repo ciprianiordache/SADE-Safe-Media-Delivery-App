@@ -15,7 +15,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
-var codeRe = regexp.MustCompile(`instead: (\d{6})`)
+var codeRe = regexp.MustCompile(`conectarea: (\d{6})`)
 
 func emailCode(t *testing.T, cm *captureMailer) string {
 	t.Helper()
@@ -115,7 +115,7 @@ func TestNewDeviceAlert(t *testing.T) {
 	alerts := func() int {
 		n := 0
 		for _, m := range cm.sent {
-			if strings.HasPrefix(m.Subject, "New sign-in") {
+			if m.Subject == newDeviceSubject {
 				n++
 			}
 		}
@@ -132,8 +132,14 @@ func TestNewDeviceAlert(t *testing.T) {
 		t.Fatalf("alerts after a new device = %d, want 1", n)
 	}
 	alert := cm.last()
-	if !strings.Contains(alert.Text, "Safari on iPhone") || !strings.Contains(alert.Text, "198.51.100.9") {
-		t.Errorf("alert lacks device/IP:\n%s", alert.Text)
+	// The device and the reason before the button are in it; the bare IP
+	// stays in Settings > Security, next to the sign-in history.
+	if !strings.Contains(alert.Text, "Safari pe iPhone") || !strings.Contains(alert.Text, "Nu ai fost tu?") ||
+		strings.Contains(alert.Text, "198.51.100.9") {
+		t.Errorf("alert text:\n%s", alert.Text)
+	}
+	if p, b := strings.Index(alert.HTML, "Nu ai fost tu?"), strings.Index(alert.HTML, "v:roundrect"); p < 0 || b < 0 || p > b {
+		t.Errorf("the reason must come before the button")
 	}
 
 	// Its "this wasn't me" link ends every session.
@@ -265,9 +271,10 @@ func TestDescribeUserAgent(t *testing.T) {
 	cases := map[string]string{
 		chromeWin.UserAgent: "Chrome on Windows",
 		safariIOS.UserAgent: "Safari on iPhone",
-		"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Gecko/20100101 Firefox/131.0":            "Firefox on macOS",
-		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0 Safari/537.36 Edg/130.0":       "Edge on Windows",
-		"Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36": "Chrome on Android",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Gecko/20100101 Firefox/131.0":              "Firefox on macOS",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0 Safari/537.36 Edg/130.0":         "Edge on Windows",
+		"Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36":   "Chrome on Android",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0 Safari/537.36 Edg/130.0 SADEApp": "SADE app on Windows",
 		"": "Unknown device",
 	}
 	for ua, want := range cases {

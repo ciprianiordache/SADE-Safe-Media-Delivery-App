@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 150" width="1024" height="1024">
+  <!-- SADE's mark (docs/icon150.png) redrawn as vectors for the app icons:
+       an orange disc, a white down-arrow with a keyhole, a bar under it. -->
+  <circle cx="75" cy="75" r="75" fill="#E8531E"/>
+  <path d="M52 33 H98 V80 H113 L75 108 L37 80 H52 Z" fill="#FFFFFF"/>
+  <circle cx="75" cy="52" r="6.5" fill="#E8531E"/>
+  <path d="M72 55 H78 L80 67 H70 Z" fill="#E8531E"/>
+  <rect x="33" y="113" width="84" height="7" fill="#FFFFFF"/>
+</svg>

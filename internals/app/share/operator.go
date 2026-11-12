@@ -58,6 +58,17 @@ type OperatorHandler struct {
 	publicURL string
 	ttl       time.Duration
 	log       *slog.Logger
+
+	// The recipient's unlock price, shown on the operator's delivery so they
+	// see what a delivery is worth before it is paid. Zero when payments are
+	// off (no Stripe key) - the frontend then hides the payment row.
+	priceCents int64
+	currency   string
+}
+
+// SetPayment tells the delivery view that payments are on and their price.
+func (h *OperatorHandler) SetPayment(priceCents int64, currency string) {
+	h.priceCents, h.currency = priceCents, currency
 }
 
 func NewOperatorHandler(jobs Jobs, flags JobFlags, history History, notifier Notifier,
@@ -79,6 +90,12 @@ type EventView struct {
 type Delivery struct {
 	Enabled bool `json:"enabled"`
 	Paid    bool `json:"paid"`
+	// Payments: the unlock is on for this deployment. AmountCents/Currency
+	// are its price; PaidAt is when the recipient paid (zero = not yet).
+	Payments    bool      `json:"payments"`
+	AmountCents int64     `json:"amountCents,omitempty"`
+	Currency    string    `json:"currency,omitempty"`
+	PaidAt      time.Time `json:"paidAt,omitempty"`
 	// Ready: the preview exists, so there is a link to share or resend.
 	Ready bool `json:"ready"`
 	// PreviewURL is a fresh link to the recipient's preview page, the same
@@ -133,8 +150,14 @@ func (h *OperatorHandler) Delivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := Delivery{Enabled: !j.LinksDisabled, Paid: paid, Ready: previewID != "", Events: make([]EventView, 0, len(events))}
+	if h.priceCents > 0 {
+		out.Payments, out.AmountCents, out.Currency = true, h.priceCents, h.currency
+	}
 	for _, e := range events {
 		out.Events = append(out.Events, EventView{Kind: e.Kind, Detail: e.Detail, CreatedAt: e.CreatedAt})
+		if paid && e.Kind == job_event.KindPaid && e.CreatedAt.After(out.PaidAt) {
+			out.PaidAt = e.CreatedAt
+		}
 	}
 	if out.Ready && out.Enabled {
 		tok, err := h.signer.Sign("preview", previewID, h.ttl)

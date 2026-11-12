@@ -1,10 +1,14 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"sade/config"
@@ -150,6 +154,47 @@ func TestStaticCacheHeaders(t *testing.T) {
 		}
 		if got := rec.Header().Get("Cache-Control"); got != want {
 			t.Errorf("%s: Cache-Control %q, want %q", p, got, want)
+		}
+	}
+}
+
+// With a 200.html shell next to index.html, "/" is the marketing page and
+// client-side routes get the shell; the CSP admits both pages' inline scripts.
+func TestStaticMarketingPageAndShell(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("index.html", "<html>landing<script>landing()</script></html>")
+	write("200.html", "<html>shell<script>shell()</script></html>")
+
+	srv := httptest.NewServer(spaFileServer(dir))
+	defer srv.Close()
+	get := func(p string) string {
+		res, err := http.Get(srv.URL + p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return string(b)
+	}
+	if body := get("/"); !strings.Contains(body, "landing") {
+		t.Errorf("/ = %q, want the marketing page", body)
+	}
+	for _, p := range []string{"/app", "/app/jobs/123", "/login"} {
+		if body := get(p); !strings.Contains(body, "shell") {
+			t.Errorf("%s = %q, want the SPA shell", p, body)
+		}
+	}
+
+	csp := buildCSP(dir)
+	for _, js := range []string{"landing()", "shell()"} {
+		sum := sha256.Sum256([]byte(js))
+		if h := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"; !strings.Contains(csp, h) {
+			t.Errorf("CSP lacks the hash of %s", js)
 		}
 	}
 }

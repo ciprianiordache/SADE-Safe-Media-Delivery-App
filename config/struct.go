@@ -80,6 +80,15 @@ type AppConfig struct {
 	DataDir     string `yaml:"data_dir" env:"APP_DATA_DIR" default:"./.data"`
 	TempDir     string `yaml:"temp_dir" env:"APP_TEMP_DIR" default:"./.data/tmp"`
 	FrontendDir string `yaml:"frontend_dir" env:"APP_FRONTEND_DIR" default:"./frontend/build"`
+	// AppOrigins are the origins the installed apps (Tauri: Windows serves
+	// http(s)://tauri.localhost, macOS/Linux/iOS tauri://localhost) call the
+	// API from. They get CORS and pass the origin check; they sign in with a
+	// bearer token, never the session cookie.
+	AppOrigins []string `yaml:"app_origins" env:"APP_ORIGINS" default:"tauri://localhost,http://tauri.localhost,https://tauri.localhost"`
+	// DownloadsDir holds the desktop installers and latest.json, served at
+	// /downloads/ for the marketing site's download page and the updater.
+	// A missing directory just means nothing to download yet.
+	DownloadsDir string `yaml:"downloads_dir" env:"APP_DOWNLOADS_DIR" default:"./downloads"`
 }
 
 // ServerConfig holds the HTTP server settings.
@@ -169,7 +178,7 @@ type StorageConfig struct {
 type MailerConfig struct {
 	Transport string     `yaml:"transport" env:"MAILER_TRANSPORT" default:"log"` // smtp | log | noop
 	SMTP      SMTPConfig `yaml:"smtp"`
-	FromName  string     `yaml:"from_name" env:"MAILER_FROM_NAME" default:"Safe Media Delivery"`
+	FromName  string     `yaml:"from_name" env:"MAILER_FROM_NAME" default:"SADE"`
 	FromAddr  string     `yaml:"from_addr" env:"MAILER_FROM_ADDR" default:"no-reply@sade.local"`
 }
 

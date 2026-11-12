@@ -13,6 +13,7 @@ import (
 	"sade/internals/app/user"
 	"sade/internals/httpx"
 	"sade/internals/ratelimit"
+	"sade/internals/token"
 )
 
 // Deps is everything NewRouter needs: the config, the shared logger, the
@@ -33,6 +34,10 @@ type Deps struct {
 	// PaymentRateLimiter bounds the public checkout/status routes per client
 	// IP (each call can reach Stripe); nil/limit<=0 disables it.
 	PaymentRateLimiter *ratelimit.Limiter
+	// Signer mints the short-lived media links the installed app plays an
+	// operator's files with (an <img>/<video> cannot send a bearer token).
+	// nil disables GET /api/jobs/{id}/assets/{assetId}/link.
+	Signer *token.Signer
 }
 
 // NewRouter builds the application's HTTP handler: routes plus the global
@@ -93,6 +98,9 @@ func NewRouter(d Deps) http.Handler {
 	payLimit := RateLimit(d.PaymentRateLimiter, trust)
 	mux.Handle("POST /api/payments/checkout", payLimit(http.HandlerFunc(d.Payment.Checkout)))
 	mux.Handle("GET /api/payments/status", payLimit(http.HandlerFunc(d.Payment.Status)))
+	// The recipient's page asks first which state its link is in, and what
+	// it holds (file, sender). Same per-IP budget as the payment routes.
+	mux.Handle("GET /api/share/info", payLimit(http.HandlerFunc(d.Share.Info)))
 	mux.HandleFunc("POST /api/payments/webhook", d.Payment.Webhook)
 
 	// Signed-in.
@@ -141,7 +149,12 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/usage", operator(d.Job.Usage))
 	mux.Handle("GET /api/jobs/{id}", operator(d.Job.Get))
 	mux.Handle("DELETE /api/jobs/{id}", operator(d.Job.Delete))
-	mux.Handle("GET /api/jobs/{id}/assets/{assetId}/content", long(operator(d.Job.Content)))
+	// The content route takes a session, or a signed "asset" link minted by
+	// /link for the same operator (the installed app's players).
+	mux.Handle("GET /api/jobs/{id}/assets/{assetId}/content", long(mediaAccess(d.Signer, d.Job.Content, operator(d.Job.Content))))
+	if d.Signer != nil {
+		mux.Handle("GET /api/jobs/{id}/assets/{assetId}/link", operator(d.Job.AssetLink(signAsset(d.Signer))))
+	}
 	// Delivery: the recipient link, resend, links on/off, history.
 	if d.Delivery != nil {
 		mux.Handle("GET /api/jobs/{id}/delivery", operator(d.Delivery.Delivery))
@@ -163,15 +176,20 @@ func NewRouter(d Deps) http.Handler {
 		mux.Handle("/", spaFileServer(d.Cfg.App.FrontendDir))
 	}
 
-	// Pages SADE itself serves, plus the dev server the CORS list admits.
-	origins := append([]string{d.Cfg.App.PublicURL, d.Cfg.App.FrontendURL}, d.Cfg.Server.CORSAllowedOrigins...)
+	// Installers and the updater's latest.json, for the download page.
+	mux.Handle("GET /downloads/", downloads(d.Cfg.App.DownloadsDir))
+
+	// Pages SADE itself serves, the dev server the CORS list admits, and the
+	// installed apps.
+	cors := append(append([]string{}, d.Cfg.Server.CORSAllowedOrigins...), d.Cfg.App.AppOrigins...)
+	origins := append([]string{d.Cfg.App.PublicURL, d.Cfg.App.FrontendURL}, cors...)
 	guard := newOriginGuard(origins, "/api/payments/webhook")
 
 	return chain(mux,
 		Recover(d.Log),
 		RequestLog(d.Log, trust),
 		SecurityHeaders(trust, buildCSP(d.Cfg.App.FrontendDir)),
-		CORS(d.Cfg.Server.CORSAllowedOrigins),
+		CORS(cors),
 		OriginCheck(guard),
 		Auth(d.AuthSvc, d.Cfg.Auth.SessionCookieName, trust),
 	)

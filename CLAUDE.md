@@ -155,7 +155,491 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** brand UX pass from /plan-design-review (22 decisions, 3/10 -> 8/10) + a second
+**Latest:** `/impeccable critique` of the WHOLE web frontend (26/40, snapshot
+`.impeccable/critique/2026-11-12T08-53-19Z__frontend-src.md`; detector CLI clean, overlay found one
+real contrast issue) and all five fixes (user: watermark + recipient first, show the sender's
+account email on the recipient page, all 5):
+- **P0 - the recipient is now on every copy** (it was not, despite Brand's "Mereu pe fișier"):
+  `wmopts.WithRecipient(text, recipient, max)` appends "· <recipient>" to the operator's own
+  per-upload text (operator part shortened with "...", never the address); `wmopts.render` appends
+  `{recipient}` to a template that lacks it (after dropping empty company/date); the worker turns
+  kind "logo" into logo + a recipient-only text line (`process.go`, audio untouched). Frontend
+  mirrors it (`format.ts` `withRecipient`, `withRecipientPlaceholder`); the upload form says "Adresa
+  clientului se adaugă la final: · x" under the text field and the summary always shows the burned
+  text ("Logo-ul tău și {email}" for logo). Tests: `worker_test.go`
+  `TestProcessAlwaysBurnsTheRecipient`, `wmopts_test.go` `TestWithRecipient` (old "Confidential"
+  expectation updated - it encoded the bug).
+- **Recipient page** (`/preview/[token]`): new public `GET /api/share/info?token=`
+  (`internals/app/share/info.go`, payment rate limit) -> `{fileName, mediaType, sizeBytes, sender}`
+  via `Handler.UseDetails` (app.go reuses the email's `deliveryInfo` lookup), 410 "expired" /
+  "disabled", 404 invalid (`info_test.go`). The page checks it first: skeleton, then distinct
+  cards for expired / invalid / disabled with what to do next ("cere expeditorului un link nou: un
+  răspuns la emailul primit ajunge la el"); h1 = file name, "Trimis de <operator email>", bar
+  "Copie cu filigran", an after-payment line, unlock copy no longer says "audibil"/"îți trimite",
+  payment errors never show the server's text, the stage note is light on the dark stage.
+  `PaymentForm`: Stripe `locale` follows the page, country defaults to RO.
+- **Touch targets** measured with elementFromPoint (scratchpad `hit.js`): `.btn-sm::after` -6px
+  (was 42px), `OverflowMenu` -6px, the dashboard search label gets a hit strip (input lifted above
+  it so the caret still lands), the narrow chip row's `.side-item` is 44px drawn (the sideways
+  scroll clipped `::after`), the recipient bar's download icon 44px wide. Sidebar counts and "Tip"
+  moved from `--text-faint` (3.9:1) to `--text-muted`.
+- **Terms and dates**: "link-ul/link-uri" -> "linkul/linkuri" everywhere in ro, "Status" -> "Stare";
+  `relativeTime` now "2 min / 3 h / 5 zile" (list age column 64px), Security phrases use `ago()`
+  ("activ acum 3 h"); Brand's date row shows the burned ISO date (`burnedDate()`), other dates
+  `fullDate` ("12 nov. 2026, 11:41", as in the emails).
+- **Hierarchy**: Brand's two window names are real `h2.bar-title`; the job page's bar says
+  "Livrări / Livrare" instead of repeating the file name; JobPanel caps the picture at 34svh when
+  stacked so the delivery actions start on the first screen.
+- Not done from the critique: Security cards vs windows, page-head size differences, bulk actions,
+  album delivery (product question), Stripe Link block (Stripe-side setting).
+- Verified: `go test ./...` green except the known Fontconfig crash, `npm run check` clean, live on
+  a temporary 8091 instance (tap targets re-measured, recipient page valid + invalid states). The
+  demo account got 4 extra test deliveries (example.com recipients). Not committed.
+
+**Before that:** second `/impeccable critique` of the emails (24/36, up from 18; snapshot
+`.impeccable/critique/2026-11-12T04-25-46Z__internals-emailtmpl-emailtmpl-go.md`; detector: only
+the cream-palette false positive) and all five fixes (user: "All 5 issues", rest "do what you
+think is better"):
+- **Outlook markup actually ships now (bug):** html/template strips every HTML comment in the
+  template text, so the `<!--[if mso]>` blocks (fixed 560px column, mso styles) never reached a
+  real email. They now enter as `template.HTML` values (`view.MSOHead/MSOOpen/MSOClose`). Each
+  button gets a VML `v:roundrect` for Outlook (`vmlButton`, width from the label length) and the
+  ordinary `<a>` inside `<!--[if !mso]><!-->` - Word ignored padding/radius on the link.
+- **Replies reach the operator:** `mailer.Message.ReplyTo` (bare address only, parsed with
+  `mail.ParseAddress`; display names / CRLF dropped - `TestBuildReplyTo`); the delivery email sets
+  it to the sender's verified account email and the footer says a reply goes to the sender.
+  `MailerConfig.FromName` default is now "SADE" (was English "Safe Media Delivery"; the local
+  `config.yaml` too).
+- **Layout:** the window bar (three dots + crumb) is gone from the emails (`Data.Crumb` removed);
+  heading is a real `<h1>` with `word-break`/`overflow-wrap:anywhere`; new `Data.Prompt` (ink line
+  above the buttons) and `Data.ButtonNote` (small line under them); the code is drawn as two
+  groups ("482 913" with a drawn gap, so a copy pastes "482913"; `CompleteWithCode` also strips
+  inner spaces now); fallback URL in the text face, not mono.
+- **Alert:** "Nu ai fost tu? Închide toate sesiunile: ... inclusiv de pe acesta ..." above the ink
+  button, fallback URL added, link validity (7 zile) in the note, the IP row dropped (Settings ›
+  Securitate shows it; note says so), passkey advice reworded around mailbox access.
+- **Delivery:** no "De la" row (the heading names the sender), intro "Îl vezi direct în browser."
+  (+ unlock line), reassurance "Nu ai nevoie de cont, iar SADE nu îți cere niciodată parola." right
+  under the button, note = watermark + link validity, the English "SADE (Safe Media Delivery)" gone.
+- **Plain text:** all three bodies are built from the same strings as the HTML and end with
+  `emailtmpl.TextFooter` (tagline + footer).
+- `cmd/emailpreview` updated. Verified: tests (emailtmpl Outlook markup / code groups / footer,
+  mailer Reply-To, auth alert order), browser renders at 390 and 680 (no overflow, 46px buttons).
+  Not verified in real Outlook/Gmail. Not committed.
+
+**Before that:** first `/impeccable critique` of the emails (18/36, snapshot
+`.impeccable/critique/2026-11-11T22-21-57Z__internals-emailtmpl-emailtmpl-go.md`) and all five
+fixes (user: "rulează-le pe toate"; sender = operator's email; no Download; the app's window):
+- **`internals/emailtmpl` redesigned to the app**: Reddit Sans + JetBrains Mono, heading 25px/500
+  -0.025em, pill buttons (`Primary` orange with #111 text, new `Ink` dark pill, else a hairline
+  pill), the product window (bar with three grey dots and "SADE / <Crumb>"), new `Rows` (hairline
+  label/value rows), logo + "SADE" wordmark instead of the uppercase eyebrow. Fluid: max 560px
+  (fixed 560 only inside an MSO conditional) - phones no longer get a 592px page; under 600px
+  buttons go full width and rows stack. Small print is #544b42 / footer #6e655b (all >= 4.5:1;
+  the old #9c9287/#b4a997 failed), note hairline in its own row (margin on a td was ignored),
+  fallback link muted and a real `<a>`, preheader padded. New `Data.Lang` (default "ro", sets
+  `<html lang>` and the chrome words), `Crumb`, `Rows`, `Footer`; `HumanDurationIn(lang, d)`
+  ("15 minute", "24 de ore", "30 de zile") and `FormatTime(lang, t)` (Bucharest time, Romanian
+  months; `time/tzdata` embedded).
+- **All three emails in Romanian**: sign-in ("Conectare la SADE", "Conectează-te", code), new
+  sign-in alert ("Conectare nouă în contul tău SADE": facts as rows, time in Romania, ink button
+  "Închide toate sesiunile", device label via `auth.deviceRO`), recipient delivery.
+- **Recipient email** (`worker.EmailNotifier`): subject/heading "<operator email> ți-a trimis un
+  fișier" (the account email - verified by sign-in, cannot pose as a bank; company name/logo stay
+  off per TODOS.md), rows Fișier / Tip · size / De la, a line on the watermark and (payments on)
+  the unlock, ONE button "Deschide fișierul" to `/preview/<token>` - **the `/d/` download link is
+  gone from the email** (the page is the one destination). Details come from
+  `EmailNotifier.UseDetails(func(previewID) (DeliveryInfo, error))`, wired in app.go (preview
+  asset -> job -> user email + original asset); without it the email says "Ai primit un fișier
+  prin SADE". Plain-text bodies match (the old "valid for 720h0m0s" bug is gone).
+- `cmd/emailpreview` renders the three current emails (the delivery one through the real
+  notifier). Tests: emailtmpl (Romanian durations, lang/window/rows, Bucharest time), worker
+  (one page link, no /d/, sender + file), auth (Romanian code regex, alert subject),
+  `worker_flow_test` (one link). Detector on the rendered emails: only cream-palette (the brand
+  paper). Not verified in real mail clients (Gmail/Outlook) - browser render only. Not committed.
+
+**Before that:** the installed app's scrolling (user: at the end of a scroll the page stretched, the
+top bar went away, fixed parts moved). Cause: no page in the app scrolls as a whole, only inner
+panes do; when a pane reached its end the scroll was handed to the window, and WebView2's
+elastic overscroll (touchpad / touch) pulled the whole page, title bar included. Fix (app only,
+`html.is-app` in `app.css`): `html` and `body` are `height: 100%`, `overflow: hidden`,
+`overscroll-behavior: none`; the panes that scroll (`.app-body`, `.app-auth`, `.prefs-main`,
+`.media-col`, `.side-col`, `.job-win`, plus the dashboard's `.list` and `.open-pane`) are
+`overscroll-behavior: none` (the old `contain` still let a pane's own content stretch).
+`.app-shell` is `height: 100%`; the app's sign-in (`AuthShell` `.app-auth`) scrolls on its own
+under the title bar (`justify-content: safe center`). Gotcha found on the way: do NOT put
+`overscroll-behavior: none` on every element - a box with `overflow: hidden` and a text field
+are scroll boxes to the browser, and blocking them stopped the wheel from reaching the pane
+(the Brand form did not scroll with the mouse over it). Verified in the built app with real
+wheel input over CDP (scratchpad `wheel.mjs`): Brand (over a field and a label), Security, file
+page, dashboard pane - each pane reaches its end, the window's scrollTop and the title bar stay
+at 0. The stretch itself only shows with a touchpad/touch screen, so it was not seen live here.
+
+**Before that:** eighth `/impeccable critique` of the installed app (27/40, snapshot
+`.impeccable/critique/2026-11-11T21-43-45Z__frontend-src-tauri.md`; the live detector found no
+real issue anywhere, only the known cream-palette / PositionPicker false positives) and all five
+fixes (user: "Poti incepe treaba"; the list's status tag everywhere; payment only in the delivery):
+- Brand's window bar always says how saving works: "Se salvează automat" at rest, "Se
+  salvează…", then "✓ Salvat · se aplică fișierelor noi" (`brand.autosave`, `brand.savedShort`).
+- One "⋯" on the file page: `DeliveryCard` takes `ondelete` / `deleteDisabled` / `deleteTitle`
+  and its menu (now in the head, beside the links chip, so it exists in every link state) holds
+  "Oprește linkurile…" and, under a separator, "Șterge fișierul…". `OverflowMenu` items gained
+  `sep`. The page's own head "⋯" is gone; the delete confirm still shows in the head.
+- The file page's status uses the list's tag (`stateClass` from `lib/delivery.ts`); the dot+word
+  `.state-line` is gone. The Details "Plată" row is gone (the delivery shows it).
+- List columns sized to their content (`28px minmax(140px,280px) minmax(0,460px) 120px 56px`,
+  `justify-content: start`); the compact row (pane open) keeps the time under the status.
+- Brand: the preview's "no logo" footnote removed (the logo row says it); the history's repeat
+  count is "de 5 ori" without a leading dot and never splits.
+- Verified in the built app over CDP; installer copied to `downloads/`. Not committed.
+
+**Before that:** seventh `/impeccable critique` of the installed app (26/40, snapshot
+`.impeccable/critique/2026-11-11T17-56-25Z__frontend-src-tauri.md`) and all five fixes (user:
+"rulează-le pe toate"; payment as a row in the delivery; the rare actions in a "⋯" menu):
+- **Payment on the operator's side** (backend): `share.Delivery` gained `payments`,
+  `amountCents`, `currency`, `paidAt` (the latest "paid" event). `OperatorHandler.SetPayment`
+  is called from app.go only when `StripeSecretKey` is set (otherwise `payments: false` and the
+  row hides). Test: `share/delivery_test.go` `TestDeliveryReportsThePayment`. Frontend:
+  `DeliveryCard` shows "Plată · Neplătit / Originalul se deblochează la 49 €" or "✓ Plătit 49 € pe
+  <date>" above the actions; the file page's Details gained a "Plată" row (`job.paid`).
+  `formatPrice` moved to `lib/format.ts` (PaymentForm keeps its own copy).
+- **Closed pane left in the URL** (bug): `syncUrl` compared with `page.url.search`, which a shallow
+  `replaceState` does not update, so `?job=` stayed and F5 reopened a closed pane. It now builds
+  from and compares with `location`.
+- **Accessibility**: `JobPanel` no longer is an `aria-live` region (it re-read the pane on every
+  15s poll) - a `.sr-only` live line announces the state only; the list pane is `inert` while the
+  narrow overlay covers it; the rows list has an accessible name; `::placeholder` uses
+  `--text-muted` (the browser grey was 3.5:1 on dark); avatar initials go light on dark.
+- **Action hierarchy**: new `components/OverflowMenu.svelte` ("⋯", arrow keys, Escape). In
+  `DeliveryCard` "Copiază linkul" is the one ink button, "Oprește linkurile…" lives in "⋯" and
+  arms a red confirm block; the resend limit moved to the Resend tooltip. On the file page
+  "Șterge fișierul…" is in "⋯" (confirm buttons appear in its place), the status is a dot + word
+  (`.state-line`), headings 22px (h2) / 18px (h3).
+- **Settings as a preferences window**: in the app `.win` groups are flat (hairline, no shadow);
+  Security is one column (max 760px, heading over its group). Signing out this very session asks
+  once ("Ieși din cont"). Brand: the no-logo row is titled "Logo"; sliders use the ink colour like
+  the switches; the sample address is `client@exemplu.com` everywhere.
+- **Row menu**: adds "Retrimite emailul" and "Oprește linkurile" (asks again inside the menu) /
+  "Pornește linkurile"; Enter on the open row goes to its page.
+- Verified in the built app over CDP (payment row, "⋯" menus, closed pane clears `?job=`, row
+  menu, Security layout); the live detector is clean on the dark dashboard. Not committed.
+
+**Before that:** sixth `/impeccable critique` of the installed app (26/40, snapshot
+`.impeccable/critique/2026-11-11T17-36-04Z__frontend-src-tauri.md`; it looked harder at Security,
+Brand and the keyboard) and all five fixes (user: "rulează-le pe toate"; file page kept as a
+window; Brand saves on its own):
+- **The app names itself in Security** (backend): `auth.Handler.client` appends `SADEApp` to the
+  user agent of a request carrying `X-SADE-Client: app`; `DescribeUserAgent` turns it into "SADE
+  app on Windows" (`appUAMarker`, test in `security_test.go`), the frontend's `deviceLabel` into
+  "Aplicația SADE pe Windows". The app's own session from before the marker is labelled the same
+  (`sessionLabel` in the security page). Only new sign-ins carry it on the server.
+- **File page as a window**: no card border/radius/shadow in the app, the head fixed, the picture
+  and the delivery columns scroll on their own (`.app-file`, the layout's `app-body.full` for
+  `/app/jobs/*`); `h1` kept as `.sr-only` (new global class in `app.css`), also on the dashboard;
+  headings 18px (h2) / 15px (h3) over 14.4px text; the recipient row dropped from Details (it is
+  in the lead); the title bar shows the logo only on welcome.
+- **History**: runs of the same opened/downloaded event fold into one row ("· de 5 ori", latest
+  time) that unfolds on click (`DeliveryCard` `runs`); the status chip left the pane head.
+- **Brand saves on its own**: every change saves after a 700ms pause (`$effect` + `save()`), the
+  draft is never replaced by the answer; "Se salvează… / ✓ Salvat / Nu s-a salvat · Reîncearcă"
+  in the window bar; no Save button, no leave-confirm (leaving saves what waits); "Poziție și
+  mărime" is an h2; the no-logo hint is muted, underlined.
+- **Desktop conventions**: Ctrl/Cmd+F focuses search (kbd hint shows it; placeholder "Caută");
+  right-click / menu key / Shift+F10 on a row opens a menu (Deschide, Copiază linkul
+  destinatarului, Pagina fișierului; arrows, Escape, Tab); caption buttons `tabindex=-1`; Escape
+  closes the pane at every width; format hint lists webp; column headers and row age moved to
+  `--text-muted`; usage shows KB under 1 MB; dark-mode selected row 13%; in the narrow overlay the
+  bar names what is open; security intro `text-wrap: pretty`.
+- Verified in the built app over CDP: menu, Ctrl+F, pane, file page scroll, history unfold,
+  "Aplicația SADE pe Windows", autosave ("Salvat"), live detector leaves only cream-palette.
+  Gotcha: Python edit scripts on Windows wrote CRLF / turned `` into a backspace - the
+  scratchpad `edlib.py` keeps each file's line endings. Not committed.
+
+**Before that:** fifth `/impeccable critique` of the installed app (29/40) and all five fixes (user:
+"rulează-le pe toate"; a status bar was declined for now):
+- File page in the app: no repeated title (the name is in the title bar only), the "Cu filigran /
+  Original" switch sits in the head beside the status chip and "Șterge", the empty inner bar is gone.
+- Thin scrollbars in the app (`html.is-app ::-webkit-scrollbar*` in `app.css`, no arrows).
+- Fonts are bundled for the app (offline): `frontend/static-app/fonts/` (Reddit Sans + JetBrains
+  Mono woff2, latin + latin-ext, `fonts.css`). `app.html` loads `%sveltekit.env.PUBLIC_FONTS_HREF%`:
+  `frontend/.env` = the Google Fonts URL (website), `frontend/.env.app` = `/fonts/fonts.css`. Both
+  files are now tracked (`frontend/.gitignore` negations; public values only, no secrets). The
+  Tauri CSP no longer allows Google.
+- Upload pane: closes with x like a delivery; the form fills the pane (address and watermark side
+  by side from 640px, container query `upload`).
+- Shortcuts: Ctrl/Cmd+N opens the upload pane, Ctrl/Cmd+, opens Settings (`routes/app/+layout.svelte`
+  `onAppKey`; shown in the buttons' tooltips). Security groups sessions of the same device kind
+  ("Chrome pe Windows · 6 sesiuni", Arată / Deconectează toate); this device stays its own row.
+- Verified in the built app over CDP (fonts load from `/fonts/fonts.css`, both shortcuts, upload,
+  security and file page screenshots). New installer copied to `downloads/` (2.2 MB). Not committed.
+
+**Before that:** fourth `/impeccable critique`, of the installed app itself (28/40, snapshot
+`.impeccable/critique/2026-11-11T16-59-20Z__frontend-src-tauri.md`; live scan over CDP: only
+"cream-palette", the brand's paper - false positive), and all five fixes (user: "rulează-le pe
+toate"; the file page becomes a full-window delivery, minimum window width 720px):
+- File page in the app: no back link (the title bar says "< Livrări" + the file name via
+  `lib/apptitle.svelte.ts appTitle`), compact head, no crumb, fills the window.
+- Every app width keeps the app shell: the window's minimum is 720px (`tauri.conf.json`); the
+  dashboard uses the shell from 720px, the pane sits beside the list from 1024px and slides over
+  it below that (`overlay`).
+- `html.is-app` (set in `routes/+layout.svelte`): no `.win-dots` inside the window, no UI text
+  selection (fields and `.mono` still selectable), the browser's context menu suppressed outside
+  text fields, app pages padded as a window (`.app-body > .page:not(.app-page)`), drop-downs
+  drawn by the app (`appearance: base-select`, a small chevron; WebKit keeps its native one).
+- F5 keeps the page: `afterNavigate` remembers `/app...` in sessionStorage, `routes/+layout.ts`
+  sends a reload that Tauri served from "/" back there.
+- Native: `tauri-plugin-window-state` (size/position remembered); macOS gets the default app menu
+  (`Menu::default`, cfg macos - compiles only on the Mac CI runner, not verified here).
+- Verified in the built Windows app over CDP: file page title, F5 restore, overlay at 800px,
+  pane at full width, settings without dots, context menu blocked, user-select none.
+
+**Before that:** the installed app follows the system it runs on (user: the bar looked Mac-only;
+the sidebar should stay put; settings and login like a professional desktop app):
+- `WindowControls side="left|right"` (each bar places both; only the system's side renders,
+  `platform.ts desktopOS()` from the user agent): macOS = the three lights on the left; Windows =
+  46px minimise/maximise/close caption buttons, full bar height, flush right (close red), as
+  Windows 11; Linux = round GNOME buttons on the right. Gotcha found: the class `.win` is global
+  (window surface) - the Windows group is `.caps`. Checked as all three by overriding the user
+  agent over CDP (scratchpad `cdp.mjs uashot`).
+- Dashboard (wide): the list pane no longer scrolls as a whole - the rows column scrolls, the
+  sidebar ("Fișier nou", filters, Setări) stays fixed.
+- Settings in the app: `routes/app/settings/+layout.svelte` makes a preferences window - a fixed
+  220px sidebar (Brand, Securitate) and the section scrolling beside it; `SettingsTabs` shows only
+  the section name + one line there. Security hides passkeys in the app (`settings.passkeysAppNote`:
+  managed in the browser - WebAuthn needs the server's domain).
+- Login in the app (`AuthShell`): the app icon over a compact centred card, no marketing statement;
+  copy says a 6-digit code ("Trimite codul").
+- Known: a full reload of a deep route in the app (F5 on /app/settings) lands on /app - Tauri serves
+  only real files and sends the rest to the root; in-app links navigate client-side and are fine.
+
+**Before that:** the installed app no longer looks like a web page (user: "aplicatia arata exact ca
+o pagina de web": drop the top bar, keep the 3-dot bar, open the right pane only on selection,
+move the create button and the operator chip). **Installed app only** (`IS_APP`); the web `/app`
+is unchanged.
+- The window is frameless (`tauri.conf.json` `decorations: false`, `shadow: true`; capability
+  `default.json` adds window start-dragging/close/minimize/toggle-maximize). The 3 dots are the
+  real window controls (`components/WindowControls.svelte` + `lib/window.ts`, lazy
+  `@tauri-apps/api/window`): grey, coloured on hover like macOS; on the web they stay the
+  decorative `.win-dots`. Bars carry `data-tauri-drag-region`.
+- Dashboard: the list window's bar is the title bar (controls, crumb, search, sort, the
+  operator's `AccountMenu` - extracted from the layout, used by both); the window fills the app
+  (`.app-page`), no page head, no nudges on wide. Sidebar: "Fișier nou" first (`.new-btn`, opens
+  the upload pane), "Setări" at its foot. The right pane opens only for a selected row or the
+  upload form (`paneOpen`; no default selection in the app), closes with x (`JobPanel onclose`)
+  or Escape.
+- Other app pages get a 44px title bar from the `/app` layout (controls, "< Livrări", page
+  name, account); `MarkBar` becomes the same kind of bar on the signed-out pages (login).
+- Verified in the built app over CDP: list full width, row -> pane with x, Escape closes,
+  maximise 1320 -> 1920 -> 1320, "Fișier nou" -> upload pane, Settings with its bar; the web
+  dashboard checked unchanged. New installer copied to `downloads/`.
+- Next candidates: settings/job pages still use the web page heads inside the app window.
+
+**Before that:** the app is split into **the website** (marketing page, sign-up, new download page)
+and **an installed app** (Tauri 2: Windows, macOS, Linux now; iOS and Android next), sharing one
+SvelteKit codebase; the operator web app at `/app` stays (user's choices: Tauri 2, keep the web
+app, start with the download page + desktop).
+- **Server (sign-in for the app):** the app runs on its own origin (`http://tauri.localhost` on
+  Windows, `tauri://localhost` elsewhere), so no cookies. It sends `X-SADE-Client: app` and its
+  own binding value `X-SADE-Login` (32 random bytes it keeps; `auth.Handler.browserNonce` reads it
+  when there is no `sade_login` cookie - a forwarded email is still useless elsewhere). A finished
+  sign-in (code, link, passkey) answers `{token, expiresAt}` to the app (`writeSession`); the
+  `Auth` middleware accepts `Authorization: Bearer <session secret>` (`auth.BearerToken`), logout
+  too. `config.AppConfig.AppOrigins` (default the three Tauri origins) join CORS (headers now
+  allow Authorization/X-SADE-*, methods PUT) and the origin check. Media for `<img>/<video>`:
+  `GET /api/jobs/{id}/assets/{assetId}/link` mints a 6h `"asset"`-purpose token for
+  (operator, asset); the content route accepts `?t=` instead of a session (`applink.go`
+  `mediaAccess`). `config.AppConfig.DownloadsDir` (`./downloads`, gitignored) is served at
+  `/downloads/` (no listings, `.json` no-cache). Tests: `internals/app/app_client_test.go`.
+- **Frontend app mode:** `vite build --mode app` (`npm run build:app`, `.env.app` sets
+  `VITE_SADE_APP=1` + `VITE_SADE_SERVER`) builds `frontend/build-app` from `static-app/` (no
+  marketing page; `/` redirects to `/app` in `+layout.ts`). `lib/platform.ts` (IS_APP, server URL,
+  token, binding nonce, headers); `api.ts` uses them (credentials omit, token saved from auth
+  responses, `assetLink`, `blobUrl`); `lib/media.ts` `use:authedSrc`/`use:authedHref` replace
+  every `src=`/download `href=` of an operator's media (signed link in the app, blob for the
+  logo, plain URL on the web). Login in the app shows the code field open and a "Server: ...
+  Schimbă" control; passkeys are hidden in the app (WebAuthn needs the server's domain as origin).
+- **Tauri:** `frontend/src-tauri` (crate `sade`, identifier `ro.sade.app` - must match the
+  eventual store listings, cannot change after publishing), window 1320x860, CSP in
+  `tauri.conf.json`, icons generated from `frontend/src-tauri-assets/icon.svg` (the logo redrawn
+  as vectors; `npx tauri icon`). Built here: `SADE_0.1.0_x64-setup.exe` (1.9 MB) + `.msi`.
+  Toolchain installed this session via winget: Rustup (stable MSVC) + VS 2022 Build Tools (C++).
+  Verified live in the built app through WebView2's CDP (`--remote-debugging-port=9222` on
+  127.0.0.1, scratchpad `cdp.mjs`): code sign-in -> token saved -> dashboard split view -> the
+  preview image loads through a signed link.
+- **Download page** `frontend/static/descarca/index.html` (+ `assets/download.js`, external
+  because the CSP only hashes index.html/200.html inline scripts): detects the OS, reads
+  `/downloads/downloads.json` (`{version, files{windows, macos-arm, macos-intel,
+  linux-appimage, linux-deb}, sizes}`), enables what exists, "În curând" for the rest and for
+  iOS/Android; linked from the marketing nav and footer.
+- **CI:** `.github/workflows/desktop.yml` builds Windows, macOS (arm + intel) and Linux on a
+  `desktop-v*` tag or by hand, uploading installers as run artifacts (no publishing). Not set up:
+  Apple/Windows code signing, the updater key, the store accounts - the owner's to create.
+- Next: iOS/Android (`tauri android init` / `tauri ios init`; iOS needs a Mac), the updater,
+  a real production server URL for `VITE_SADE_SERVER`.
+
+**Before that:** third `/impeccable critique` (29/40, snapshot
+`.impeccable/critique/2026-11-11T08-07-24Z__frontend-src-routes-app.md`) and its four fixes (user:
+"rulează-le pe toate", split view on tablets too):
+- The dashboard split view starts at **1024px** (was 1280); at 1024 the list's filters turn into a
+  chip row and the open delivery stacks the picture over the delivery block.
+- The passkey/brand nudges come **after the work on every screen** (`.nudges`, order 2), so a phone
+  sees the list first. On a window under 480px the bar drops "Livrări /" and keeps the filter
+  name (`.crumb-root`); the search placeholder is "Caută" below 1024px (`dashboard.searchTiny`).
+- Phone header: "Fișier nou" stays as a round "+" (`.nf-text` hidden, aria-label kept).
+- Job page: the status chip and "Șterge" sit beside the title (`.head-acts`), two steps kept; the
+  armed warning (`job.deleteArmed`) and errors show under the lead; the bottom delete section is
+  gone.
+- Verified live at 1024, 390 (light + dark) and 1440.
+
+**Before that:** second `/impeccable critique` (29/40, no P1; snapshot
+`.impeccable/critique/2026-11-11T07-28-27Z__frontend-src-routes-app.md`) and all its fixes (user:
+"rulează-le pe toate"; chose compact title + arrow keys):
+- Dashboard >= 1280px: compact head (title and lead on one line), the passkey/brand nudges move
+  under the window, the window is `max(560px, 100svh - 178px)` so it fits the screen and only its
+  panes scroll. Up/Down on a focused row open the previous/next delivery (`onRowsKey`, rows carry
+  `data-id`). `JobPanel`: "Pagina fișierului" is a pill next to the status chip; the picture is
+  sticky beside the history.
+- Brand settings: the company field and the LogoPicker sit right under their rows; the "whole
+  picture" choice lives only in the toggle list (`PositionPicker` got `showTiled`); the client's
+  address shows a lock + "Mereu" instead of a grey disabled switch; the no-logo row reads "Fără
+  logo / Fișierele primesc doar text"; the company row's note is the hint, not the name again.
+- Verified live at 1440 light + dark and 390. Arrow keys not seen moving (the demo account has
+  one delivery). The headless browser's daemon restarted mid-run and lost its session; the
+  scratchpad `relogin.sh` signs it in again through a temporary 8091 log-mailer instance.
+
+**Before that:** `/impeccable critique` of the app against the marketing page's pictures (28/40,
+snapshot `.impeccable/critique/2026-11-11T07-05-51Z__frontend-src-routes-app.md`), then all its
+fixes (user: "Poti sa te apuci, alege varianta cea mai buna"; the window dots stay, by the
+user's choice, so the app looks like the pictures):
+- **Dashboard is the mockup's split view** from 1280px: one window, the list (filters + rows) on
+  the left, the open delivery on the right (`components/JobPanel.svelte`: file name, recipient,
+  chip, the picture beside `DeliveryCard`, link to the full job page). The first row opens by
+  default; `?job=<id>` keeps the selection; a plain click selects, a modified click still opens
+  `/app/jobs/<id>`. "Fișier nou" (header `?upload=1`) turns the right pane into the upload form
+  (`{#snippet uploadForm()}` is rendered there on wide screens, under the list otherwise);
+  after an upload the new delivery opens. Narrower than 1280px: list window + form window as
+  before, rows go to the job page. The window is a fixed height (clamp 620-940px) with both panes
+  scrolling. Sort moved into the window bar (hidden when the window is under 680px); "/" focuses
+  the search (`kbd` hint); a "no matches" state offers "Arată toate livrările".
+  CSS gotcha found on the way: a container query cannot restyle its own container, so the
+  list's grid lives in `.list-grid` inside the `.list-pane` container.
+- **Recipient unlock is the hero picture**: title "Originalul fără filigran, <size>" (new
+  `originalSize` in `GET /api/payments/status`, from `payment.StatusResult.OriginalSize`), no
+  "Plată cu cardul" label, button "Plătește 49 €" (whole prices without decimals, narrow
+  symbol), a skeleton while Stripe.js loads, the paid tick drawn as SVG. **Backend:**
+  `payment.Service.CreateIntent` now asks Stripe for `payment_method_types: [card]` instead of
+  automatic methods (no Bancontact/MB WAY/EPS list; wallets ride on card). An already-open
+  PaymentIntent from before is reused as is, so old demo jobs still show the old list until a new
+  intent is made. Tests: `payment/service_test.go` (fake backend records the create params).
+- **Brand settings lead with the mockup's toggle list** ("Filigranul contului · N din 5
+  pornite"): logo row (thumbnail + Change/Add), company name, client address, date, whole picture.
+  Company/date toggle `{company}`/`{date}` in the template (`setToken`, canonical order when the
+  template is only tokens, appended otherwise); **the client address only turns on** - it ties a
+  leaked copy to its recipient; "whole picture" toggles `position: tiled` and remembers the corner.
+  The detailed controls follow under "Firma și logo" and "Poziție și mărime"; the raw template
+  is behind "Textul exact".
+- Removed the kicker above the sign-in statement (`AuthShell`).
+- Verified live (headless; signed in through a temporary 8091 instance with
+  `MAILER_TRANSPORT=log`, stopped afterwards): dashboard split view at 1440 light + dark, upload
+  pane, "/" focus, 1024 and 390 list layouts, brand settings at 1440/390/dark, preview page.
+  `npm run check` clean, `go test ./internals/app/...` green. Not seen live: a brand-new
+  card-only PaymentIntent (needs a new job; covered by the test), the empty-account split view.
+  Not committed.
+
+**Before that:** second pass at matching the marketing page, this time its *mockups*, not just its
+tokens (user, via `/design-taste-frontend`: "Vreau acum sa schimbam tot frontend-ul sa arate ca
+cel din pagina de prezentare"). Every app page is now built from the marketing page's own UI
+pictures; see DESIGN.md "The product window" for the system. In short:
+- `app.css`: new tokens `--line`/`--line-2`/`--fill`/`--fill-2`/`--ink-btn`/`--shadow-sm`, radius
+  12/8; new shared classes `.page`/`.page-head`/`.back`, `.win`/`.win-bar`/`.win-dots`/`.win-body`,
+  `.rows`, `.st` tags, `.chip`, `.avatar`, `.switch`, `.btn-ink`/`.btn-line`/`.btn-sm`/`.btn-block`,
+  `.link-u`, `.side-item`/`.side-label`, `.sk`; `.segmented`/`.pill-group` are tonal tracks.
+- `/app` layout: marketing header (Livrări / Setări centred, "Fișier nou", account menu holding
+  language + theme). `/app` is the "Lista de livrări" window: sidebar filters with counts (Toate,
+  În lucru, Deschise, Plătite, Oprite, Eșuate; Tip: Video/Imagini/Audio; sort), rows with
+  initials, file name + size and one status tag (`lib/delivery.ts`), search over recipient and
+  file name; the upload form is a window beside it with the usage meters in its footer.
+  `dashboard.title` is now "Livrări"/"Deliveries".
+- **Backend:** `job.Response` gained `fileName` + `sizeBytes` (the original asset's), filled for
+  List and Get by a third raw-SQL query in `job.Repo.DeliverySummary` (`assets` table, same
+  import-cycle reason as the others). Test: `job/delivery_test.go`.
+- Job page: big file-name h1, one window with the player and `DeliveryCard` (pills: Copiază
+  linkul / Retrimite / Oprește linkurile, the link field, the history as the mockup's timeline)
+  plus hairline details; the stepper shows only while pending/processing.
+- Settings: `SettingsTabs` is a page head with segmented tabs (`lead` prop); Brand is two windows
+  ("Filigranul contului" + preview); Security is the marketing split (heading left, panel right)
+  with the global `.switch`.
+- Login/confirm/revoke: new `AuthShell` (statement + two points left, the form card on the warm
+  panel right). `MarkBar` is the marketing bar ("Despre SADE" + toggles; `siteLink={false}` on
+  the recipient page). Recipient `/preview/[token]`: the hero window (bar with download, media on
+  a dark stage, unlock column; "Descarcă originalul" is `.btn-ink`).
+- Welcome: visual only (bigger h1, window footer for the actions); flow and copy unchanged.
+- Verified live (headless, second instance on 8091 with `MAILER_TRANSPORT=log`): dashboard, job,
+  settings, security, login, preview at 1440 and 390, dashboard + job in dark; `npm run check`
+  clean; `go test ./internals/app/...` green. Not seen live: confirm/revoke pages after the shell
+  change (same component as login), the empty-dashboard state, the Stripe form fully mounted on
+  desktop (it was still loading in the shot; it mounted on the phone shot). Not committed.
+
+**Before that:** the whole app now matches the marketing page (user: "vreau sa corespunda tot cu ce
+apare in aceasta pagina"). The marketing page **is** `/`: adapter-static's fallback is now
+`200.html` (`frontend/vite.config.ts`), `build/index.html` comes from `frontend/static/index.html`,
+`internals/app/static.go` serves `/200.html` as the SPA shell when it exists (else `/`, for old
+builds/tests), and `buildCSP` hashes the inline scripts of both pages
+(`TestStaticMarketingPageAndShell`). `connect-src` gained `https://fonts.googleapis.com` - Stripe.js
+fetches the Payment Element's font CSS (`PaymentForm.svelte` `fonts.cssSrc`) from the page. The old
+Svelte landing (`src/routes/+page.svelte`) is deleted; `MarkBar`'s "/" link uses
+`data-sveltekit-reload`. Look: `app.css` tokens rewritten (see DESIGN.md "Origin"): Reddit Sans +
+JetBrains Mono, `--accent` #e8631c with #111 text, pill `.btn`, tonal `.btn-ghost`, sentence-case
+labels, headings 500 / -0.025em, `--shadow-card`, 1280px `.container`, `.mono` = text face with
+tabular figures (`.code-mono` for real monospace), all `font-weight: 600/700` in components -> 500;
+72px header in `/app` and `MarkBar` (login/confirm/revoke/preview). Verified live (headless, Go
+server with `MAILER_TRANSPORT=log`): `/`, login, welcome, dashboard (light + dark, 1440 + 390), job
+page, settings, recipient preview with Stripe - no CSP errors. Docker Desktop had to be started for
+Postgres. Not committed.
+
+**Before that:** a standalone static marketing page built with `/design-taste-frontend` at
+`frontend/static/index.html` (+ `frontend/static/assets/` kit, `credits.html`, stand-in Wikimedia
+wedding photos). Separate from the SvelteKit `/` route (left untouched). Second session finished it:
+the burned-in watermark on the demo photos is now SVG images (`assets/img/wm-*.svg`) instead of
+HTML text, the hero demo fits its frame, muted text darkened to 7:1, the FAQ got a mock of the real
+(English) preview-ready email, the delivery-panel watermark/logo stretch and timeline wrap fixed.
+Gate rounds used up at OPEN; remaining 3 findings waived in `.taste-skill/waivers.json`. (The build
+collision noted here was resolved the next turn - see "Latest".)
+
+**Before that:** frontend pass from `/impeccable critique` (25/40; snapshot in `.impeccable/critique/`),
+user: "Rulează-le pe toate, în ordine". Off-limits by the user's choice: landing copy/composition,
+the API, `/app/welcome`. Frontend only:
+- **Recipient page** (`/preview/[token]`): media keeps its own shape (no fixed 16:9 - a phone video
+  was a 105px strip), max 78svh; no vertical centring; a context line under the title explains the
+  watermark carries the recipient's address (+ "original after payment" when unpaid); once paid,
+  the watermarked download becomes a secondary link under "Descarcă originalul"; card note no
+  longer assumes the reader knows SADE. `PaymentForm` restyles the Stripe Element on theme change.
+- **Colour**: `--accent` is now #b8481a (buttons, white text 5.3:1), new `--accent-ink` (links/text,
+  #f0834a in dark) and `--accent-bright` (#e8631c, fills only). Every informative `.faint` /
+  `--text-faint` use moved to `--text-muted`; `.section-label` defined once in `app.css`.
+- **Targets**: `.btn` min-height 44px; pills, inline links, chips get a 44px hit area via `::after`.
+- **Dashboard**: recipient typo guard (`lib/email.ts` `suggestEmail`, blocks the first submit,
+  "Adresa e corectă" to keep it); a summary (recipient + exact burned-in text) above the send
+  button; list before the upload form at <= 860px with a "Fișier nou" jump; no row/banner side
+  stripes; "Deschis" chip neutral (accent no longer a status).
+- **Job page**: `<h1>` is the original file name, recipient below; stepper says "Trimis" not
+  "Livrat"; delete explains why it is disabled while processing. **DeliveryCard**: load error +
+  retry, the disable confirm stays armed until Cancel (was disarmed on blur), resend limit shown.
+- **Toasts** with a link last 12 s and pause on hover/focus. **Account menu**: arrow keys / Home /
+  End, Escape returns focus; "Setări" also in the top bar (>= 600px). **Login**: the 6-digit code
+  sits behind "Ai deschis emailul pe alt dispozitiv?". Theme toggle labels localised.
+- Verified: `npm run check` clean, detector 3 -> 0 findings, preview + login live at 375/1440,
+  light/dark on a second server instance (port 8091). **/app pages not seen live** (no session
+  could be minted for the review) - checked by type-check and reading only. **Restart the Go
+  server after `npm run build`** (CSP hashes).
+
+**Before that:** `PRODUCT.md` added at the repo root (`/impeccable init`): users (studios, media
+freelancers, agencies, all equal; recipients with no account), purpose (protection + traceability
++ payment as one package), positioning (recipient-traceable branded watermark), constraints,
+principles. Answers from the user: all operator types, "both equally", own SaaS Romania-first.
+`DESIGN.md` is the visual record; `PRODUCT.md` is the product record - design work reads both.
+
+**Before that:** brand UX pass from /plan-design-review (22 decisions, 3/10 -> 8/10) + a second
 /plan-eng-review of those tasks (user: "Implementez DT1-DT9 acum"). Decisions and tasks are in the
 same plan file as the brand work (sections "Design review" and "Eng review of the design tasks").
 

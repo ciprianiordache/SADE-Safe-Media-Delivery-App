@@ -6,7 +6,7 @@
 	import { i18n } from '$lib/i18n.svelte';
 	import { api } from '$lib/api';
 	import { auth } from '$lib/stores.svelte';
-	import MarkBar from '$lib/components/MarkBar.svelte';
+	import AuthShell from '$lib/components/AuthShell.svelte';
 
 	let token = '';
 	let phase = $state<'ready' | 'working' | 'done' | 'invalid'>('ready');
@@ -34,12 +34,7 @@
 	<title>{i18n.t('revoke.title')} · SADE</title>
 </svelte:head>
 
-<div class="container top">
-	<MarkBar />
-</div>
-
-<div class="container">
-	<div class="card form-card">
+<AuthShell>
 		{#if phase === 'invalid'}
 			<h1>{i18n.t('confirm.invalidTitle')}</h1>
 			<p class="muted">{i18n.t('login.errorInvalidLink')}</p>
@@ -67,30 +62,11 @@
 				{phase === 'working' ? i18n.t('revoke.working') : i18n.t('revoke.submit')}
 			</button>
 		{/if}
-	</div>
-</div>
+</AuthShell>
 
 <style>
-	.top {
-		padding: 1.25rem 1.75rem 0;
-	}
 
-	.form-card {
-		max-width: 420px;
-		margin: 3.5rem auto;
-		display: flex;
-		flex-direction: column;
-		gap: 1.1rem;
-	}
 
-	@media (max-width: 520px) {
-		.top {
-			padding: 1rem 1rem 0;
-		}
-		.form-card {
-			margin: 2rem auto;
-		}
-	}
 
 	.card-head {
 		display: flex;
@@ -100,8 +76,8 @@
 
 	h1 {
 		margin: 0;
-		font-size: 1.45rem;
-		font-weight: 700;
+		font-size: 1.75rem;
+		font-weight: 500;
 	}
 
 	p {

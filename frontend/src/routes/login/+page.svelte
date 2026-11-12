@@ -8,7 +8,8 @@
 	import { finishSignIn, signInWithPasskey } from '$lib/signin';
 	import { isCancel, passkeysSupported } from '$lib/webauthn';
 	import type { SignInResult } from '$lib/types';
-	import MarkBar from '$lib/components/MarkBar.svelte';
+		import AuthShell from '$lib/components/AuthShell.svelte';
+	import { IS_APP, appServer, setAppServer } from '$lib/platform';
 	import { onDestroy, onMount } from 'svelte';
 
 	const RESEND_SECONDS = 30;
@@ -31,7 +32,17 @@
 	let passkeyError = $state('');
 	let pendingStep = $state<SignInResult | null>(null);
 
-	const linkError = page.url.searchParams.get('error') === 'invalid_link';
+		const linkError = page.url.searchParams.get('error') === 'invalid_link';
+
+	// The installed app: which SADE server it signs in to.
+	let server = $state(IS_APP ? appServer() : '');
+	let editingServer = $state(false);
+	function saveServer(e: SubmitEvent) {
+		e.preventDefault();
+		setAppServer(server);
+		// API_BASE is read once at start: reload onto the new server.
+		location.reload();
+	}
 
 	onMount(async () => {
 		try {
@@ -152,12 +163,7 @@
 	<title>{i18n.t('login.title')} · SADE</title>
 </svelte:head>
 
-<div class="container top">
-	<MarkBar />
-</div>
-
-<div class="container">
-	<div class="card form-card">
+<AuthShell>
 		{#if pendingStep}
 			<span class="icon-tile" aria-hidden="true">
 				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent-tint-text)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
@@ -185,15 +191,17 @@
 				<p class="muted">{i18n.t('login.sentTo')}</p>
 			</div>
 			<p class="account mono">{email}</p>
-			<p class="muted hint">{i18n.t('login.sentHint')}</p>
+						<p class="muted hint">{IS_APP ? i18n.t('login.appSentHint') : i18n.t('login.sentHint')}</p>
 
+			<details class="code-box" open={IS_APP}>
+				<summary>{i18n.t('login.codeToggle')}</summary>
 			<form class="code-form" onsubmit={submitCode}>
 				<label for="code">{i18n.t('login.codeLabel')}</label>
-				<span class="faint small">{i18n.t('login.codeHint')}</span>
+				<span class="muted small">{i18n.t('login.codeHint')}</span>
 				<div class="code-row">
 					<input
 						id="code"
-						class="code-input mono"
+						class="code-input code-mono"
 						type="text"
 						inputmode="numeric"
 						autocomplete="one-time-code"
@@ -210,6 +218,7 @@
 					<p class="error-text">{codeError}</p>
 				{/if}
 			</form>
+			</details>
 
 			{#if error}
 				<p class="error-text">{error}</p>
@@ -223,7 +232,7 @@
 		{:else}
 			<div class="card-head">
 				<h1>{i18n.t('login.title')}</h1>
-				<p class="muted">{i18n.t('login.subtitle')}</p>
+				<p class="muted">{IS_APP ? i18n.t('login.appSubtitle') : i18n.t('login.subtitle')}</p>
 			</div>
 
 			{#if linkError}
@@ -256,48 +265,45 @@
 					<p class="error-text">{error}</p>
 				{/if}
 				<button class="btn" type="submit" disabled={submitting} style="width:100%">
-					{submitting ? i18n.t('login.submitting') : i18n.t('login.submit')}
+					{submitting ? i18n.t('login.submitting') : IS_APP ? i18n.t('login.appSubmit') : i18n.t('login.submit')}
 				</button>
 			</form>
 
 			{#if passkeysOn}
 				<div class="divider"><span>{i18n.t('login.or')}</span></div>
-				<button class="btn btn-ghost passkey-btn" type="button" onclick={passkeyOnly} disabled={passkeyBusy}>
+				<button class="btn btn-ink passkey-btn" type="button" onclick={passkeyOnly} disabled={passkeyBusy}>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
 						><circle cx="8" cy="15" r="4" /><path d="M10.8 12.2 L19 4 M16 7 l3 3 M14 9 l2 2" /></svg
 					>
 					{i18n.t('login.passkey')}
 				</button>
-				<p class="faint small center">{i18n.t('login.passkeyHint')}</p>
+				<p class="muted small center">{i18n.t('login.passkeyHint')}</p>
 				{#if passkeyError}
 					<p class="error-text center">{passkeyError}</p>
 				{/if}
 			{/if}
 		{/if}
-	</div>
-</div>
+	{#if IS_APP}
+		<div class="server">
+			{#if editingServer}
+				<form class="server-form" onsubmit={saveServer}>
+					<label for="server">{i18n.t('login.serverLabel')}</label>
+					<div class="server-row">
+						<input id="server" type="url" required placeholder="https://" bind:value={server} />
+						<button class="btn btn-ink btn-sm" type="submit">{i18n.t('login.serverSave')}</button>
+					</div>
+				</form>
+			{:else}
+				<span class="muted small">{i18n.t('login.serverLabel')}: <span class="mono">{server}</span></span>
+				<button type="button" class="link-btn" onclick={() => (editingServer = true)}>{i18n.t('login.serverChange')}</button>
+			{/if}
+		</div>
+	{/if}
+</AuthShell>
 
 <style>
-	.top {
-		padding: 1.25rem 1.75rem 0;
-	}
 
-	.form-card {
-		max-width: 396px;
-		margin: 3.5rem auto;
-		display: flex;
-		flex-direction: column;
-		gap: 1.1rem;
-	}
 
-	@media (max-width: 520px) {
-		.top {
-			padding: 1rem 1rem 0;
-		}
-		.form-card {
-			margin: 2rem auto;
-		}
-	}
 
 	.card-head {
 		display: flex;
@@ -307,22 +313,22 @@
 
 	h1 {
 		margin: 0;
-		font-size: 1.45rem;
-		font-weight: 700;
-		letter-spacing: -0.01em;
+		font-size: 1.6rem;
+		font-weight: 500;
+		letter-spacing: -0.03em;
 	}
 
 	.card-head p,
 	.hint {
 		margin: 0;
-		font-size: 0.85rem;
+		font-size: 0.92rem;
 		line-height: 1.5;
 	}
 
 	.icon-tile {
 		width: 48px;
 		height: 48px;
-		border-radius: 13px;
+		border-radius: 50%;
 		background: var(--accent-tint);
 		display: inline-flex;
 		align-items: center;
@@ -332,19 +338,51 @@
 	.account {
 		margin: 0;
 		padding: 0.7rem 0.85rem;
-		border: 1px solid var(--border);
-		border-radius: 10px;
-		background: var(--bg);
+		border-radius: var(--radius-sm);
+		background: var(--fill);
 		font-size: 0.9rem;
 		overflow-wrap: anywhere;
+	}
+
+	.code-box {
+		border-top: 1px solid var(--line);
+	}
+
+	.code-box summary {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		min-height: 44px;
+		cursor: pointer;
+		font-size: 0.88rem;
+		font-weight: 500;
+		color: var(--text);
+		list-style: none;
+	}
+
+	.code-box summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.code-box summary::before {
+		content: '';
+		width: 0.45rem;
+		height: 0.45rem;
+		border-right: 2px solid var(--text-muted);
+		border-bottom: 2px solid var(--text-muted);
+		transform: rotate(-45deg);
+		transition: transform 0.15s;
+	}
+
+	.code-box[open] summary::before {
+		transform: rotate(45deg);
 	}
 
 	.code-form {
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
-		padding-top: 0.9rem;
-		border-top: 1px solid var(--border);
+		padding-bottom: 0.25rem;
 	}
 
 	.code-form label {
@@ -394,7 +432,7 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		color: var(--text-faint);
+		color: var(--text-muted);
 		font-size: 0.78rem;
 	}
 
@@ -403,7 +441,7 @@
 		content: '';
 		flex: 1;
 		height: 1px;
-		background: var(--border);
+		background: var(--line);
 	}
 
 	.passkey-btn {
@@ -418,12 +456,44 @@
 		font: inherit;
 		font-size: 0.85rem;
 		cursor: pointer;
-		padding: 0.25rem;
+		min-height: 44px;
+		padding: 0 0.5rem;
 		text-decoration: underline;
 		text-underline-offset: 3px;
 	}
 
 	.link-btn:hover {
 		color: var(--text);
+	}
+
+	.server {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0 6px;
+		padding-top: 14px;
+		border-top: 1px solid var(--line);
+	}
+
+	.server-form {
+		width: 100%;
+	}
+
+	.server-row {
+		display: flex;
+		gap: 8px;
+	}
+
+	.server-row input {
+		flex: 1;
+		min-width: 0;
+		width: 100%;
+		background: var(--surface);
+		color: var(--text);
+		border: 1px solid var(--line-2);
+		border-radius: var(--radius-sm);
+		min-height: 44px;
+		padding: 0.6rem 0.8rem;
+		font: inherit;
 	}
 </style>

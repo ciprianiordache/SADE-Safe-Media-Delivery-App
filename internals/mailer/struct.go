@@ -6,6 +6,10 @@ import "context"
 // (a magic link to an operator, a preview link to a client).
 type Message struct {
 	To      string // recipient address
+	// ReplyTo, when set, is where a reply goes instead of the From address
+	// (the no-reply sender): the recipient's email answers the operator who
+	// sent them the file. Must be a bare address; anything else is dropped.
+	ReplyTo string
 	Subject string
 	Text    string // plain-text body (required)
 	HTML    string // optional; when set the message is multipart/alternative

@@ -1,0 +1,66 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "SADE",
+  "version": "0.1.0",
+  "identifier": "ro.sade.app",
+  "build": {
+    "frontendDist": "../build-app",
+    "devUrl": "http://localhost:5174",
+    "beforeDevCommand": "npm run dev:app",
+    "beforeBuildCommand": "npm run build:app"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "SADE",
+        "width": 1320,
+        "height": 860,
+        "minWidth": 720,
+        "minHeight": 560,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "decorations": false,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self'",
+        "img-src": "'self' blob: data: http: https:",
+        "media-src": "'self' blob: http: https:",
+        "connect-src": "'self' ipc: http://ipc.localhost http: https:"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "SADE",
+    "category": "Productivity",
+    "shortDescription": "Livrare cu filigran pentru studiouri",
+    "longDescription": "SADE pune pe fiecare fișier logo-ul tău, adresa clientului și data, îl trimite cu un link și îți arată cine l-a deschis și cine a plătit.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "Romanian",
+          "English"
+        ]
+      }
+    },
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

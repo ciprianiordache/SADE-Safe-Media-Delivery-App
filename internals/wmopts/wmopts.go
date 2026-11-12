@@ -115,10 +115,49 @@ func render(template, company, recipient, date string) string {
 	if date == "" {
 		t = dropPlaceholder(t, "{date}")
 	}
+	// Every copy names its recipient (PRODUCT.md principle 2): a template
+	// that leaves {recipient} out gets it appended.
+	if !strings.Contains(t, "{recipient}") {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			t = "{recipient}"
+		} else {
+			t += " · {recipient}"
+		}
+	}
 	t = strings.ReplaceAll(t, "{company}", company)
 	t = strings.ReplaceAll(t, "{recipient}", recipient)
 	t = strings.ReplaceAll(t, "{date}", date)
 	return strings.TrimSpace(t)
+}
+
+// WithRecipient is the operator's own per-upload text with the recipient's
+// address appended when the text does not already carry it: a custom text
+// may replace the brand's template, never the recipient. The operator's part
+// is shortened (with Ellipsis) so the whole stays within max runes - the
+// address itself is never cut. max <= 0 means no limit.
+func WithRecipient(text, recipient string, max int) string {
+	text, recipient = strings.TrimSpace(text), strings.TrimSpace(recipient)
+	if recipient == "" {
+		return text
+	}
+	if text == "" {
+		return recipient
+	}
+	if strings.Contains(strings.ToLower(text), strings.ToLower(recipient)) {
+		return text
+	}
+	const sep = " · "
+	if max > 0 {
+		room := max - runes(recipient) - runes(sep)
+		if room < runes(Ellipsis)+1 {
+			return recipient
+		}
+		if runes(text) > room {
+			text = strings.TrimSpace(string([]rune(text)[:room-runes(Ellipsis)])) + Ellipsis
+		}
+	}
+	return text + sep + recipient
 }
 
 func dropPlaceholder(t, ph string) string {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"sade/config"
@@ -15,6 +16,16 @@ import (
 // browserCookie names the cookie that ties a sign-in email to the browser
 // that asked for it. Only the sign-in endpoints need it, hence the path.
 const browserCookie = "sade_login"
+
+// The installed app cannot keep a cookie for the API (it runs on its own
+// origin), so it sends the same binding value as a header it generated and
+// keeps itself, and asks for the session secret back as a bearer token.
+const (
+	appClientHeader = "X-SADE-Client" // "app"
+	appLoginHeader  = "X-SADE-Login"  // the app's binding nonce
+)
+
+func isApp(r *http.Request) bool { return r.Header.Get(appClientHeader) == "app" }
 
 // Handler is the HTTP surface of the sign-in flow and of the account's
 // security settings (devices, activity, passkeys). The current-user endpoint
@@ -42,7 +53,14 @@ func (h *Handler) client(r *http.Request) Client {
 	if h.clientIP != nil {
 		ip = h.clientIP(r)
 	}
-	return Client{UserAgent: r.UserAgent(), IP: ip}
+	ua := r.UserAgent()
+	if isApp(r) {
+		// The installed app runs in the system's web view, whose user agent
+		// names a browser (WebView2 says "Edg/"). Mark it so the account's
+		// device list says "SADE app on Windows", not a browser it never opened.
+		ua += " " + appUAMarker
+	}
+	return Client{UserAgent: ua, IP: ip}
 }
 
 // --- who is calling (set by the router's Auth middleware) -------------------
@@ -157,7 +175,7 @@ func (h *Handler) Complete(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("auth complete", "error", err)
 		httpx.Error(w, http.StatusInternalServerError, "could not sign in")
 	default:
-		h.writeSignIn(w, res)
+		h.writeSignIn(w, r, res)
 	}
 }
 
@@ -182,20 +200,40 @@ func (h *Handler) CompleteCode(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("auth code", "error", err)
 		httpx.Error(w, http.StatusInternalServerError, "could not sign in")
 	default:
-		h.writeSignIn(w, res)
+		h.writeSignIn(w, r, res)
 	}
 }
 
 // writeSignIn answers a finished email step: either the session cookie, or
 // the passkey challenge the account requires next.
-func (h *Handler) writeSignIn(w http.ResponseWriter, res SignIn) {
+func (h *Handler) writeSignIn(w http.ResponseWriter, r *http.Request, res SignIn) {
 	http.SetCookie(w, h.clearBrowserCookie())
 	if res.Passkey != nil {
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{"status": "passkey_required", "passkey": res.Passkey})
 		return
 	}
-	http.SetCookie(w, h.sessionCookie(res.SessionSecret, res.ExpiresAt))
+	h.writeSession(w, r, res.SessionSecret, res.ExpiresAt)
+}
+
+// writeSession hands the new session over: a cookie for the browser, and the
+// same secret as a bearer token when the installed app asked for it.
+func (h *Handler) writeSession(w http.ResponseWriter, r *http.Request, secret string, exp time.Time) {
+	http.SetCookie(w, h.sessionCookie(secret, exp))
+	if isApp(r) {
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"status": "signed_in", "token": secret, "expiresAt": exp.UTC()})
+		return
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "signed_in"})
+}
+
+// BearerToken reads "Authorization: Bearer <secret>" - the installed app's
+// session; "" when absent.
+func BearerToken(r *http.Request) string {
+	v := r.Header.Get("Authorization")
+	if len(v) > 7 && strings.EqualFold(v[:7], "bearer ") {
+		return strings.TrimSpace(v[7:])
+	}
+	return ""
 }
 
 // PasskeyLoginBegin handles POST /api/auth/passkey/begin: options for a
@@ -228,8 +266,7 @@ func (h *Handler) PasskeyLoginFinish(w http.ResponseWriter, r *http.Request) {
 		h.passkeyError(w, err)
 		return
 	}
-	http.SetCookie(w, h.sessionCookie(secret, exp))
-	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "signed_in"})
+	h.writeSession(w, r, secret, exp)
 }
 
 // RevokeFromAlert handles POST /api/auth/revoke {"token"}: the alert email's
@@ -256,8 +293,12 @@ func (h *Handler) RevokeFromAlert(w http.ResponseWriter, r *http.Request) {
 // Logout handles POST /api/auth/logout: drop the session, clear the cookie.
 // Always 204.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(h.cfg.SessionCookieName); err == nil {
-		if err := h.svc.Logout(r.Context(), c.Value); err != nil {
+	secret := BearerToken(r)
+	if c, err := r.Cookie(h.cfg.SessionCookieName); err == nil && secret == "" {
+		secret = c.Value
+	}
+	if secret != "" {
+		if err := h.svc.Logout(r.Context(), secret); err != nil {
 			h.log.Error("auth logout", "error", err)
 		}
 	}
@@ -436,11 +477,14 @@ func (h *Handler) passkeyError(w http.ResponseWriter, err error) {
 
 // browserNonce reads this browser's sign-in cookie, if well-formed.
 func (h *Handler) browserNonce(r *http.Request) string {
-	c, err := r.Cookie(browserCookie)
-	if err != nil || !wellFormedToken(c.Value) {
-		return ""
+	if c, err := r.Cookie(browserCookie); err == nil && wellFormedToken(c.Value) {
+		return c.Value
 	}
-	return c.Value
+	// The installed app keeps its own binding value and sends it instead.
+	if v := r.Header.Get(appLoginHeader); wellFormedToken(v) {
+		return v
+	}
+	return ""
 }
 
 func (h *Handler) browserCookie(value string) *http.Cookie {

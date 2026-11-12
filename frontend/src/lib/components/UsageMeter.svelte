@@ -13,6 +13,7 @@
 	function size(bytes: number): string {
 		const g = bytes / 1024 ** 3;
 		if (g >= 1) return `${g.toFixed(g >= 10 ? 0 : 1)} GB`;
+				if (bytes > 0 && bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 		return `${Math.round(bytes / 1024 ** 2)} MB`;
 	}
 </script>
@@ -46,8 +47,8 @@
 	.usage {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-		gap: 0.75rem 1.5rem;
-		margin: 0 0 1.5rem;
+		gap: 14px 24px;
+		margin: 0;
 	}
 
 	.meter {
@@ -59,21 +60,21 @@
 	.meter-head {
 		display: flex;
 		justify-content: space-between;
-		font-size: 0.78rem;
+		font-size: 0.82rem;
 		color: var(--text-muted);
 	}
 
 	.track {
 		height: 6px;
 		border-radius: 999px;
-		background: var(--border);
+		background: var(--fill-2);
 		overflow: hidden;
 	}
 
 	.fill {
 		height: 100%;
 		border-radius: inherit;
-		background: var(--accent);
+		background: var(--accent-bright);
 		transition: width 0.3s ease;
 	}
 

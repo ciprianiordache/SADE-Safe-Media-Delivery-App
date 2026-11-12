@@ -44,14 +44,20 @@ func UserFrom(ctx context.Context) (user.Response, bool) {
 
 // --- middlewares ---------------------------------------------------------
 
-// Auth resolves the session cookie and, when valid, attaches the user to the
-// request context. It never rejects - RequireUser / RequireRole do that.
+// Auth resolves the session - the cookie in a browser, a bearer token from
+// the installed app - and, when valid, attaches the user to the request
+// context. It never rejects - RequireUser / RequireRole do that.
 func Auth(svc *auth.Service, cookieName string, trust proxyTrust) middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			c, err := r.Cookie(cookieName)
-			if err == nil {
-				if u, sid, aErr := svc.AuthenticateSession(r.Context(), c.Value, trust.clientIP(r)); aErr == nil {
+			secret := auth.BearerToken(r)
+			if secret == "" {
+				if c, err := r.Cookie(cookieName); err == nil {
+					secret = c.Value
+				}
+			}
+			if secret != "" {
+				if u, sid, aErr := svc.AuthenticateSession(r.Context(), secret, trust.clientIP(r)); aErr == nil {
 					ctx := withUser(r.Context(), u)
 					// The account handlers in package auth need the ids, not
 					// the user DTO - see auth.WithCaller.
@@ -136,8 +142,8 @@ func CORS(allowed []string) middleware {
 				h.Set("Access-Control-Allow-Credentials", "true")
 				h.Set("Vary", "Origin")
 				if r.Method == http.MethodOptions {
-					h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-					h.Set("Access-Control-Allow-Headers", "Content-Type")
+					h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+					h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-SADE-Client, X-SADE-Login")
 					h.Set("Access-Control-Max-Age", "600")
 					w.WriteHeader(http.StatusNoContent)
 					return

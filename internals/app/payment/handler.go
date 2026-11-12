@@ -71,6 +71,7 @@ type statusResponse struct {
 	AmountCents    int64  `json:"amountCents"`
 	Currency       string `json:"currency"`
 	PublishableKey string `json:"publishableKey,omitempty"`
+	OriginalSize   int64  `json:"originalSize,omitempty"`
 }
 
 // Status handles GET /api/payments/status?token=... - the /preview/[token]
@@ -92,6 +93,7 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusOK, statusResponse{
 			Enabled: result.Enabled, Paid: result.Paid, OriginalURL: result.OriginalURL,
 			AmountCents: result.AmountCents, Currency: result.Currency, PublishableKey: result.PublishableKey,
+			OriginalSize: result.OriginalSize,
 		})
 	}
 }

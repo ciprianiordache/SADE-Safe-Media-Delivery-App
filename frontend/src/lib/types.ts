@@ -98,6 +98,9 @@ export interface Job {
 	// whether they paid for the original.
 	openedAt?: string;
 	paid: boolean;
+	// The original upload's name and size (list and detail).
+	fileName?: string;
+	sizeBytes?: number;
 }
 
 // Mirrors internals/app/share.Delivery - GET /api/jobs/{id}/delivery.
@@ -120,6 +123,11 @@ export interface DeliveryEvent {
 export interface Delivery {
 	enabled: boolean;
 	paid: boolean;
+	// The recipient's unlock: on for this deployment, its price, when paid.
+	payments: boolean;
+	amountCents?: number;
+	currency?: string;
+	paidAt?: string;
 	ready: boolean;
 	previewUrl?: string;
 	expiresAt?: string;
@@ -144,6 +152,15 @@ export interface Usage {
 }
 
 // Mirrors internals/app/payment.statusResponse.
+// GET /api/share/info: the recipient page's file and sender (the operator's
+// verified account email, as in the email they got).
+export interface ShareInfo {
+	fileName?: string;
+	mediaType?: 'video' | 'image' | 'audio';
+	sizeBytes?: number;
+	sender?: string;
+}
+
 export interface PaymentStatus {
 	enabled: boolean; // false when the server has no Stripe key configured
 	paid: boolean;
@@ -151,6 +168,7 @@ export interface PaymentStatus {
 	amountCents: number;
 	currency: string;
 	publishableKey?: string; // set whenever enabled - mounts Stripe.js client-side
+	originalSize?: number; // bytes of the clean original
 }
 
 // Mirrors config.UploadConfig's default Allowed* extensions

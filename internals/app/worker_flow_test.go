@@ -174,19 +174,19 @@ func TestWorkerFlowEndToEndThroughRouter(t *testing.T) {
 		t.Fatalf("expected original+preview assets, got %+v", detail.Assets)
 	}
 
-	// The notifier really emailed the recipient a working view (frontend
-	// page) + download link. There's no frontend build in this test harness
-	// to render the view link itself, so verify its token is genuine by
-	// resolving it against the same public /p/{token} route the frontend
-	// page would call, then fetch the download link directly.
+	// The notifier really emailed the recipient a working link to the
+	// frontend page (the only link: no direct download that skips the page).
+	// There's no frontend build in this test harness to render the page
+	// itself, so verify its token is genuine by resolving it against the
+	// same public /p/{token} route the page calls.
 	cm.mu.Lock()
 	lastBody := cm.sent[len(cm.sent)-1].Text
 	cm.mu.Unlock()
 	links := linksFromBody(lastBody)
-	if len(links) != 2 {
-		t.Fatalf("expected 2 links (view, download) in notifier email, got %v", links)
+	if len(links) != 1 {
+		t.Fatalf("expected 1 link (the page) in notifier email, got %v", links)
 	}
-	viewLink, dlLink := links[0], links[1]
+	viewLink := links[0]
 
 	viewPrefix := srv.URL + "/preview/"
 	if !strings.HasPrefix(viewLink, viewPrefix) {
@@ -195,7 +195,7 @@ func TestWorkerFlowEndToEndThroughRouter(t *testing.T) {
 	viewTok := strings.TrimPrefix(viewLink, viewPrefix)
 
 	anon := &http.Client{}
-	for _, link := range []string{srv.URL + "/p/" + viewTok, dlLink} {
+	for _, link := range []string{srv.URL + "/p/" + viewTok} {
 		r, err := anon.Get(link)
 		if err != nil {
 			t.Fatalf("GET %s: %v", link, err)

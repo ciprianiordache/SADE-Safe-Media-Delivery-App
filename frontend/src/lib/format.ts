@@ -1,19 +1,28 @@
 import type { Locale } from './i18n.svelte';
 
-// Compact relative time ("2m", "1h", "3d") matching the design's row/card
-// timestamps. Not a full i18n formatter - just now/minutes/hours/days.
+// Compact relative time for rows and timelines: "2 min", "3 h", "5 zile"
+// ("5 d" in English). Spelled out enough that "1m" can't read as a month.
+// The one format for "how long ago"; fullDate is the one for "when".
 export function relativeTime(iso: string, locale: Locale): string {
 	const diffMs = Date.now() - new Date(iso).getTime();
 	const min = Math.floor(diffMs / 60000);
 	if (min < 1) return locale === 'ro' ? 'acum' : 'now';
-	if (min < 60) return `${min}m`;
+	if (min < 60) return `${min} min`;
 	const hr = Math.floor(min / 60);
-	if (hr < 24) return `${hr}h`;
+	if (hr < 24) return `${hr} h`;
 	const day = Math.floor(hr / 24);
-	return `${day}d`;
+	if (locale === 'ro') return day === 1 ? '1 zi' : `${day} zile`;
+	return `${day} d`;
 }
 
-// Full date for tooltips and detail pages.
+// The date as the server burns it into the watermark ("2026-11-12"), for
+// previews of the file itself; everywhere else dates use fullDate.
+export function burnedDate(d = new Date()): string {
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Full date for tooltips and detail pages: "12 nov. 2026, 11:41", the same
+// format the emails use.
 export function fullDate(iso: string, locale: Locale): string {
 	return new Date(iso).toLocaleString(locale === 'ro' ? 'ro-RO' : 'en-GB', {
 		dateStyle: 'medium',
@@ -32,9 +41,29 @@ export function formatBytes(bytes: number): string {
 
 // The server describes devices in English ("Chrome on Windows"); localise
 // the connective and the unknown case.
+// "49 €" / "€49": whole prices without decimals, the narrow currency sign.
+export function formatPrice(cents: number, currency: string, locale: Locale): string {
+	try {
+		const whole = cents % 100 === 0;
+		return new Intl.NumberFormat(locale === 'ro' ? 'ro-RO' : 'en-US', {
+			style: 'currency',
+			currency: currency.toUpperCase(),
+			currencyDisplay: 'narrowSymbol',
+			minimumFractionDigits: whole ? 0 : 2,
+			maximumFractionDigits: whole ? 0 : 2
+		}).format(cents / 100);
+	} catch {
+		return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+	}
+}
+
 export function deviceLabel(device: string, locale: Locale): string {
 	if (!device || device === 'Unknown device') return locale === 'ro' ? 'Dispozitiv necunoscut' : 'Unknown device';
-	return locale === 'ro' ? device.replace(' on ', ' pe ') : device;
+	if (locale === 'ro') {
+		// "SADE app on Windows" -> "Aplicația SADE pe Windows"
+		return device.replace(/^SADE app /, 'Aplicația SADE ').replace(' on ', ' pe ');
+	}
+	return device;
 }
 
 // "acum 2h" / "2h ago" - relativeTime phrased as a past moment.
@@ -53,6 +82,7 @@ export function renderWatermarkText(template: string, company: string, recipient
 			t = t.split(sep).join('');
 		}
 	}
+	t = withRecipientPlaceholder(t);
 	const d = new Date();
 	const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 	return t.split('{company}').join(company.trim()).split('{recipient}').join(recipient).split('{date}').join(date).trim();
@@ -123,6 +153,28 @@ function today(): string {
 	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Every copy names its recipient: a template without {recipient} gets it
+// appended once company/date are settled (mirrors wmopts.render).
+function withRecipientPlaceholder(template: string): string {
+	const t = template.trim();
+	if (t.includes('{recipient}')) return t;
+	return t ? `${t} · {recipient}` : '{recipient}';
+}
+
+// withRecipient mirrors wmopts.WithRecipient: the operator's own text keeps
+// the recipient's address, appended when the text does not carry it.
+export function withRecipient(text: string, recipient: string, max = 200): string {
+	const own = text.trim();
+	const to = recipient.trim();
+	if (!to) return own;
+	if (!own) return to;
+	if (own.toLowerCase().includes(to.toLowerCase())) return own;
+	const room = max - charCount(to) - 3;
+	if (room < 4) return to;
+	const cut = charCount(own) > room ? [...own].slice(0, room - 3).join('').trim() + '...' : own;
+	return `${cut} · ${to}`;
+}
+
 function renderParts(template: string, company: string, recipient: string, date: string): string {
 	let t = template.trim() || '{recipient} · {date}';
 	for (const [ph, value] of [
@@ -133,5 +185,6 @@ function renderParts(template: string, company: string, recipient: string, date:
 			for (const sep of [`${ph} · `, ` · ${ph}`, `${ph} - `, ` - ${ph}`, ph]) t = t.split(sep).join('');
 		}
 	}
+	t = withRecipientPlaceholder(t);
 	return t.split('{company}').join(company).split('{recipient}').join(recipient).split('{date}').join(date).trim();
 }

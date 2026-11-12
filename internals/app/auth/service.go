@@ -190,31 +190,34 @@ func (s *Service) RequestLink(ctx context.Context, email, browserNonce string) e
 	// to a server, logged, or leaked through a Referer - and a mail scanner
 	// that prefetches the URL cannot spend it.
 	link := s.ConfirmURL(raw)
-	human := emailtmpl.HumanDuration(ttl)
-	body := fmt.Sprintf(
-		"Use this link to sign in to SADE. It works in the browser where you asked for it, "+
-			"is valid for %s and can be used once:\n\n%s\n\n"+
-			"Opened this email on another device? Type this code in that browser instead: %s\n\n"+
-			"If you did not request this, you can ignore this email.",
-		human, link, code,
-	)
+	// Romanian first (PRODUCT.md); the account has no language of its own yet.
+	human := emailtmpl.HumanDurationIn("ro", ttl)
+	// One set of words for both bodies, so the text one never drifts.
+	intro := "Apasă butonul ca să intri în cont. Linkul merge doar în browserul în care ai cerut conectarea, e valabil " + human + " și se folosește o singură dată."
+	codeLabel := "Ești pe alt dispozitiv? Scrie acest cod în browserul în care ai cerut conectarea:"
+	note := "Dacă nu ai cerut tu conectarea, ignoră emailul: nimeni nu poate intra fără el."
+	footer := "Ai primit acest email pentru că cineva a cerut conectarea la contul SADE cu această adresă."
+	body := signInSubject + "\n\n" + intro + "\n\nConectează-te: " + link + "\n\n" +
+		codeLabel + " " + code + "\n\n" + note + "\n\n" + emailtmpl.TextFooter("ro", footer)
 	html, err := emailtmpl.Render(emailtmpl.Data{
-		Subject:     "Sign in to SADE",
-		Preheader:   "Your sign-in code is " + code,
-		Heading:     "Sign in to SADE",
-		Intro:       "Click the button below to sign in. It works in the browser where you asked for the link, is valid for " + human + " and can be used once.",
-		Buttons:     []emailtmpl.Button{{Label: "Sign in", URL: link, Primary: true}},
-		CodeLabel:   "Reading this on another device? Type this code in the browser where you asked to sign in:",
+		Lang:        "ro",
+		Subject:     signInSubject,
+		Preheader:   "Codul tău de conectare: " + code,
+		Heading:     "Conectează-te la SADE",
+		Intro:       intro,
+		Buttons:     []emailtmpl.Button{{Label: "Conectează-te", URL: link, Primary: true}},
+		CodeLabel:   codeLabel,
 		Code:        code,
 		FallbackURL: link,
-		Note:        "If you did not request this, you can ignore this email - nobody can sign in without it.",
+		Note:        note,
+		Footer:      footer,
 	})
 	if err != nil {
 		s.log.Error("render magic link email", "user", u.ID, "error", err)
 		return fmt.Errorf("auth: render email: %w", err)
 	}
 	if err := s.mail.Send(ctx, mailer.Message{
-		To: u.Email, Subject: "Sign in to SADE", Text: body, HTML: html,
+		To: u.Email, Subject: signInSubject, Text: body, HTML: html,
 		Inline: []mailer.Inline{{CID: emailtmpl.LogoCID, ContentType: "image/png", Data: emailtmpl.LogoPNG}},
 	}); err != nil {
 		s.log.Error("send magic link", "user", u.ID, "error", err)
@@ -223,6 +226,9 @@ func (s *Service) RequestLink(ctx context.Context, email, browserNonce string) e
 	s.log.Info("magic link sent", "user", u.ID)
 	return nil
 }
+
+// signInSubject is the sign-in email's subject line.
+const signInSubject = "Conectare la SADE"
 
 // ConfirmURL is the frontend sign-in confirmation page for a raw token.
 func (s *Service) ConfirmURL(rawToken string) string {
@@ -279,7 +285,8 @@ func (s *Service) Complete(ctx context.Context, rawToken, browserNonce string, c
 // and expired email all yield ErrInvalidCode; after maxCodeAttempts wrong
 // codes the email is dead.
 func (s *Service) CompleteWithCode(ctx context.Context, email, code, browserNonce string, c Client) (SignIn, error) {
-	code = strings.TrimSpace(code)
+	// The email draws the code as "482 913"; accept it typed with the gap.
+	code = strings.Join(strings.Fields(code), "")
 	if !isSixDigits(code) || browserNonce == "" {
 		return SignIn{}, ErrInvalidCode
 	}

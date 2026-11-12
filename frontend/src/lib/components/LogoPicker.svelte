@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authedSrc, webSrc } from '$lib/media';
 	// Upload / replace / remove the account's logo (click or drag & drop).
 	import { i18n } from '$lib/i18n.svelte';
 	import { api, ApiError } from '$lib/api';
@@ -64,7 +65,7 @@
 <div class="logo-picker" aria-busy={busy}>
 	{#if brand.hasLogo}
 		<div class="current">
-			<span class="thumb"><img src={api.brandLogoUrl(brand.logoVersion)} alt="" /></span>
+			<span class="thumb"><img src={webSrc(api.brandLogoUrl(brand.logoVersion))} use:authedSrc={api.brandLogoUrl(brand.logoVersion)} alt="" /></span>
 			<div class="actions">
 				<button type="button" class="btn btn-ghost small" onclick={() => input?.click()} disabled={busy}>
 					{busy ? i18n.t('brand.logoUploading') : i18n.t('brand.logoChange')}
@@ -129,7 +130,7 @@
 		height: 64px;
 		flex-shrink: 0;
 		border-radius: var(--radius-sm);
-		border: 1px solid var(--border);
+		box-shadow: inset 0 0 0 1px var(--line-2);
 		/* A checkerboard shows off transparency. */
 		background:
 			repeating-conic-gradient(var(--border) 0 25%, var(--surface) 0 50%) 0 0 / 12px 12px;
@@ -174,7 +175,7 @@
 	}
 
 	.text-btn.danger {
-		font-weight: 600;
+		font-weight: 500;
 	}
 
 	.confirm {
@@ -200,8 +201,8 @@
 	}
 
 	.accent {
-		color: var(--accent);
-		font-weight: 600;
+		color: var(--accent-ink);
+		font-weight: 500;
 	}
 
 	.hint {

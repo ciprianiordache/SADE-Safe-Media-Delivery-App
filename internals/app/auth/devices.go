@@ -148,38 +148,64 @@ func (s *Service) recordSignIn(_ context.Context, u user.Response, method string
 }
 
 func (s *Service) sendNewDeviceAlert(u user.Response, method string, c Client, at time.Time) {
-	device := DescribeUserAgent(c.UserAgent)
-	when := at.UTC().Format("2 Jan 2006, 15:04 UTC")
+	device := deviceRO(DescribeUserAgent(c.UserAgent))
+	when := emailtmpl.FormatTime("ro", at) + " (ora României)"
 	how := map[string]string{
-		login_event.MethodLink:    "an emailed link",
-		login_event.MethodCode:    "an emailed code",
-		login_event.MethodPasskey: "a passkey",
+		login_event.MethodLink:    "link din email",
+		login_event.MethodCode:    "cod din email",
+		login_event.MethodPasskey: "cheie de acces",
 	}[method]
+	// The IP address stays in Settings > Security (the sign-in history):
+	// a bare number tells a reader nothing they can act on here.
 
 	var buttons []emailtmpl.Button
 	revokeURL := ""
+	// The reason comes before the button, and says what the button does.
+	prompt := "Nu ai fost tu? Deschide Setări › Securitate în SADE și închide sesiunile pe care nu le recunoști."
 	if s.signer != nil {
 		if tok, err := s.signer.Sign(revokePurpose, u.ID, revokeLinkTTL); err == nil {
 			revokeURL = s.frontendURL + "/auth/revoke#token=" + tok
-			buttons = []emailtmpl.Button{{Label: "This wasn't me - sign out everywhere", URL: revokeURL, Primary: true}}
+			prompt = "Nu ai fost tu? Închide toate sesiunile: contul se deconectează de pe toate dispozitivele, inclusiv de pe acesta, apoi te conectezi din nou."
+			// Ink, not the cheerful orange: it ends every session.
+			buttons = []emailtmpl.Button{{Label: "Închide toate sesiunile", URL: revokeURL, Ink: true}}
 		}
 	}
-	text := fmt.Sprintf(
-		"Someone signed in to your SADE account from a new device.\n\n"+
-			"Device: %s\nIP address: %s\nTime: %s\nMethod: %s\n\n"+
-			"If this was you, there is nothing to do.\n",
-		device, c.IP, when, how)
+	intro := "Cineva a intrat în contul tău SADE de pe un dispozitiv pe care nu l-ai mai folosit. Dacă ai fost tu, nu trebuie să faci nimic."
+	note := "Cine îți poate citi emailul poate intra și în cont. Adaugă o cheie de acces în Setări › Securitate, unde găsești și adresa IP a fiecărei conectări."
 	if revokeURL != "" {
-		text += "If it wasn't, end every session now:\n" + revokeURL + "\n"
+		note = "Linkul butonului e valabil " + emailtmpl.HumanDurationIn("ro", revokeLinkTTL) + ". " + note
 	}
+	footer := "Îți trimitem acest email ca să-ți protejăm contul SADE."
+	rows := []emailtmpl.Row{
+		{Label: "Dispozitiv", Value: device},
+		{Label: "Ora", Value: when},
+		{Label: "Metoda", Value: how},
+	}
+
+	var b strings.Builder
+	b.WriteString(newDeviceSubject + "\n\n" + intro + "\n\n")
+	for _, r := range rows {
+		b.WriteString(r.Label + ": " + r.Value + "\n")
+	}
+	b.WriteString("\n" + prompt + "\n")
+	if revokeURL != "" {
+		b.WriteString(revokeURL + "\n")
+	}
+	b.WriteString("\n" + note + "\n\n" + emailtmpl.TextFooter("ro", footer))
+	text := b.String()
+
 	html, err := emailtmpl.Render(emailtmpl.Data{
-		Subject:   "New sign-in to your SADE account",
-		Preheader: "New sign-in from " + device,
-		Heading:   "New sign-in to your account",
-		Intro: fmt.Sprintf("Someone signed in from a device this account hasn't used before: %s, IP address %s, at %s, using %s. If this was you, there is nothing to do.",
-			device, c.IP, when, how),
-		Buttons: buttons,
-		Note:    "If it wasn't you, use the button to end every session, then sign in again - and consider adding a passkey in Settings, so an email alone can't open your account.",
+		Lang:        "ro",
+		Subject:     newDeviceSubject,
+		Preheader:   "Conectare nouă de pe " + device,
+		Heading:     "Conectare nouă în cont",
+		Intro:       intro,
+		Rows:        rows,
+		Prompt:      prompt,
+		Buttons:     buttons,
+		FallbackURL: revokeURL,
+		Note:        note,
+		Footer:      footer,
 	})
 	if err != nil {
 		s.log.Error("render new-device alert", "user", u.ID, "error", err)
@@ -188,7 +214,7 @@ func (s *Service) sendNewDeviceAlert(u user.Response, method string, c Client, a
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := s.mail.Send(ctx, mailer.Message{
-		To: u.Email, Subject: "New sign-in to your SADE account", Text: text, HTML: html,
+		To: u.Email, Subject: newDeviceSubject, Text: text, HTML: html,
 		Inline: []mailer.Inline{{CID: emailtmpl.LogoCID, ContentType: "image/png", Data: emailtmpl.LogoPNG}},
 	}); err != nil {
 		s.log.Error("send new-device alert", "user", u.ID, "error", err)
@@ -196,6 +222,24 @@ func (s *Service) sendNewDeviceAlert(u user.Response, method string, c Client, a
 	}
 	s.log.Info("new-device alert sent", "user", u.ID)
 }
+
+// newDeviceSubject is the new sign-in alert's subject line.
+const newDeviceSubject = "Conectare nouă în contul tău SADE"
+
+// deviceRO is DescribeUserAgent's label in Romanian, for the emails:
+// "Chrome on Windows" -> "Chrome pe Windows".
+func deviceRO(d string) string {
+	switch d {
+	case "Unknown device":
+		return "Dispozitiv necunoscut"
+	}
+	d = strings.Replace(d, "SADE app", "Aplicația SADE", 1)
+	return strings.Replace(d, " on ", " pe ", 1)
+}
+
+// appUAMarker is appended to the user agent of a request from the installed
+// app (X-SADE-Client: app), so its sessions and sign-ins name the app.
+const appUAMarker = "SADEApp"
 
 // DescribeUserAgent turns a User-Agent header into "Chrome on Windows". It
 // only needs to be good enough for a person to recognise their own device.
@@ -205,6 +249,8 @@ func DescribeUserAgent(ua string) string {
 	}
 	browser := "Browser"
 	switch {
+	case strings.Contains(ua, appUAMarker):
+		browser = "SADE app"
 	case strings.Contains(ua, "Edg/"):
 		browser = "Edge"
 	case strings.Contains(ua, "OPR/"), strings.Contains(ua, "Opera"):

@@ -12,10 +12,12 @@ import type {
 	PasskeyInfo,
 	PaymentStatus,
 	SessionInfo,
+	ShareInfo,
 	SignInResult,
 	Usage,
 	User
 } from './types';
+import { IS_APP, appHeaders, appServer, setAppToken } from './platform';
 
 // In dev the frontend runs on Vite (:5173) and the API on the Go server
 // (config default :8080, CORS already allows :5173 - see config.ServerConfig
@@ -26,9 +28,12 @@ import type {
 // URLs to GET /p/{token} and GET /d/{token} without a JSON round trip.
 // Reuses whatever hostname loaded this page (not a hardcoded "localhost") so
 // the same build works opened from another device on the LAN.
-export const API_BASE = import.meta.env.DEV
-	? `http://${typeof location === 'undefined' ? 'localhost' : location.hostname}:8080`
-	: '';
+// The installed app talks to its configured server by URL (platform.ts).
+export const API_BASE = IS_APP
+	? appServer()
+	: import.meta.env.DEV
+		? `http://${typeof location === 'undefined' ? 'localhost' : location.hostname}:8080`
+		: '';
 
 export class ApiError extends Error {
 	status: number;
@@ -46,12 +51,14 @@ export const UNAUTHORIZED_EVENT = 'sade:unauthorized';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(`${API_BASE}${path}`, {
-		credentials: 'include',
+		// The app's session is a bearer token, never a cookie.
+		credentials: IS_APP ? 'omit' : 'include',
 		...init,
 		headers: {
 			...(init?.body && !(init.body instanceof FormData)
 				? { 'Content-Type': 'application/json' }
 				: {}),
+			...(IS_APP ? appHeaders() : {}),
 			...init?.headers
 		}
 	});
@@ -69,7 +76,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 		throw new ApiError(res.status, message);
 	}
 	if (res.status === 204) return undefined as T;
-	return (await res.json()) as T;
+	const data = (await res.json()) as T;
+	// A finished sign-in hands the app its session token (the server only
+	// includes it for X-SADE-Client: app).
+	if (IS_APP && path.startsWith('/api/auth/')) {
+		const tok = (data as { token?: unknown } | null)?.token;
+		if (typeof tok === 'string' && tok) setAppToken(tok);
+	}
+	return data;
 }
 
 export const api = {
@@ -107,8 +121,9 @@ export const api = {
 		return request('/api/auth/code', { method: 'POST', body: JSON.stringify({ email, code }) });
 	},
 
-	authConfig(): Promise<{ passkeys: boolean }> {
-		return request('/api/auth/config');
+		async authConfig(): Promise<{ passkeys: boolean }> {
+		const cfg = await request<{ passkeys: boolean }>('/api/auth/config');
+		return IS_APP ? { ...cfg, passkeys: false } : cfg;
 	},
 
 	passkeyLoginBegin(): Promise<PasskeyChallenge> {
@@ -194,13 +209,38 @@ export const api = {
 		});
 	},
 
-	logout(): Promise<void> {
-		return request('/api/auth/logout', { method: 'POST' });
+	async logout(): Promise<void> {
+		try {
+			await request('/api/auth/logout', { method: 'POST' });
+		} finally {
+			if (IS_APP) setAppToken('');
+		}
 	},
 
 	// Ends every session of the signed-in account, on every device.
-	logoutAll(): Promise<void> {
-		return request('/api/auth/logout-all', { method: 'POST' });
+	async logoutAll(): Promise<void> {
+		try {
+			await request('/api/auth/logout-all', { method: 'POST' });
+		} finally {
+			if (IS_APP) setAppToken('');
+		}
+	},
+
+	// The installed app's players cannot send the token: a short-lived signed
+	// URL of the same content route (GET .../link).
+	async assetLink(jobId: string, assetId: string): Promise<string> {
+		const r = await request<{ url: string }>(
+			`/api/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}/link`
+		);
+		return `${API_BASE}${r.url}`;
+	},
+
+	// Fetches a session-only resource (the brand logo) with the app's token
+	// and hands back a blob: URL for an <img>.
+	async blobUrl(url: string): Promise<string> {
+		const res = await fetch(url, { credentials: 'omit', headers: appHeaders() });
+		if (!res.ok) throw new ApiError(res.status, res.statusText);
+		return URL.createObjectURL(await res.blob());
 	},
 
 	usage(): Promise<Usage> {
@@ -252,7 +292,8 @@ export const api = {
 		return new Promise((resolve, reject) => {
 			const xhr = new XMLHttpRequest();
 			xhr.open('POST', `${API_BASE}/api/jobs`);
-			xhr.withCredentials = true;
+			xhr.withCredentials = !IS_APP;
+			if (IS_APP) for (const [k, v] of Object.entries(appHeaders())) xhr.setRequestHeader(k, v);
 			xhr.responseType = 'text';
 			xhr.upload.onprogress = (e) => {
 				if (e.lengthComputable) opts.onProgress?.(e.loaded / e.total);
@@ -294,6 +335,12 @@ export const api = {
 	},
 
 	// --- payments (public, authorised by the preview token itself) -------
+	// Which state a recipient's link is in, and what it holds. 404 = not a
+	// link SADE issued; 410 "expired" / "disabled".
+	shareInfo(previewToken: string): Promise<ShareInfo> {
+		return request(`/api/share/info?token=${encodeURIComponent(previewToken)}`);
+	},
+
 	paymentStatus(previewToken: string): Promise<PaymentStatus> {
 		return request(`/api/payments/status?token=${encodeURIComponent(previewToken)}`);
 	},

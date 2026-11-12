@@ -1,0 +1,50 @@
+{
+ "note": "Credits for the photographs in this folder: photos.mjs credits prints the footer block for the ones the pages use.",
+ "photos": [
+  {
+   "file": "photo-f61646594.webp",
+   "files": [
+    "photo-f61646594-500.webp",
+    "photo-f61646594-960.webp",
+    "photo-f61646594.webp"
+   ],
+   "id": "f61646594",
+   "alt": "Wedding couple on a footbridge (Unsplash)",
+   "by": "Scott Webb scottwebb",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "page": "https://commons.wikimedia.org/wiki/File:Wedding_couple_on_a_footbridge_(Unsplash).jpg",
+   "source": "Wikimedia Commons"
+  },
+  {
+   "file": "photo-f118170225.webp",
+   "files": [
+    "photo-f118170225-500.webp",
+    "photo-f118170225-960.webp",
+    "photo-f118170225.webp"
+   ],
+   "id": "f118170225",
+   "alt": "Wedding couple at Palais de Chaillot (51521847933)",
+   "by": "Gabriel Fernandes from São Paulo, Brasil",
+   "licence": "CC BY-SA 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/2.0",
+   "page": "https://commons.wikimedia.org/wiki/File:Wedding_couple_at_Palais_de_Chaillot_(51521847933).jpg",
+   "source": "Wikimedia Commons"
+  },
+  {
+   "file": "photo-f76718860.webp",
+   "files": [
+    "photo-f76718860-500.webp",
+    "photo-f76718860-960.webp",
+    "photo-f76718860.webp"
+   ],
+   "id": "f76718860",
+   "alt": "Couple from a Belarus wedding",
+   "by": "Mikhail Kapychka",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+   "page": "https://commons.wikimedia.org/wiki/File:Couple_from_a_Belarus_wedding.jpg",
+   "source": "Wikimedia Commons"
+  }
+ ]
+}

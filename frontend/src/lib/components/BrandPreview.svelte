@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authedSrc, webSrc } from '$lib/media';
 	// Instant preview of the watermark on a sample picture. Mirrors the
 	// server's layout (internals/ffmpeg/filters.go): logo width as a % of the
 	// frame, text ~2.2% of the width, a 2% margin, and "tiled" as a 3x3 logo
@@ -62,7 +63,7 @@
 				{#each CELLS as col (col)}
 					<img
 						class="logo tile"
-						src={logoUrl}
+						src={webSrc(logoUrl)} use:authedSrc={logoUrl}
 						alt=""
 						style="left:{(col / 6) * 100}%;top:{(row / 6) * 100}%;width:{logoScalePct}%;opacity:{opacityPct / 100}"
 					/>
@@ -81,7 +82,7 @@
 		     (above it at the bottom, below it at the top and centre). -->
 		<div class="stack pos-{position}" class:up={position.startsWith('bottom')} class:right={position.endsWith('right')}>
 			{#if logo}
-				<img class="logo" src={logoUrl} alt="" style="width:{logoScalePct}cqw;opacity:{opacityPct / 100}" />
+				<img class="logo" src={webSrc(logoUrl)} use:authedSrc={logoUrl} alt="" style="width:{logoScalePct}cqw;opacity:{opacityPct / 100}" />
 			{/if}
 			{#if txt}
 				<span class="text" class:hang={logo && position === 'center'} style="--a:{textAlpha}">{shown}</span>
@@ -98,13 +99,13 @@
 		border-radius: var(--radius-sm);
 		overflow: hidden;
 		container-type: inline-size;
-		background: #2c4660;
+		background: #3a2c22;
 	}
 
 	.scene {
 		position: absolute;
 		inset: 0;
-		background: linear-gradient(180deg, #5d86ad 0%, #e7b48c 62%, #d98f62 100%);
+		background: linear-gradient(180deg, #c98a5e 0%, #f2c9a2 58%, #e8a273 100%);
 	}
 
 	.sun {
@@ -128,14 +129,14 @@
 	.hill.back {
 		bottom: -18%;
 		height: 62%;
-		background: #6b5a6e;
+		background: #8a5a3c;
 		transform: translateX(-18%);
 	}
 
 	.hill.front {
 		bottom: -30%;
 		height: 60%;
-		background: #3a3346;
+		background: #4a3326;
 		transform: translateX(22%);
 	}
 

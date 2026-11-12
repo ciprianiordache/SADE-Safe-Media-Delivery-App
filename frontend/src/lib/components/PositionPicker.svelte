@@ -13,8 +13,9 @@
 	let {
 		value,
 		onchange,
-		labelledby
-	}: { value: WatermarkPosition; onchange: (p: WatermarkPosition) => void; labelledby?: string } = $props();
+				labelledby,
+		showTiled = true
+	}: { value: WatermarkPosition; onchange: (p: WatermarkPosition) => void; labelledby?: string; showTiled?: boolean } = $props();
 
 	const name = `position-${++instances}`;
 	const SPOTS: WatermarkPosition[] = ['top-left', 'top-right', 'center', 'bottom-left', 'bottom-right'];
@@ -31,6 +32,7 @@
 			</label>
 		{/each}
 	</div>
+		{#if showTiled}
 	<label class="tiled" class:on={value === 'tiled'}>
 		<input type="radio" {name} value="tiled" checked={value === 'tiled'} onchange={() => onchange('tiled')} />
 		<svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true">
@@ -40,8 +42,9 @@
 				{/each}
 			{/each}
 		</svg>
-		<span>{label('tiled')}</span>
+				<span>{label('tiled')}</span>
 	</label>
+	{/if}
 	<span class="chosen muted" aria-hidden="true">{label(value)}</span>
 </div>
 
@@ -57,9 +60,9 @@
 		width: 100%;
 		max-width: 280px;
 		aspect-ratio: 16 / 10;
-		border-radius: var(--radius-sm);
-		border: 1.5px solid var(--border-strong);
-		background: var(--surface);
+				border-radius: var(--radius);
+		background: var(--fill);
+		box-shadow: inset 0 0 0 1px var(--line);
 	}
 
 	.spot {
@@ -98,18 +101,19 @@
 	.mark {
 		width: 24px;
 		height: 14px;
-		border-radius: 3px;
-		border: 1.5px solid var(--border-strong);
-		background: var(--bg);
+				border-radius: 4px;
+		background: var(--surface);
+		box-shadow: var(--shadow-sm);
+		transition: background 0.15s var(--ease), transform 0.15s var(--ease);
 	}
 
 	.spot:hover .mark {
-		border-color: var(--accent);
+		transform: scale(1.08);
 	}
 
 	.spot.on .mark {
-		border-color: var(--accent);
-		background: var(--accent);
+		background: var(--accent-bright);
+		box-shadow: none;
 	}
 
 	/* These are <label>s for their radio inputs: undo the global form-label look. */
@@ -128,23 +132,24 @@
 		min-height: 44px;
 		max-width: 280px;
 		padding: 0 0.75rem;
-		border-radius: var(--radius-sm);
-		border: 1.5px solid var(--border-strong);
-		background: var(--surface);
-		color: var(--text-muted);
-		font-size: 0.82rem;
+				border-radius: 999px;
+		border: 1px solid var(--line-2);
+		background: transparent;
+		color: var(--text);
+		font-size: 0.88rem;
+		font-weight: 500;
 		cursor: pointer;
+		transition: background 0.15s var(--ease);
 	}
 
 	.tiled:hover {
-		border-color: var(--accent);
+		background: var(--fill);
 	}
 
 	.tiled.on {
-		border-color: var(--accent);
-		background: var(--accent-tint);
-		color: var(--accent-tint-text);
-		font-weight: 600;
+		border-color: transparent;
+		background: var(--ink-btn);
+		color: var(--ink-btn-text);
 	}
 
 	input {
@@ -162,8 +167,8 @@
 		outline-offset: 2px;
 	}
 
-	.chosen {
-		font-size: 0.8rem;
+		.chosen {
+		font-size: 0.85rem;
 	}
 
 	.sr-only {

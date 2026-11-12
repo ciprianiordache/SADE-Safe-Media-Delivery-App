@@ -33,15 +33,17 @@ type fakeStripeBackend struct {
 	createErr    error
 	intents      int
 	amountCents  int64 // 0 = the fixture price
+	lastCreate   *stripe.PaymentIntentCreateParams
 }
 
-func (f *fakeStripeBackend) Call(method, path, _ string, _ stripe.ParamsContainer, v stripe.LastResponseSetter) error {
+func (f *fakeStripeBackend) Call(method, path, _ string, params stripe.ParamsContainer, v stripe.LastResponseSetter) error {
 	var body map[string]any
 	switch {
 	case method == "POST" && path == "/v1/payment_intents":
 		if f.createErr != nil {
 			return f.createErr
 		}
+		f.lastCreate, _ = params.(*stripe.PaymentIntentCreateParams)
 		f.intents++
 		body = map[string]any{
 			"id": fmt.Sprintf("pi_test_%d", f.intents), "object": "payment_intent",
@@ -197,6 +199,12 @@ func TestCreateIntentCreatesPendingPaymentAndIntent(t *testing.T) {
 	if p.Status != StatusPending || p.ProviderRef == "" || p.AmountCents != 4900 {
 		t.Errorf("payment row = %+v", p)
 	}
+
+	// The unlock is one card field: card only, no automatic local methods.
+	c := backend.lastCreate
+	if c == nil || c.AutomaticPaymentMethods != nil || len(c.PaymentMethodTypes) != 1 || *c.PaymentMethodTypes[0] != "card" {
+		t.Errorf("intent params = %+v, want payment_method_types [card]", c)
+	}
 }
 
 func TestStatusReportsUnpaidThenReconcilesOnceStripeConfirms(t *testing.T) {
@@ -249,8 +257,8 @@ func TestStatusOnJobWithNoPaymentYet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
-	if !res.Enabled || res.Paid || res.AmountCents != 4900 {
-		t.Errorf("Status(no payment) = %+v", res)
+	if !res.Enabled || res.Paid || res.AmountCents != 4900 || res.OriginalSize != 100 {
+		t.Errorf("Status(no payment) = %+v, want the original's size too", res)
 	}
 }
 

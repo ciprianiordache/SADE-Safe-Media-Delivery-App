@@ -12,7 +12,7 @@
 	import { finishSignIn } from '$lib/signin';
 	import { isCancel } from '$lib/webauthn';
 	import type { SignInResult } from '$lib/types';
-	import MarkBar from '$lib/components/MarkBar.svelte';
+	import AuthShell from '$lib/components/AuthShell.svelte';
 
 	let token = '';
 	let email = $state('');
@@ -83,12 +83,7 @@
 	<title>{i18n.t('confirm.title')} · SADE</title>
 </svelte:head>
 
-<div class="container top">
-	<MarkBar />
-</div>
-
-<div class="container">
-	<div class="card form-card">
+<AuthShell>
 		{#if phase === 'checking'}
 			<p class="muted">{i18n.t('common.loading')}</p>
 		{:else if phase === 'invalid'}
@@ -132,30 +127,11 @@
 			</button>
 			<p class="hint muted">{i18n.t('confirm.notYou')}</p>
 		{/if}
-	</div>
-</div>
+</AuthShell>
 
 <style>
-	.top {
-		padding: 1.25rem 1.75rem 0;
-	}
 
-	.form-card {
-		max-width: 396px;
-		margin: 3.5rem auto;
-		display: flex;
-		flex-direction: column;
-		gap: 1.1rem;
-	}
 
-	@media (max-width: 520px) {
-		.top {
-			padding: 1rem 1rem 0;
-		}
-		.form-card {
-			margin: 2rem auto;
-		}
-	}
 
 	.card-head {
 		display: flex;
@@ -165,22 +141,22 @@
 
 	h1 {
 		margin: 0;
-		font-size: 1.45rem;
-		font-weight: 700;
-		letter-spacing: -0.01em;
+		font-size: 1.6rem;
+		font-weight: 500;
+		letter-spacing: -0.03em;
 	}
 
 	.card-head p,
 	.hint {
 		margin: 0;
-		font-size: 0.85rem;
+		font-size: 0.92rem;
 		line-height: 1.5;
 	}
 
 	.icon-tile {
 		width: 48px;
 		height: 48px;
-		border-radius: 13px;
+		border-radius: 50%;
 		background: var(--accent-tint);
 		display: inline-flex;
 		align-items: center;
@@ -190,15 +166,14 @@
 	.account {
 		margin: 0;
 		padding: 0.7rem 0.85rem;
-		border: 1px solid var(--border);
-		border-radius: 10px;
-		background: var(--bg);
+		border-radius: var(--radius-sm);
+		background: var(--fill);
 		font-size: 0.9rem;
 		overflow-wrap: anywhere;
 	}
 
 	.link {
 		font-size: 0.85rem;
-		font-weight: 600;
+		font-weight: 500;
 	}
 </style>

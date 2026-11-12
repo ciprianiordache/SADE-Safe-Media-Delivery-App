@@ -94,18 +94,29 @@ var inlineScriptRe = regexp.MustCompile(`(?s)<script(\s[^>]*)?>(.*?)</script>`)
 
 // buildCSP returns the policy for every response. Scripts are limited to our
 // own origin, Stripe.js, and the exact inline bootstrap script(s) the
-// SvelteKit build put in index.html (by hash, read once at startup, so a
+// marketing page (index.html) and the SvelteKit shell (200.html) carry (by hash, read once at startup, so a
 // rebuilt frontend is picked up on restart). Styles keep 'unsafe-inline':
 // Svelte writes style attributes, and a style cannot run code.
 func buildCSP(frontendDir string) string {
 	scriptSrc := []string{"'self'", "https://js.stripe.com", "https://*.js.stripe.com"}
-	if b, err := os.ReadFile(filepath.Join(frontendDir, "index.html")); err == nil {
+	// index.html is the marketing page, 200.html the SPA shell; both carry
+	// inline scripts.
+	seen := map[string]bool{}
+	for _, name := range []string{"index.html", shellFile} {
+		b, err := os.ReadFile(filepath.Join(frontendDir, name))
+		if err != nil {
+			continue
+		}
 		for _, m := range inlineScriptRe.FindAllStringSubmatch(string(b), -1) {
 			if strings.Contains(m[1], "src=") || strings.TrimSpace(m[2]) == "" {
 				continue
 			}
 			sum := sha256.Sum256([]byte(m[2]))
-			scriptSrc = append(scriptSrc, "'sha256-"+base64.StdEncoding.EncodeToString(sum[:])+"'")
+			h := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+			if !seen[h] {
+				seen[h] = true
+				scriptSrc = append(scriptSrc, h)
+			}
 		}
 	}
 	return strings.Join([]string{
@@ -115,7 +126,9 @@ func buildCSP(frontendDir string) string {
 		"font-src 'self' https://fonts.gstatic.com",
 		"img-src 'self' data: blob: https://*.stripe.com",
 		"media-src 'self' blob:",
-		"connect-src 'self' https://api.stripe.com https://*.stripe.com",
+		// fonts.googleapis.com: Stripe.js fetches the Payment Element's font CSS
+		// (PaymentForm.svelte's fonts.cssSrc) from this page's context.
+		"connect-src 'self' https://api.stripe.com https://*.stripe.com https://fonts.googleapis.com",
 		"frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com",
 		"frame-ancestors 'none'",
 		"base-uri 'self'",

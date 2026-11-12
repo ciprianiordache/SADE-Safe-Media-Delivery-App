@@ -171,6 +171,29 @@ func NewApp(ctx context.Context) (*App, error) {
 	// worker when a preview is ready, the operator's "resend" otherwise.
 	jobEvents := job_event.NewRepo(db)
 	notifier := worker.NewEmailNotifier(mail, signer, cfg.App.PublicURL, cfg.Auth.ShareTokenTTL.Std())
+	// The recipient's email names who sent the file (the operator's account
+	// email) and the file itself, so it is not an anonymous "someone shared".
+	userRepo := user.NewRepo(db)
+	payments := cfg.Payment.StripeSecretKey != ""
+	deliveryInfo := func(previewID string) (worker.DeliveryInfo, error) {
+		prev, err := assetRepo.GetByID(previewID)
+		if err != nil {
+			return worker.DeliveryInfo{}, err
+		}
+		j, err := jobRepo.GetByID(prev.JobID)
+		if err != nil {
+			return worker.DeliveryInfo{}, err
+		}
+		info := worker.DeliveryInfo{MediaType: j.MediaType, Payments: payments}
+		if u, err := userRepo.GetByID(j.UserID); err == nil {
+			info.Sender = u.Email
+		}
+		if orig, err := assetRepo.GetByJobAndKind(j.ID, asset.KindOriginal); err == nil {
+			info.FileName, info.SizeBytes = orig.Filename, orig.SizeBytes
+		}
+		return info, nil
+	}
+	notifier.UseDetails(deliveryInfo)
 
 	// The operator's brand: frozen onto each upload and burned into the
 	// watermark. Not shown in the email or on the recipient's page yet -
@@ -183,8 +206,16 @@ func NewApp(ctx context.Context) (*App, error) {
 
 	shareH := share.NewHandler(signer, assetRepo, store, log)
 	shareH.UseDelivery(jobRepo, jobEvents)
+	// The recipient's page names the file and its sender, as the email does.
+	shareH.UseDetails(func(previewID string) (share.Info, error) {
+		d, err := deliveryInfo(previewID)
+		return share.Info{FileName: d.FileName, MediaType: d.MediaType, SizeBytes: d.SizeBytes, Sender: d.Sender}, err
+	})
 	deliveryH := share.NewOperatorHandler(jobSvc, jobRepo, jobEvents, notifier,
 		signer, cfg.App.PublicURL, cfg.Auth.ShareTokenTTL.Std(), log)
+	if cfg.Payment.StripeSecretKey != "" {
+		deliveryH.SetPayment(cfg.Payment.PriceCents, cfg.Payment.Currency)
+	}
 
 	// The Stripe-backed original-file unlock. A missing key only disables
 	// this domain (Service.CreateIntent/Status report it, rather than the
@@ -210,6 +241,7 @@ func NewApp(ctx context.Context) (*App, error) {
 		AuthRateLimiter:    authRateLimiter,
 		AuthCodeLimiter:    authCodeLimiter,
 		PaymentRateLimiter: ratelimit.New(cfg.Payment.RateLimit, cfg.Payment.RateWindow.Std()),
+		Signer:             signer,
 	})
 
 	a := &App{cfg: cfg, log: log, logGC: logGC, db: db, auth: authSvc}

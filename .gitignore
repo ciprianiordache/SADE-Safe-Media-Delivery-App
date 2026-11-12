@@ -20,3 +20,14 @@
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# design-taste-frontend skill state (checker output, browser profile)
+/.taste-skill/
+/frontend/static/.taste-skill/
+
+# design-taste-frontend skill state (checker output, browser profile)
+/.taste-skill/
+/frontend/static/.taste-skill/
+
+# Desktop installers served at /downloads/ (built by Tauri, not source)
+/downloads/

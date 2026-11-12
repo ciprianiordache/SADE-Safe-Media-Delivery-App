@@ -84,6 +84,7 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer, *te
 
 	cfg := &config.Config{}
 	cfg.Server.CORSAllowedOrigins = []string{"http://localhost:5173"}
+	cfg.App.AppOrigins = []string{"tauri://localhost", "http://tauri.localhost"}
 	cfg.Auth = config.AuthConfig{
 		MagicLinkTTL:      config.Duration(15 * time.Minute),
 		SessionTTL:        config.Duration(24 * time.Hour),
@@ -125,6 +126,7 @@ func buildTestApp(t *testing.T) (*httptest.Server, *http.Client, *capMailer, *te
 		Share:   share.NewHandler(signer, asset.NewRepo(db), store, testutil.Logger()),
 		Payment: payment.NewHandler(paymentSvc, testutil.Logger()),
 		Brand:   brand.NewHandler(brand.NewService(brand.NewRepo(db), store, testutil.Logger()), testutil.Logger()),
+		Signer:  signer,
 	})
 
 	srv := httptest.NewServer(router)

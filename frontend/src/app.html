@@ -6,10 +6,9 @@
 		<meta name="text-scale" content="scale" />
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-		<link
-			href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
-			rel="stylesheet"
-		/>
+		<!-- Google Fonts on the web; the installed app's own copies (static-app/fonts),
+		     so it looks the same offline. Set in .env / .env.app. -->
+		<link href="%sveltekit.env.PUBLIC_FONTS_HREF%" rel="stylesheet" />
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

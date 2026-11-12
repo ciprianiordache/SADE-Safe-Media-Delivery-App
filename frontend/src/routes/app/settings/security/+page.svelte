@@ -5,10 +5,11 @@
 	import { auth } from '$lib/stores.svelte';
 	import { toasts } from '$lib/toast.svelte';
 	import { createPasskey, deviceName, isCancel, passkeysSupported } from '$lib/webauthn';
-	import { deviceLabel, fullDate, relativeTime } from '$lib/format';
+	import { ago, deviceLabel, fullDate } from '$lib/format';
 	import type { ActivityEntry, PasskeyInfo, SessionInfo } from '$lib/types';
 	import { onMount } from 'svelte';
 	import SettingsTabs from '$lib/components/SettingsTabs.svelte';
+	import { IS_APP } from '$lib/platform';
 
 	let serverPasskeys = $state(true);
 	let browserPasskeys = $state(true);
@@ -89,7 +90,14 @@
 		}
 	}
 
+		// Signing this very session out is leaving the account: ask once.
+	let selfArmed = $state(false);
+
 	async function revoke(s: SessionInfo) {
+		if (s.current && !selfArmed) {
+			selfArmed = true;
+			return;
+		}
 		try {
 			await api.revokeSession(s.id);
 			if (s.current) {
@@ -104,7 +112,58 @@
 		}
 	}
 
-	let passkeysUsable = $derived(serverPasskeys && browserPasskeys);
+		let passkeysUsable = $derived(serverPasskeys && browserPasskeys);
+
+	// Sessions signed in from the installed app say "SADE app on ...". This
+	// app's own session may predate that marker; it is the app all the same.
+	function sessionLabel(s: SessionInfo): string {
+		const d = IS_APP && s.current ? s.device.replace(/^.*? on /, 'SADE app on ') : s.device;
+		return deviceLabel(d, i18n.locale);
+	}
+
+	// Sessions from the same kind of device (the same browser on the same
+	// system) fold into one row: seven "Chrome pe Windows" rows say one thing.
+	// This device always stays a row of its own.
+	type Group = { key: string; label: string; items: SessionInfo[] };
+	let groups = $derived.by(() => {
+		const out: Group[] = [];
+		const byLabel = new Map<string, Group>();
+		for (const s of sessions) {
+			const label = sessionLabel(s);
+			if (s.current) {
+				out.unshift({ key: s.id, label, items: [s] });
+				continue;
+			}
+			let g = byLabel.get(label);
+			if (!g) {
+				g = { key: 'g:' + label, label, items: [] };
+				byLabel.set(label, g);
+				out.push(g);
+			}
+			g.items.push(s);
+		}
+		return out;
+	});
+	let expanded = $state<Record<string, boolean>>({});
+	let revokingGroup = $state('');
+
+	function latest(items: SessionInfo[]): string {
+		return items.reduce((a, b) => (a.lastSeenAt > b.lastSeenAt ? a : b)).lastSeenAt;
+	}
+
+	async function revokeGroup(g: Group) {
+		revokingGroup = g.key;
+		try {
+			for (const s of g.items) await api.revokeSession(s.id);
+			const gone = new Set(g.items.map((s) => s.id));
+			sessions = sessions.filter((x) => !gone.has(x.id));
+			toasts.show(i18n.t('settings.sessionsRevoked', { n: g.items.length }));
+		} catch {
+			toasts.show(i18n.t('common.error'), { kind: 'error' });
+		} finally {
+			revokingGroup = '';
+		}
+	}
 </script>
 
 <svelte:head>
@@ -112,24 +171,37 @@
 </svelte:head>
 
 <div class="container page">
-	<SettingsTabs />
+		<SettingsTabs lead={i18n.t('settings.securityLead')} />
 
 	{#if loading}
-		<p class="muted">{i18n.t('common.loading')}</p>
+		<div class="set-row" aria-busy="true" aria-label={i18n.t('common.loading')}>
+			<span class="sk" style="height:5rem"></span>
+			<span class="sk" style="height:220px"></span>
+		</div>
 	{:else}
-		<!-- passkeys -->
-		<section class="card" id="passkeys">
-			<div class="section-head">
-				<div>
-					<h2>{i18n.t('settings.passkeysTitle')}</h2>
-					<p class="muted intro">{i18n.t('settings.passkeysIntro')}</p>
-				</div>
+		<!-- passkeys: a heading and its text on the left, the panel on the right -->
+		<!-- Passkeys are tied to the server's domain, so the app cannot create
+		     or use them; they are managed from SADE in the browser. -->
+		{#if IS_APP}
+		<section class="set-row" aria-labelledby="pk-title">
+			<div class="set-head">
+				<h2 id="pk-title">{i18n.t('settings.passkeysTitle')}</h2>
+				<p class="muted intro">{i18n.t('settings.passkeysAppNote')}</p>
+			</div>
+		</section>
+		{:else}
+		<section class="set-row" id="passkeys" aria-labelledby="pk-title">
+			<div class="set-head">
+				<h2 id="pk-title">{i18n.t('settings.passkeysTitle')}</h2>
+				<p class="muted intro">{i18n.t('settings.passkeysIntro')}</p>
 				{#if passkeysUsable}
-					<button class="btn" type="button" onclick={addPasskey} disabled={adding}>
+					<button class="btn btn-ink" type="button" onclick={addPasskey} disabled={adding}>
 						{adding ? i18n.t('settings.passkeyAdding') : i18n.t('settings.passkeyAdd')}
 					</button>
 				{/if}
 			</div>
+			<div class="win set-body">
+
 
 			{#if !serverPasskeys}
 				<p class="notice">{i18n.t('settings.passkeysUnavailable')}</p>
@@ -138,7 +210,7 @@
 			{/if}
 
 			{#if passkeys.length === 0}
-				<p class="faint empty">{i18n.t('settings.passkeysEmpty')}</p>
+				<p class="muted empty">{i18n.t('settings.passkeysEmpty')}</p>
 			{:else}
 				<ul class="rows">
 					{#each passkeys as pk (pk.id)}
@@ -150,20 +222,20 @@
 							</span>
 							<span class="row-main">
 								<span class="bold">{pk.name}</span>
-								<span class="faint small">
+								<span class="muted small">
 									{i18n.t('settings.passkeyMeta', {
 										created: fullDate(pk.createdAt, i18n.locale),
 										used:
 											pk.lastUsedAt && !pk.lastUsedAt.startsWith('0001')
-												? i18n.t('settings.passkeyUsed', { when: relativeTime(pk.lastUsedAt, i18n.locale) })
+												? i18n.t('settings.passkeyUsed', { when: ago(pk.lastUsedAt, i18n.locale) })
 												: i18n.t('settings.passkeyNeverUsed')
 									})}
 								</span>
 							</span>
-							<button
-								type="button"
-								class="btn btn-ghost small-btn"
-								class:armed={armedDelete === pk.id}
+													<button
+							type="button"
+							class="btn btn-line btn-sm"
+							class:danger={armedDelete === pk.id}
 								onclick={() => removePasskey(pk.id)}
 								onblur={() => armedDelete === pk.id && setTimeout(() => (armedDelete = ''), 200)}
 							>
@@ -186,22 +258,43 @@
 						role="switch"
 						aria-checked={auth.user?.requirePasskey ?? false}
 						aria-label={i18n.t('settings.requireTitle')}
-						disabled={requireBusy || (passkeys.length === 0 && !auth.user?.requirePasskey)}
+												disabled={requireBusy || (passkeys.length === 0 && !auth.user?.requirePasskey)}
 						onclick={toggleRequire}
-					>
-						<span class="knob"></span>
-					</button>
+					></button>
 				</div>
 			{/if}
+			</div>
 		</section>
+		{/if}
 
 		<!-- devices -->
-		<section class="card">
-			<h2>{i18n.t('settings.sessionsTitle')}</h2>
-			<p class="muted intro">{i18n.t('settings.sessionsIntro')}</p>
+		<section class="set-row" aria-labelledby="dev-title">
+			<div class="set-head">
+				<h2 id="dev-title">{i18n.t('settings.sessionsTitle')}</h2>
+				<p class="muted intro">{i18n.t('settings.sessionsIntro')}</p>
+			</div>
+			<div class="win set-body">
 			<ul class="rows">
-				{#each sessions as s (s.id)}
-					<li class="row">
+								{#each groups as g (g.key)}
+				{#if g.items.length > 1}
+					<li class="row group">
+						<span class="row-icon" aria-hidden="true">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5" /><path d="M8 20 h8 M12 16 v4" /></svg>
+						</span>
+						<span class="row-main">
+							<span class="bold">{g.label} <span class="muted count">· {i18n.t('settings.sessionsCount', { n: g.items.length })}</span></span>
+							<span class="muted small">{i18n.t('settings.sessionsLastSeen', { when: ago(latest(g.items), i18n.locale) })}</span>
+						</span>
+						<button type="button" class="btn btn-ghost btn-sm" aria-expanded={!!expanded[g.key]} onclick={() => (expanded[g.key] = !expanded[g.key])}>
+							{expanded[g.key] ? i18n.t('settings.sessionsHide') : i18n.t('settings.sessionsShow')}
+						</button>
+						<button type="button" class="btn btn-line btn-sm" disabled={revokingGroup === g.key} onclick={() => revokeGroup(g)}>
+							{i18n.t('settings.sessionsRevokeAll')}
+						</button>
+					</li>
+				{/if}
+				{#each g.items.length > 1 && !expanded[g.key] ? [] : g.items as s (s.id)}
+					<li class="row" class:nested={g.items.length > 1}>
 						<span class="row-icon" aria-hidden="true">
 							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"
 								><rect x="3" y="4" width="18" height="12" rx="1.5" /><path d="M8 20 h8 M12 16 v4" /></svg
@@ -209,136 +302,164 @@
 						</span>
 						<span class="row-main">
 							<span class="bold">
-								{deviceLabel(s.device, i18n.locale)}
-								{#if s.current}<span class="pill">{i18n.t('settings.sessionCurrent')}</span>{/if}
+								{sessionLabel(s)}
+								{#if s.current}<span class="chip chip-ok">{i18n.t('settings.sessionCurrent')}</span>{/if}
 							</span>
-							<span class="faint small" title={fullDate(s.lastSeenAt, i18n.locale)}>
-								{i18n.t('settings.sessionMeta', { when: relativeTime(s.lastSeenAt, i18n.locale), ip: s.ip || '—' })}
+							<span class="muted small" title={fullDate(s.lastSeenAt, i18n.locale)}>
+								{i18n.t('settings.sessionMeta', { when: ago(s.lastSeenAt, i18n.locale), ip: s.ip || '—' })}
 							</span>
 						</span>
-						<button type="button" class="btn btn-ghost small-btn" onclick={() => revoke(s)}>
-							{i18n.t('settings.sessionRevoke')}
+																		{#if s.current && selfArmed}
+							<button type="button" class="btn btn-ghost btn-sm" onclick={() => (selfArmed = false)}>{i18n.t('common.cancel')}</button>
+						{/if}
+						<button
+							type="button"
+							class="btn btn-line btn-sm"
+							class:self-armed={s.current && selfArmed}
+							title={s.current ? i18n.t('settings.sessionSignOutSelfHint') : undefined}
+							onclick={() => revoke(s)}
+						>
+							{s.current && selfArmed ? i18n.t('settings.sessionSignOutSelf') : i18n.t('settings.sessionRevoke')}
 						</button>
 					</li>
 				{/each}
+				{/each}
 			</ul>
+			</div>
 		</section>
 
 		<!-- activity -->
-		<section class="card">
-			<h2>{i18n.t('settings.activityTitle')}</h2>
+		<section class="set-row" aria-labelledby="act-title">
+			<div class="set-head">
+				<h2 id="act-title">{i18n.t('settings.activityTitle')}</h2>
+				<p class="muted intro">{i18n.t('settings.activityIntro')}</p>
+			</div>
+			<div class="win set-body">
 			{#if activity.length === 0}
-				<p class="faint empty">{i18n.t('settings.activityEmpty')}</p>
+				<p class="muted empty">{i18n.t('settings.activityEmpty')}</p>
 			{:else}
 				<ul class="rows compact">
 					{#each activity as a, i (i)}
 						<li class="row">
 							<span class="row-main">
-								<span>{deviceLabel(a.device, i18n.locale)} <span class="faint">· {i18n.t(`settings.method.${a.method}`)}</span></span>
-								<span class="faint small">{fullDate(a.createdAt, i18n.locale)} · IP {a.ip || '—'}</span>
+								<span>{deviceLabel(a.device, i18n.locale)} <span class="muted">· {i18n.t(`settings.method.${a.method}`)}</span></span>
+								<span class="muted small">{fullDate(a.createdAt, i18n.locale)} · IP {a.ip || '—'}</span>
 							</span>
 						</li>
 					{/each}
-				</ul>
+								</ul>
 			{/if}
+			</div>
 		</section>
 	{/if}
 </div>
 
 <style>
-	.page {
-		padding: 1.5rem 1.75rem 3rem;
-		max-width: 760px;
-		display: flex;
-		flex-direction: column;
-		gap: 1.25rem;
+	/* The marketing page's split: the heading and its text left, the panel right. */
+	.set-row {
+		display: grid;
+		grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+		gap: 16px 48px;
+		align-items: start;
+		padding: 32px 0;
+		border-top: 1px solid var(--line);
 	}
 
-	@media (max-width: 520px) {
-		.page {
-			padding: 1.25rem 1rem 3rem;
+	.set-row:first-of-type {
+		border-top: none;
+		padding-top: 8px;
+	}
+
+		@media (max-width: 860px) {
+		.set-row {
+			grid-template-columns: minmax(0, 1fr);
+			padding: 24px 0;
 		}
 	}
 
+	/* The app: one column, the heading over its group, as a settings window. */
+	:global(html.is-app) .set-row {
+		grid-template-columns: minmax(0, 1fr);
+		max-width: 760px;
+		gap: 12px;
+		padding: 24px 0;
+	}
 
+	:global(html.is-app) .set-head {
+		gap: 4px;
+	}
 
+	:global(html.is-app) h2 {
+		font-size: 1.125rem;
+	}
+
+	.set-head {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 10px;
+	}
 
 	h2 {
 		margin: 0;
-		font-size: 1.05rem;
-		font-weight: 700;
+		font-size: 1.35rem;
+		font-weight: 500;
 	}
 
-	.card {
-		display: flex;
-		flex-direction: column;
-		gap: 0.9rem;
-	}
-
-	.section-head {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 1rem;
-	}
-
-	@media (max-width: 600px) {
-		.section-head {
-			flex-direction: column;
-		}
-	}
-
-	.section-head .btn {
-		white-space: nowrap;
+		.self-armed {
+		background: var(--danger);
+		color: #fff;
+		border-color: transparent;
 	}
 
 	.intro {
-		margin: 0.3rem 0 0;
-		font-size: 0.85rem;
-		line-height: 1.5;
+		margin: 0;
+		font-size: 0.95rem;
+		line-height: 1.55;
+		text-wrap: pretty;
+	}
+
+	.set-head .btn {
+		margin-top: 6px;
+	}
+
+	.set-body {
+		padding: 4px 20px;
 	}
 
 	.notice {
-		margin: 0;
-		padding: 0.65rem 0.8rem;
+		margin: 16px 0 0;
+		padding: 0.7rem 0.85rem;
 		border-radius: var(--radius-sm);
 		background: var(--warning-tint);
 		color: var(--warning);
-		font-size: 0.83rem;
+		font-size: 0.88rem;
 		line-height: 1.5;
 	}
 
 	.empty {
 		margin: 0;
-		font-size: 0.85rem;
-	}
-
-	.rows {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
+		padding: 18px 0;
+		font-size: 0.92rem;
 	}
 
 	.row {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 0.7rem 0;
-		border-top: 1px solid var(--border);
+		gap: 12px;
+		padding: 14px 0;
 	}
 
 	.rows.compact .row {
-		padding: 0.55rem 0;
+		padding: 10px 0;
 	}
 
 	.row-icon {
-		width: 34px;
-		height: 34px;
+		width: 36px;
+		height: 36px;
 		flex-shrink: 0;
-		border-radius: 8px;
-		background: var(--bg);
+		border-radius: 50%;
+		background: var(--fill-2);
 		color: var(--text-muted);
 		display: inline-flex;
 		align-items: center;
@@ -350,41 +471,36 @@
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.15rem;
-		font-size: 0.88rem;
+		gap: 2px;
+		font-size: 0.92rem;
 	}
 
 	.bold {
-		font-weight: 600;
+		font-weight: 500;
 	}
 
 	.small {
-		font-size: 0.78rem;
+		font-size: 0.85rem;
 		line-height: 1.45;
 		margin: 0;
 	}
 
-	.pill {
-		display: inline-block;
-		margin-left: 0.4rem;
-		padding: 0.08rem 0.5rem;
-		border-radius: 999px;
-		background: var(--success-tint);
-		color: var(--success);
-		font-size: 0.7rem;
-		font-weight: 600;
-		vertical-align: middle;
+	.chip {
+		height: 22px;
+		margin-left: 6px;
+		vertical-align: 1px;
 	}
 
-	.small-btn {
-		padding: 0.4rem 0.75rem;
-		font-size: 0.8rem;
-		white-space: nowrap;
+		.count {
+		font-weight: 400;
 	}
 
-	.small-btn.armed {
-		border-color: var(--danger);
-		color: var(--danger);
+	.row.group .btn + .btn {
+		margin-left: -4px;
+	}
+
+	.row.nested {
+		padding-left: 48px;
 	}
 
 	.require {
@@ -392,49 +508,11 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 1rem;
-		padding-top: 0.9rem;
-		border-top: 1px solid var(--border);
+		padding: 14px 0;
+		border-top: 1px solid var(--line);
 	}
 
 	.require p {
-		margin-top: 0.25rem;
-	}
-
-	.switch {
-		appearance: none;
-		flex-shrink: 0;
-		width: 44px;
-		height: 26px;
-		border-radius: 999px;
-		border: none;
-		background: var(--border-strong);
-		position: relative;
-		cursor: pointer;
-		transition: background 0.15s;
-	}
-
-	.switch[aria-checked='true'] {
-		background: var(--accent);
-	}
-
-	.switch:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.knob {
-		position: absolute;
-		top: 3px;
-		left: 3px;
-		width: 20px;
-		height: 20px;
-		border-radius: 999px;
-		background: #fff;
-		box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
-		transition: transform 0.15s;
-	}
-
-	.switch[aria-checked='true'] .knob {
-		transform: translateX(18px);
+		margin-top: 2px;
 	}
 </style>

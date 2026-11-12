@@ -12,7 +12,7 @@ func TestRenderText(t *testing.T) {
 		{"{company} · {recipient} · {date}", "Studio X", "Studio X · a@b.c · 2026-11-03"},
 		{"{company} · {recipient} · {date}", "", "a@b.c · 2026-11-03"},
 		{"", "", "a@b.c · 2026-11-03"},
-		{"Confidential - {company}", "", "Confidential"},
+		{"Confidential - {company}", "", "Confidential · a@b.c"}, // the recipient is never left out
 	}
 	for _, c := range cases {
 		if got := RenderText(c.tpl, c.company, "a@b.c", day); got != c.want {
@@ -77,5 +77,27 @@ func TestRenderTextFitKeepsTheRecipient(t *testing.T) {
 	// The operator's own template without a company: only the date can go.
 	if got := RenderTextFit("{recipient} · {date}", company, rcpt, now, 30); got != rcpt {
 		t.Errorf("no-company template: %q", got)
+	}
+}
+
+func TestWithRecipient(t *testing.T) {
+	cases := []struct {
+		text, to string
+		max      int
+		want     string
+	}{
+		{"Doar pentru tine", "a@b.ro", 200, "Doar pentru tine · a@b.ro"},
+		{"Pentru A@B.ro", "a@b.ro", 200, "Pentru A@B.ro"},
+		{"", "a@b.ro", 200, "a@b.ro"},
+		{"0123456789", "a@b.ro", 16, "0123... · a@b.ro"}, // the address is never cut
+		{"text", "a-very-long@b.ro", 10, "a-very-long@b.ro"},
+	}
+	for _, c := range cases {
+		if got := WithRecipient(c.text, c.to, c.max); got != c.want {
+			t.Errorf("WithRecipient(%q, %q, %d) = %q, want %q", c.text, c.to, c.max, got, c.want)
+		}
+	}
+	if got := RenderText("{company}", "Studio", "a@b.ro", time.Now()); got != "Studio · a@b.ro" {
+		t.Errorf("template without {recipient} = %q", got)
 	}
 }

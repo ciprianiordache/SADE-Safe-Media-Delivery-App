@@ -275,3 +275,21 @@ func atoi(s string) int {
 	}
 	return n
 }
+
+// The recipient's email replies to the operator who sent the file; a header
+// value that is not one bare address (a display name, a CRLF) is dropped.
+func TestBuildReplyTo(t *testing.T) {
+	raw, err := build(baseCfg(), Message{To: "client@example.com", ReplyTo: "ana@studio.ro", Subject: "s", Text: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "Reply-To: <ana@studio.ro>\r\n") {
+		t.Errorf("missing Reply-To:\n%s", raw)
+	}
+	for _, bad := range []string{"", "not an address", "ana@studio.ro\r\nBcc: x@evil.test", `"Banca" <ana@studio.ro>`} {
+		raw, _ := build(baseCfg(), Message{To: "client@example.com", ReplyTo: bad, Subject: "s", Text: "t"})
+		if strings.Contains(string(raw), "Reply-To:") || strings.Contains(string(raw), "Bcc:") {
+			t.Errorf("ReplyTo %q should be dropped:\n%s", bad, raw)
+		}
+	}
+}

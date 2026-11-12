@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"sade/internals/app/asset"
 	"sade/internals/app/job_event"
 	"sade/internals/app/payment"
 	"sade/internals/app/user"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestDeliverySummary(t *testing.T) {
-	db := testutil.DB(t, user.User{}, Job{}, job_event.JobEvent{}, payment.Payment{})
+	db := testutil.DB(t, user.User{}, Job{}, asset.Asset{}, job_event.JobEvent{}, payment.Payment{})
 	uid, _ := db.CRUD().Create(&user.User{Email: "a@b.c", Role: user.RoleOperator})
 	mk := func(to string) string {
 		id, err := db.CRUD().Create(&Job{UserID: uid, Status: StatusDone, MediaType: "video", RecipientEmail: to, WatermarkKind: "both"})
@@ -35,6 +36,10 @@ func TestDeliverySummary(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if _, err := db.CRUD().Create(&asset.Asset{JobID: paid, Kind: asset.KindOriginal, StorageKey: "k", Filename: "nunta.jpg", MIME: "image/jpeg", SizeBytes: 2048}); err != nil {
+		t.Fatal(err)
+	}
+
 	sum, err := NewRepo(db).DeliverySummary([]string{opened, paid, quiet})
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +47,7 @@ func TestDeliverySummary(t *testing.T) {
 	if !sum[opened].OpenedAt.Equal(recent) || sum[opened].Paid {
 		t.Errorf("opened job = %+v, want the latest view %v", sum[opened], recent)
 	}
-	if !sum[paid].Paid || !sum[paid].OpenedAt.IsZero() {
+	if !sum[paid].Paid || !sum[paid].OpenedAt.IsZero() || sum[paid].FileName != "nunta.jpg" || sum[paid].SizeBytes != 2048 {
 		t.Errorf("paid job = %+v", sum[paid])
 	}
 	if _, ok := sum[quiet]; ok {

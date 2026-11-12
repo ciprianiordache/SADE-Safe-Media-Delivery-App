@@ -1,44 +1,72 @@
 :root {
+	/* Matches the marketing page (frontend/static/index.html): Reddit Sans, warm paper,
+	   ink #211c18, one orange action with dark text on it. */
 	--bg: #fbf8f4;
 	--surface: #ffffff;
+	--surface-2: #f3ede4;
 	--text: #211c18;
-	--text-muted: #6e655b;
-	--text-faint: #9c9287;
+	--text-muted: #544b42;
+	--text-faint: #8a8074;
 	--text-hint: #b4a997;
-	--border: #ebe3d7;
-	--border-strong: #ddd3c4;
+	--border: #e7e0d6;
+	--border-strong: #d6cdc0;
+	/* Buttons and selected controls: #111 on it is 6.4:1. */
 	--accent: #e8631c;
-	--accent-hover: #ce560f;
-	--accent-text: #ffffff;
-	--accent-tint: #fbeadb;
-	--accent-tint-text: #a8480f;
-	--danger: #c1443a;
-	--danger-tint: #f8e9e7;
-	--danger-tint-border: #eedad5;
-	--success: #2f7d4f;
-	--success-tint: #e6f1e9;
-	--warning: #b4741c;
+	--accent-hover: #f07a3a;
+	--accent-text: #111111;
+	/* Links and accent-coloured text on --bg / --surface (>= 4.5:1). */
+	--accent-ink: #b8481a;
+	--accent-ink-hover: #8f3810;
+	/* The brand orange, for fills that carry no text: progress, dots, the mark. */
+	--accent-bright: #e8631c;
+	--accent-tint: #fbe3d3;
+	--accent-tint-text: #8a3410;
+	--danger: #b3352c;
+	--danger-tint: #f8e4e1;
+	--danger-tint-border: #efd3ce;
+	--success: #1d6b3a;
+	--success-tint: #e7f3ea;
+	--warning: #8f5a0e;
 	--warning-tint: #f7ebd9;
-	--pending: #8a8074;
-	--pending-tint: #f4eee5;
-	--radius: 11px;
+	--pending: #6e655b;
+	--pending-tint: #f3ede4;
+	/* The marketing page's product frames: 12px windows, 8px fields, hairlines
+	   mixed from the ink so they work on both themes. */
+	--radius: 12px;
 	--radius-sm: 8px;
-	--font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
-	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+	--line: color-mix(in oklab, var(--text) 9%, transparent);
+	--line-2: color-mix(in oklab, var(--text) 15%, transparent);
+	--fill: color-mix(in oklab, var(--text) 3.5%, var(--surface));
+	--fill-2: color-mix(in oklab, var(--text) 7%, var(--surface));
+	--ink-btn: #211c18;
+	--ink-btn-text: #fbf8f4;
+	--shadow-card:
+		0 0 0 1px rgb(33 28 24 / 0.1),
+		0 1px 2px rgb(33 28 24 / 0.06),
+		0 12px 24px -12px rgb(33 28 24 / 0.16),
+		0 30px 60px -30px rgb(33 28 24 / 0.22);
+	--shadow-sm: 0 0 0 1px rgb(33 28 24 / 0.08), 0 1px 2px rgb(33 28 24 / 0.12);
+	--ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+	--font-sans: 'Reddit Sans', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 :root[data-theme='dark'] {
-	--bg: #17130f;
-	--surface: #221d18;
-	--text: #f3ede3;
-	--text-muted: #b8ac9c;
-	--text-faint: #83786a;
-	--text-hint: #6b6255;
-	--border: #322c25;
-	--border-strong: #3a342c;
+	--bg: #1b1714;
+	--surface: #26211c;
+	--surface-2: #2e2924;
+	--text: #fbf8f4;
+	--text-muted: #bcb3a8;
+	--text-faint: #8f857a;
+	--text-hint: #6f665c;
+	--border: #39322b;
+	--border-strong: #4a4239;
 	--accent: #e8631c;
-	--accent-hover: #f0834a;
-	--accent-text: #ffffff;
+	--accent-hover: #f07a3a;
+	--accent-text: #111111;
+	--accent-ink: #f0834a;
+	--accent-ink-hover: #f2965e;
+	--accent-bright: #e8631c;
 	--accent-tint: #3d2a1a;
 	--accent-tint-text: #f2965e;
 	--danger: #e27a72;
@@ -48,23 +76,31 @@
 	--success-tint: #1e3527;
 	--warning: #e2a94f;
 	--warning-tint: #3a2e18;
-	--pending: #998d7d;
-	--pending-tint: #2a2620;
+	--pending: #b3aa9e;
+	--pending-tint: #2e2924;
+	--shadow-card: 0 0 0 1px rgb(255 255 255 / 0.07), 0 1px 2px rgb(0 0 0 / 0.4), 0 24px 48px -24px rgb(0 0 0 / 0.7);
+	--shadow-sm: 0 0 0 1px rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.5);
+	--ink-btn: #fbf8f4;
+	--ink-btn-text: #211c18;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme='light']) {
-		--bg: #17130f;
-		--surface: #221d18;
-		--text: #f3ede3;
-		--text-muted: #b8ac9c;
-		--text-faint: #83786a;
-		--text-hint: #6b6255;
-		--border: #322c25;
-		--border-strong: #3a342c;
+		--bg: #1b1714;
+		--surface: #26211c;
+		--surface-2: #2e2924;
+		--text: #fbf8f4;
+		--text-muted: #bcb3a8;
+		--text-faint: #8f857a;
+		--text-hint: #6f665c;
+		--border: #39322b;
+		--border-strong: #4a4239;
 		--accent: #e8631c;
-		--accent-hover: #f0834a;
-		--accent-text: #ffffff;
+		--accent-hover: #f07a3a;
+		--accent-text: #111111;
+		--accent-ink: #f0834a;
+		--accent-ink-hover: #f2965e;
+		--accent-bright: #e8631c;
 		--accent-tint: #3d2a1a;
 		--accent-tint-text: #f2965e;
 		--danger: #e27a72;
@@ -74,8 +110,12 @@
 		--success-tint: #1e3527;
 		--warning: #e2a94f;
 		--warning-tint: #3a2e18;
-		--pending: #998d7d;
-		--pending-tint: #2a2620;
+		--pending: #b3aa9e;
+		--pending-tint: #2e2924;
+		--shadow-card: 0 0 0 1px rgb(255 255 255 / 0.07), 0 1px 2px rgb(0 0 0 / 0.4), 0 24px 48px -24px rgb(0 0 0 / 0.7);
+		--shadow-sm: 0 0 0 1px rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.5);
+		--ink-btn: #fbf8f4;
+		--ink-btn-text: #211c18;
 	}
 }
 
@@ -88,31 +128,198 @@ body {
 	background: var(--bg);
 	color: var(--text);
 	font-family: var(--font-sans);
+	font-size: 16px;
+	line-height: 1.5;
 	-webkit-font-smoothing: antialiased;
 }
 
+/* Headings take the marketing page's display cut: medium weight, tight tracking. */
+h1,
+h2,
+h3 {
+	font-weight: 500;
+	letter-spacing: -0.025em;
+	line-height: 1.15;
+}
+
 a {
-	color: var(--accent);
+	color: var(--accent-ink);
 	text-decoration: none;
 }
 
 a:hover {
-	color: var(--accent-hover);
+	color: var(--accent-ink-hover);
 }
 
+/* The marketing page's wrap: 1280px of content, 24px gutters (16px on a phone). */
 .container {
-	max-width: 1160px;
+	max-width: 1328px;
 	margin: 0 auto;
-	padding: 0 1.75rem;
+	padding: 0 24px;
+}
+
+@media (max-width: 639px) {
+	.container {
+		padding: 0 16px;
+	}
+}
+
+/* ---- page head: the marketing page's section heading ------------------ */
+.page {
+	padding-top: 48px;
+	padding-bottom: 96px;
+}
+
+@media (max-width: 639px) {
+	.page {
+		padding-top: 28px;
+		padding-bottom: 64px;
+	}
+}
+
+.page-head {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: end;
+	gap: 16px 32px;
+	margin-bottom: 32px;
+}
+
+.page-head h1 {
+	margin: 0;
+	font-size: clamp(2.25rem, 1.4rem + 2.6vw, 3.4rem);
+	line-height: 1.04;
+	letter-spacing: -0.035em;
+	overflow-wrap: anywhere;
+}
+
+.page-head .lead {
+	margin: 12px 0 0;
+	max-width: 60ch;
+	font-size: 1.06rem;
+	color: var(--text-muted);
+}
+
+.page-head .lead + .lead {
+	margin-top: 4px;
+}
+
+/* A status chip beside the heading keeps its own width. */
+.page-head > .chip,
+.page-head > .st {
+	justify-self: end;
+	align-self: end;
+	margin-bottom: 6px;
+}
+
+@media (max-width: 639px) {
+	.page-head {
+		grid-template-columns: minmax(0, 1fr);
+		margin-bottom: 24px;
+	}
+	.page-head > .chip,
+	.page-head > .st {
+		justify-self: start;
+		margin-bottom: 0;
+	}
+}
+
+/* Back link above a page heading. */
+.back {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 44px;
+	margin-bottom: 4px;
+	font-size: 0.9rem;
+	color: var(--text-muted);
+}
+
+.back:hover {
+	color: var(--text);
+}
+
+/* ---- surfaces: the product window from the marketing page ------------- */
+.card,
+.win {
+	background: var(--surface);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow-card);
+	min-width: 0;
 }
 
 .card {
-	background: var(--surface);
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	padding: 1.375rem;
+	padding: 20px;
 }
 
+.win {
+	overflow: hidden;
+}
+
+/* The window bar: 44px, a faint fill, a hairline under it. */
+.win-bar {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-height: 44px;
+	padding: 0 14px;
+	background: var(--fill);
+	border-bottom: 1px solid var(--line);
+	font-size: 0.82rem;
+	color: var(--text-muted);
+	min-width: 0;
+}
+
+.win-bar b,
+.win-bar strong,
+.win-bar .bar-title {
+	font-weight: 500;
+	color: var(--text);
+}
+
+/* A window's name that is also a section heading (for screen readers'
+   heading list): looks exactly like the bar's <b>. */
+.win-bar .bar-title {
+	margin: 0;
+	font-size: inherit;
+	line-height: inherit;
+	letter-spacing: normal;
+}
+
+.win-bar .sp {
+	flex: 1;
+}
+
+.win-dots {
+	display: inline-flex;
+	gap: 6px;
+	flex: none;
+}
+
+.win-dots i {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: var(--line-2);
+}
+
+.win-body {
+	padding: 20px;
+}
+
+/* Rows split by hairlines, never boxes inside boxes. */
+.rows {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.rows > li + li,
+.rows > .row + .row {
+	border-top: 1px solid var(--line);
+}
+
+/* ---- buttons: pills, as on the marketing page ------------------------- */
 .btn {
 	display: inline-flex;
 	align-items: center;
@@ -120,70 +327,178 @@ a:hover {
 	gap: 0.45rem;
 	background: var(--accent);
 	color: var(--accent-text);
-	border: none;
-	border-radius: var(--radius-sm);
-	padding: 0.7rem 1.15rem;
+	border: 1px solid transparent;
+	border-radius: 999px;
+	min-height: 44px;
+	padding: 0.6rem 1.35rem;
 	font-family: var(--font-sans);
-	font-size: 0.9rem;
-	font-weight: 600;
+	font-size: 0.95rem;
+	font-weight: 500;
+	line-height: 1.2;
 	cursor: pointer;
 	text-decoration: none;
-	box-shadow: 0 1px 2px rgba(33, 22, 12, 0.12);
+	white-space: nowrap;
+	transition:
+		background 0.18s var(--ease),
+		border-color 0.18s var(--ease),
+		color 0.18s var(--ease),
+		box-shadow 0.18s var(--ease),
+		transform 0.12s var(--ease);
 }
 
 .btn:hover {
 	background: var(--accent-hover);
+	color: var(--accent-text);
+	transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+	transform: translateY(1px) scale(0.985);
 }
 
 .btn:disabled {
-	opacity: 0.55;
 	cursor: not-allowed;
-	background: var(--border-strong);
-	color: var(--text-hint);
-	box-shadow: none;
+	background: var(--fill-2);
+	color: var(--text-muted);
+	transform: none;
 }
 
+/* Secondary: a tonal fill, no outline. */
 .btn-ghost {
-	background: transparent;
+	background: color-mix(in oklab, var(--text) 8%, var(--bg));
 	color: var(--text);
-	border: 1.5px solid var(--border-strong);
-	box-shadow: none;
 }
 
 .btn-ghost:hover {
-	background: var(--bg);
+	background: color-mix(in oklab, var(--text) 14%, var(--bg));
 	color: var(--text);
 }
 
+/* The ink button ("Descarcă originalul", "Intră în cont" in the mockups). */
+.btn-ink {
+	background: var(--ink-btn);
+	color: var(--ink-btn-text);
+}
+
+.btn-ink:hover {
+	background: color-mix(in oklab, var(--ink-btn) 86%, var(--accent));
+	color: var(--ink-btn-text);
+}
+
+/* The outlined pill of the job panel ("Copiază linkul", "Retrimite"). */
+.btn-line {
+	background: transparent;
+	color: var(--text);
+	border-color: var(--line-2);
+}
+
+.btn-line:hover {
+	background: var(--fill);
+	color: var(--text);
+	border-color: color-mix(in oklab, var(--text) 26%, transparent);
+}
+
+.btn-line.danger {
+	color: var(--danger);
+}
+
+.btn-sm {
+	min-height: 36px;
+	padding: 0.4rem 0.95rem;
+	font-size: 0.88rem;
+	position: relative;
+}
+
+/* Drawn 36px, tapped 44px or more (measured with elementFromPoint: -4px
+   left it at 42px once neighbours took their share). */
+.btn-sm::after {
+	content: '';
+	position: absolute;
+	inset: -6px 0;
+}
+
+.btn-block {
+	width: 100%;
+}
+
+/* A text link that draws its underline (the marketing page's .link). */
+.link-u {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--text);
+	font-weight: 500;
+	background: linear-gradient(currentColor, currentColor) 0 100% / 100% 1px no-repeat;
+	padding-bottom: 2px;
+	transition: background-size 0.25s var(--ease);
+}
+
+.link-u:hover {
+	color: var(--text);
+	background-size: 0% 1px;
+	background-position: 100% 100%;
+}
+
+/* ---- forms ------------------------------------------------------------ */
 label {
 	display: block;
-	font-size: 0.72rem;
-	font-weight: 600;
-	letter-spacing: 0.03em;
-	margin-bottom: 0.35rem;
+	font-size: 0.85rem;
+	font-weight: 500;
+	margin-bottom: 0.4rem;
 	color: var(--text-muted);
-	text-transform: uppercase;
 }
 
 input[type='text'],
 input[type='email'],
+input[type='search'],
 input[type='file'],
 select {
 	width: 100%;
 	background: var(--surface);
 	color: var(--text);
-	border: 1.5px solid var(--border-strong);
+	border: 1px solid var(--line-2);
 	border-radius: var(--radius-sm);
-	padding: 0.62rem 0.75rem;
+	min-height: 44px;
+	padding: 0.6rem 0.8rem;
 	font-family: var(--font-sans);
-	font-size: 0.9rem;
+	font-size: 0.95rem;
+	transition:
+		border-color 0.15s var(--ease),
+		box-shadow 0.15s var(--ease);
+}
+
+input[type='text']:hover,
+input[type='email']:hover,
+input[type='search']:hover,
+select:hover {
+	border-color: color-mix(in oklab, var(--text) 30%, transparent);
+}
+
+input[type='text']:focus,
+input[type='email']:focus,
+input[type='search']:focus {
+	border-color: var(--accent-bright);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-bright) 20%, transparent);
+	outline: none;
 }
 
 input:focus-visible,
 select:focus-visible,
-button:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 1px;
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+	outline: 2px solid var(--accent-bright);
+	outline-offset: 2px;
+	border-radius: var(--radius-sm);
+}
+
+.btn:focus-visible {
+	border-radius: 999px;
+}
+
+::selection {
+	background: var(--accent-tint);
+	color: var(--text);
 }
 
 .field {
@@ -200,11 +515,10 @@ button:focus-visible {
 	gap: 0.65rem;
 	align-items: flex-start;
 	background: var(--danger-tint);
-	border: 1px solid var(--danger-tint-border);
 	border-radius: var(--radius-sm);
-	padding: 0.75rem 0.8rem;
+	padding: 0.75rem 0.85rem;
 	color: var(--danger);
-	font-size: 0.85rem;
+	font-size: 0.88rem;
 	line-height: 1.5;
 }
 
@@ -216,49 +530,237 @@ button:focus-visible {
 	color: var(--text-faint);
 }
 
+/* Numbers, sizes, file names: the text face with aligned figures; real
+   monospace only for code-like strings (the watermark template, sign-in codes). */
 .mono {
+	font-variant-numeric: tabular-nums;
+}
+
+.code-mono {
 	font-family: var(--font-mono);
 }
 
-.badge {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.4rem;
-	border-radius: 999px;
-	padding: 0.25rem 0.7rem;
-	font-size: 0.78rem;
-	font-weight: 600;
+/* A panel's own heading ("Fișier nou", "Istoric"): ink, medium, as in the mockups. */
+.section-label {
+	font-size: 0.95rem;
+	font-weight: 500;
+	color: var(--text);
+	letter-spacing: -0.005em;
 }
 
-.badge::before {
+/* ---- status: the list's small tag (24px, 6px corners, a hairline) ------ */
+.badge,
+.st {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 24px;
+	padding: 0 8px;
+	border-radius: 6px;
+	font-size: 0.8rem;
+	font-weight: 500;
+	white-space: nowrap;
+	color: var(--text-muted);
+	box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+.badge::before,
+.st::before {
 	content: '';
 	width: 6px;
 	height: 6px;
-	border-radius: 999px;
+	border-radius: 50%;
 	background: currentColor;
-	display: inline-block;
+	opacity: 0.7;
+	flex: none;
 }
 
-.badge-pending {
-	background: var(--pending-tint);
-	color: var(--pending);
+.badge-pending,
+.st-wait {
+	color: var(--text-muted);
 }
 
-.badge-processing {
-	background: var(--warning-tint);
-	color: var(--warning);
+/* The one accent touch: the file being worked on. */
+.badge-processing,
+.st-work {
+	color: var(--accent-tint-text);
+	background: var(--accent-tint);
+	box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent-bright) 22%, transparent);
 }
 
-.badge-done {
+.badge-processing::before,
+.st-work::before {
+	width: 8px;
+	height: 8px;
+	background: none;
+	border: 1.5px solid color-mix(in oklab, currentColor 30%, transparent);
+	border-top-color: currentColor;
+	opacity: 1;
+	animation: st-spin 0.8s linear infinite;
+}
+
+@keyframes st-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.badge-done,
+.st-done {
+	color: var(--text-muted);
+	box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.st-open {
+	color: var(--text);
+	background: var(--fill-2);
+	box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+.st-open::before {
+	opacity: 1;
+}
+
+.st-paid {
+	color: var(--success);
+	background: var(--success-tint);
+	box-shadow: none;
+}
+
+.badge-failed,
+.st-bad {
+	color: var(--danger);
+	background: var(--danger-tint);
+	box-shadow: none;
+}
+
+/* The round chip of the job panel ("Plătit", "Link-uri active"). */
+.chip {
+	display: inline-flex;
+	align-items: center;
+	height: 26px;
+	padding: 0 10px;
+	border-radius: 999px;
+	font-size: 0.8rem;
+	font-weight: 500;
+	white-space: nowrap;
+	background: var(--fill-2);
+	color: var(--text-muted);
+}
+
+.chip-ok {
 	background: var(--success-tint);
 	color: var(--success);
 }
 
-.badge-failed {
+.chip-accent {
+	background: var(--accent-tint);
+	color: var(--accent-tint-text);
+}
+
+.chip-bad {
 	background: var(--danger-tint);
 	color: var(--danger);
 }
 
+/* Initials in a soft tone, as in the delivery list. */
+.avatar {
+	--h: 60;
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	font-size: 0.75rem;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+	line-height: 1;
+	background: color-mix(in oklab, oklch(0.74 0.08 var(--h)) 34%, var(--surface));
+	color: color-mix(in oklab, oklch(0.5 0.09 var(--h)) 70%, var(--text));
+	box-shadow: inset 0 0 0 1px color-mix(in oklab, oklch(0.6 0.08 var(--h)) 22%, transparent);
+}
+
+.avatar[data-tone='1'] {
+	--h: 40;
+}
+.avatar[data-tone='2'] {
+	--h: 85;
+}
+.avatar[data-tone='3'] {
+	--h: 150;
+}
+.avatar[data-tone='4'] {
+	--h: 220;
+}
+.avatar[data-tone='5'] {
+	--h: 20;
+}
+
+/* On the dark surface the initials go light, the disc stays a soft tint. */
+:root[data-theme='dark'] .avatar {
+	color: color-mix(in oklab, oklch(0.86 0.06 var(--h)) 80%, var(--text));
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) .avatar {
+		color: color-mix(in oklab, oklch(0.86 0.06 var(--h)) 80%, var(--text));
+	}
+}
+
+/* ---- switch: the ink toggle of the settings mockups ------------------- */
+.switch {
+	appearance: none;
+	position: relative;
+	flex: none;
+	width: 40px;
+	height: 24px;
+	margin: 10px 0;
+	padding: 0;
+	border: none;
+	border-radius: 999px;
+	background: color-mix(in oklab, var(--text) 18%, var(--surface));
+	cursor: pointer;
+	transition: background 0.2s var(--ease);
+}
+
+.switch::before {
+	content: '';
+	position: absolute;
+	left: 3px;
+	top: 3px;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+	transition: transform 0.2s var(--ease);
+}
+
+/* 44px hit area around the 24px track. */
+.switch::after {
+	content: '';
+	position: absolute;
+	inset: -10px -4px;
+}
+
+.switch[aria-checked='true'],
+.switch:checked {
+	background: var(--ink-btn);
+}
+
+.switch[aria-checked='true']::before,
+.switch:checked::before {
+	transform: translateX(16px);
+	background: var(--ink-btn-text);
+}
+
+.switch:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* ---- tables ----------------------------------------------------------- */
 table {
 	width: 100%;
 	border-collapse: collapse;
@@ -268,129 +770,153 @@ th,
 td {
 	text-align: left;
 	padding: 0.65rem 0.5rem;
-	border-bottom: 1px solid var(--border);
+	border-bottom: 1px solid var(--line);
 	font-size: 0.88rem;
 }
 
 th {
 	color: var(--text-muted);
-	font-weight: 600;
-	font-size: 0.75rem;
-	letter-spacing: 0.03em;
-	text-transform: uppercase;
+	font-weight: 500;
+	font-size: 0.8rem;
 }
 
-.pill-group {
+/* ---- segmented controls: a tonal track, the chosen one lifted ---------- */
+.pill-group,
+.segmented {
 	display: inline-flex;
-	border: 1px solid var(--border);
+	gap: 2px;
+	padding: 3px;
 	border-radius: 999px;
-	overflow: hidden;
-}
-
-.pill-group button {
-	appearance: none;
-	background: transparent;
-	border: none;
-	border-left: 1px solid var(--border);
-	padding: 0.32rem 0.6rem;
-	font-family: var(--font-sans);
-	font-size: 0.7rem;
-	font-weight: 600;
-	color: var(--text-faint);
-	cursor: pointer;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-}
-
-.pill-group button:first-child {
-	border-left: none;
-}
-
-.pill-group button[aria-pressed='true'] {
-	background: var(--accent-tint);
-	color: var(--accent-tint-text);
-}
-
-.pill-group button:hover {
-	color: var(--text);
+	background: var(--fill-2);
 }
 
 .segmented {
 	display: flex;
-	border: 1.5px solid var(--border-strong);
-	border-radius: var(--radius-sm);
-	overflow: hidden;
+}
+
+.pill-group button,
+.segmented button {
+	appearance: none;
+	position: relative;
+	flex: 1;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	background: transparent;
+	border: none;
+	border-radius: 999px;
+	font-family: var(--font-sans);
+	font-weight: 500;
+	color: var(--text-muted);
+	cursor: pointer;
+	white-space: nowrap;
+	transition:
+		background 0.18s var(--ease),
+		color 0.18s var(--ease),
+		box-shadow 0.18s var(--ease);
+}
+
+.pill-group button {
+	min-width: 40px;
+	min-height: 30px;
+	padding: 0 0.6rem;
+	font-size: 0.78rem;
+}
+
+.pill-group button::after {
+	content: '';
+	position: absolute;
+	inset: -7px 0;
 }
 
 .segmented button {
-	flex: 1;
-	appearance: none;
-	background: transparent;
-	border: none;
-	border-left: 1px solid var(--border-strong);
-	padding: 0.5rem 0;
-	font-family: var(--font-sans);
-	font-size: 0.85rem;
-	color: var(--text-muted);
-	cursor: pointer;
-	text-align: center;
-	white-space: nowrap;
+	min-height: 38px;
+	padding: 0 0.75rem;
+	font-size: 0.88rem;
 }
 
-.segmented button:first-child {
-	border-left: none;
+.segmented button::after {
+	content: '';
+	position: absolute;
+	inset: -3px 0;
 }
 
-.segmented button[aria-pressed='true'] {
-	background: var(--accent-tint);
-	color: var(--accent-tint-text);
-	font-weight: 600;
+.pill-group button:hover,
+.segmented button:hover:not(:disabled) {
+	color: var(--text);
+}
+
+.pill-group button[aria-pressed='true'],
+.segmented button[aria-pressed='true'],
+.segmented button[aria-checked='true'] {
+	background: var(--surface);
+	color: var(--text);
+	box-shadow: var(--shadow-sm);
+}
+
+.segmented button:disabled {
+	color: var(--text-hint);
+	cursor: not-allowed;
 }
 
 .icon-toggle {
 	display: flex;
-	border: 1.5px solid var(--border-strong);
+	gap: 2px;
+	padding: 3px;
 	border-radius: var(--radius-sm);
-	overflow: hidden;
+	background: var(--fill-2);
 }
 
 .icon-toggle button {
 	appearance: none;
 	background: transparent;
 	border: none;
-	border-left: 1px solid var(--border-strong);
+	border-radius: 6px;
+	min-width: 40px;
+	min-height: 38px;
+	justify-content: center;
 	padding: 0.42rem 0.5rem;
-	color: var(--text-faint);
+	color: var(--text-muted);
 	cursor: pointer;
 	display: inline-flex;
 	align-items: center;
 }
 
-.icon-toggle button:first-child {
-	border-left: none;
-}
-
 .icon-toggle button[aria-pressed='true'] {
-	background: var(--accent-tint);
-	color: var(--accent-tint-text);
+	background: var(--surface);
+	color: var(--text);
+	box-shadow: var(--shadow-sm);
 }
 
+/* ---- drop zone -------------------------------------------------------- */
 .dropzone {
-	border: 1.5px dashed var(--border-strong);
-	border-radius: var(--radius-sm);
-	background: var(--bg);
-	padding: 1.25rem 0.875rem;
+	width: 100%;
+	border: 1px dashed color-mix(in oklab, var(--text) 24%, transparent);
+	border-radius: var(--radius);
+	background: var(--fill);
+	padding: 1.6rem 1rem;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	gap: 0.5rem;
 	text-align: center;
 	cursor: pointer;
+	font-family: var(--font-sans);
+	color: var(--text);
+	transition:
+		border-color 0.18s var(--ease),
+		background 0.18s var(--ease);
+}
+
+.dropzone:hover,
+.dropzone.dragging {
+	border-color: var(--accent-bright);
+	background: color-mix(in oklab, var(--accent-bright) 7%, var(--surface));
 }
 
 .dropzone.has-error {
-	border-color: color-mix(in srgb, var(--danger) 55%, var(--border-strong));
+	border-color: color-mix(in srgb, var(--danger) 55%, transparent);
 	background: var(--danger-tint);
 }
 
@@ -398,66 +924,115 @@ th {
 	display: none;
 }
 
+/* ---- side navigation (the delivery list's filters) --------------------- */
+.side-item,
 .filter-chip {
-	display: inline-flex;
+	position: relative;
+	appearance: none;
+	display: flex;
 	align-items: center;
-	gap: 0.35rem;
-	padding: 0.38rem 0.6rem;
+	gap: 10px;
+	width: 100%;
+	min-height: 40px;
+	padding: 0 10px;
+	border: none;
 	border-radius: var(--radius-sm);
+	background: transparent;
+	font-family: var(--font-sans);
+	font-size: 0.9rem;
+	color: var(--text-muted);
+	cursor: pointer;
+	text-align: left;
+	white-space: nowrap;
+	transition:
+		background 0.15s var(--ease),
+		color 0.15s var(--ease);
+}
+
+.side-item svg {
+	flex: none;
+}
+
+/* The chip row scrolls sideways, which clips anything drawn outside a chip,
+   so the chip itself is the full 44px target. */
+.filter-chip {
+	min-height: 44px;
+}
+
+/* Counts and labels inform, so they take the muted ink (>= 4.5:1), not the
+   faint one (3.9:1 on white). */
+.side-item .count,
+.filter-chip .count {
+	margin-left: auto;
 	font-size: 0.82rem;
 	color: var(--text-muted);
-	border: none;
-	background: transparent;
-	cursor: pointer;
-	font-family: var(--font-sans);
+	font-variant-numeric: tabular-nums;
 }
 
-.filter-chip .count {
-	font-size: 0.72rem;
-	color: var(--text-faint);
+.side-item:hover,
+.filter-chip:hover {
+	color: var(--text);
+	background: var(--fill);
 }
 
+.side-item[aria-pressed='true'],
 .filter-chip[aria-pressed='true'] {
-	background: var(--accent-tint);
-	color: var(--accent-tint-text);
-	font-weight: 600;
+	background: var(--fill-2);
+	color: var(--text);
+	font-weight: 500;
 }
 
+.side-item[aria-pressed='true'] .count,
 .filter-chip[aria-pressed='true'] .count {
-	color: #c67c3e;
+	color: var(--text-muted);
+}
+
+.side-label {
+	margin: 14px 10px 4px;
+	font-size: 0.82rem;
+	color: var(--text-muted);
 }
 
 .toolbar-select {
 	display: flex;
 	align-items: center;
 	gap: 0.4rem;
-	border: 1.5px solid var(--border-strong);
+	min-height: 36px;
 	border-radius: var(--radius-sm);
-	padding: 0.42rem 0.55rem;
-	font-size: 0.78rem;
+	padding: 0 0.6rem;
+	font-size: 0.82rem;
 	color: var(--text-muted);
 	background: var(--surface);
+	box-shadow: inset 0 0 0 1px var(--line-2);
 }
 
 .toolbar-select select {
 	border: none;
 	background: none;
 	padding: 0;
+	min-height: 34px;
 	width: auto;
-	font-weight: 600;
+	font-weight: 500;
 	color: var(--text);
-	font-size: 0.78rem;
-}
-
-.btn {
-	transition:
-		background 0.15s,
-		border-color 0.15s,
-		color 0.15s;
+	font-size: 0.82rem;
 }
 
 input[type='search']::-webkit-search-cancel-button {
 	cursor: pointer;
+}
+
+/* ---- skeleton --------------------------------------------------------- */
+.sk {
+	display: block;
+	border-radius: var(--radius-sm);
+	background: var(--fill-2);
+	animation: sk-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sk-pulse {
+	50% {
+		opacity: 0.55;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -470,7 +1045,160 @@ input[type='search']::-webkit-search-cancel-button {
 	}
 }
 
-.segmented button:disabled {
-	color: var(--text-hint);
-	cursor: not-allowed;
+/* Placeholders from the palette, not the browser's grey (3.5:1 on dark). */
+::placeholder {
+	color: var(--text-muted);
+	opacity: 1;
+}
+
+/* Read by screen readers, not drawn (a page's h1 in the app, whose title
+   bar already names the page). */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* ---- the installed app (html.is-app, set in routes/+layout.svelte) ------- */
+/* A program's chrome is not text to select; fields, addresses and file names
+   (.mono) still are. */
+html.is-app body {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+/* A window never moves as a whole. Only the panes inside it scroll, and
+   reaching the end of one stops there: no hand-off to the window and no
+   elastic stretch (WebView2 on a touchpad or touch screen would otherwise
+   pull the whole page, title bar included, past its edge). */
+html.is-app,
+html.is-app body {
+	height: 100%;
+	overflow: hidden;
+	overscroll-behavior: none;
+}
+
+/* The panes that scroll stop at their own end. Not "every element": a box
+   that only clips (overflow: hidden, a field) is a scroll box to the browser
+   too, and blocking it there would stop the wheel from reaching the pane. */
+html.is-app :is(.app-body, .app-auth, .prefs-main, .media-col, .side-col, .job-win) {
+	overscroll-behavior: none;
+}
+
+html.is-app :is(input, textarea, [contenteditable='true'], .mono) {
+	-webkit-user-select: text;
+	user-select: text;
+}
+
+/* Inside the app window, panels get a plain bar: the three dots are the
+   marketing picture's window, not a window within the window. */
+html.is-app .win-dots {
+	display: none;
+}
+
+/* The app's own pages fill the window instead of centring a web column. */
+html.is-app .app-body > .page:not(.app-page) {
+	max-width: none;
+	padding: 18px 22px 28px;
+}
+
+html.is-app .page-head {
+	margin-bottom: 18px;
+}
+
+html.is-app .page-head h1 {
+	font-size: 1.5rem;
+	letter-spacing: -0.02em;
+}
+
+html.is-app .page-head .lead {
+	margin-top: 4px;
+	font-size: 0.92rem;
+}
+
+/* Drop-downs drawn by the app, not the browser (Chromium's customizable
+   select; WebKit keeps its native one, which already matches its system). */
+html.is-app select {
+	appearance: base-select;
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
+html.is-app select::picker-icon {
+	content: '';
+	width: 10px;
+	height: 10px;
+	background: var(--text-muted);
+	-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5 5 6.5 8 3.5' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5 5 6.5 8 3.5' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+	transition: transform 0.15s var(--ease);
+}
+
+html.is-app select:open::picker-icon {
+	transform: rotate(180deg);
+}
+
+html.is-app select::picker(select) {
+	appearance: base-select;
+	border: none;
+	padding: 4px;
+	border-radius: var(--radius);
+	background: var(--surface);
+	box-shadow: var(--shadow-card);
+	margin-top: 4px;
+}
+
+html.is-app select option {
+	padding: 7px 10px;
+	border-radius: 6px;
+	font-size: 0.88rem;
+	color: var(--text);
+}
+
+html.is-app select option:hover,
+html.is-app select option:focus-visible {
+	background: var(--fill-2);
+	outline: none;
+}
+
+html.is-app select option:checked {
+	font-weight: 500;
+}
+
+html.is-app select option::checkmark {
+	color: var(--accent-ink);
+}
+
+/* The app's scrollbars: thin, rounded, no track or arrows; they widen under
+   the pointer. (WebKit pseudo-elements: WebView2 and WKWebView both read them.) */
+html.is-app ::-webkit-scrollbar {
+	width: 12px;
+	height: 12px;
+}
+
+html.is-app ::-webkit-scrollbar-track,
+html.is-app ::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+html.is-app ::-webkit-scrollbar-button {
+	display: none;
+}
+
+html.is-app ::-webkit-scrollbar-thumb {
+	border: 4px solid transparent;
+	border-radius: 999px;
+	background: color-mix(in oklab, var(--text) 22%, transparent) padding-box;
+}
+
+html.is-app ::-webkit-scrollbar-thumb:hover {
+	border-width: 3px;
+	background-color: color-mix(in oklab, var(--text) 36%, transparent);
 }

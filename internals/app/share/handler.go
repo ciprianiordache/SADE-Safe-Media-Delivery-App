@@ -56,6 +56,8 @@ type Handler struct {
 	// Optional (nil-safe): the operator's on/off switch and the history.
 	links  Links
 	events Events
+	// Optional: the facts GET /api/share/info shows (see info.go).
+	details func(previewID string) (Info, error)
 }
 
 // UseDelivery turns on the links switch and delivery history.

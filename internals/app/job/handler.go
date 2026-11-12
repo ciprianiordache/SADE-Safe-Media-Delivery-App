@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 
@@ -216,6 +217,39 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 // authenticated (unlike the public GET /p/{token}, which only ever serves a
 // preview asset to whoever holds the emailed link). ?dl=1 asks for an
 // attachment instead of an inline response.
+// AssetLink handles GET /api/jobs/{id}/assets/{assetId}/link: a short-lived
+// URL of the content route that needs no session, for players that cannot
+// send one (the installed app's <img>/<video>). Owner-scoped like Content;
+// sign mints the link for (operator, asset).
+func (h *Handler) AssetLink(sign func(userID, assetID string) (string, error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := userIDFrom(r)
+		if !ok {
+			httpx.Error(w, http.StatusUnauthorized, "not signed in")
+			return
+		}
+		a, err := h.svc.Asset(uid, r.PathValue("id"), r.PathValue("assetId"))
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpx.Error(w, http.StatusNotFound, "not found")
+			return
+		case err != nil:
+			h.log.Error("job asset link", "user", uid, "error", err)
+			httpx.Error(w, http.StatusInternalServerError, "could not load the asset")
+			return
+		}
+		t, err := sign(uid, a.ID)
+		if err != nil {
+			h.log.Error("job asset link: sign", "error", err)
+			httpx.Error(w, http.StatusInternalServerError, "could not load the asset")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{
+			"url": fmt.Sprintf("/api/jobs/%s/assets/%s/content?t=%s", url.PathEscape(r.PathValue("id")), url.PathEscape(a.ID), url.QueryEscape(t)),
+		})
+	}
+}
+
 func (h *Handler) Content(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userIDFrom(r)
 	if !ok {

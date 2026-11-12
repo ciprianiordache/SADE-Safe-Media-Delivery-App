@@ -212,22 +212,19 @@
 </div>
 
 <style>
-	.page {
-		padding: 2.5rem 1.75rem 3rem;
-	}
-
-	@media (max-width: 520px) {
-		.page {
-			padding: 1.25rem 1rem 3rem;
-		}
-	}
-
-	.wizard {
-		max-width: 760px;
+		.wizard {
+		max-width: 820px;
 		margin: 0 auto;
+		padding: 32px;
 		display: flex;
 		flex-direction: column;
-		gap: 1.25rem;
+		gap: 22px;
+	}
+
+	@media (max-width: 639px) {
+		.wizard {
+			padding: 22px 18px;
+		}
 	}
 
 	.top {
@@ -236,23 +233,21 @@
 		gap: 0.45rem;
 	}
 
-	.step {
-		font-size: 0.75rem;
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
+		.step {
+		font-size: 0.88rem;
+		font-weight: 500;
 	}
 
 	.bar {
 		height: 4px;
 		border-radius: 999px;
-		background: var(--border);
+		background: var(--fill-2);
 		overflow: hidden;
 	}
 
 	.fill {
 		height: 100%;
-		background: var(--accent);
+		background: var(--accent-bright);
 		transition: width 0.25s ease;
 	}
 
@@ -262,16 +257,18 @@
 		gap: 0.35rem;
 	}
 
-	h1 {
+		h1 {
 		margin: 0;
-		font-size: 1.45rem;
-		font-weight: 700;
+		font-size: clamp(1.9rem, 1.3rem + 1.8vw, 2.6rem);
+		font-weight: 500;
+		line-height: 1.06;
+		letter-spacing: -0.035em;
 	}
 
 	.head p {
 		margin: 0;
-		font-size: 0.9rem;
-		line-height: 1.5;
+		font-size: 1rem;
+		line-height: 1.55;
 	}
 
 	.body {
@@ -280,18 +277,16 @@
 		gap: 0.5rem;
 	}
 
-	.label {
+		.label {
 		display: block;
-		font-size: 0.72rem;
-		font-weight: 600;
-		letter-spacing: 0.03em;
-		margin-top: 0.6rem;
+		font-size: 0.85rem;
+		font-weight: 500;
+		margin-top: 0.8rem;
 		color: var(--text-muted);
-		text-transform: uppercase;
 	}
 
 	.hint {
-		font-size: 0.8rem;
+		font-size: 0.85rem;
 		line-height: 1.45;
 	}
 
@@ -308,22 +303,33 @@
 		}
 	}
 
-	.actions {
+		.actions {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.75rem;
-		margin-top: 0.5rem;
+		margin: 6px -32px -32px;
+		padding: 14px 32px;
+		border-top: 1px solid var(--line);
+		background: var(--fill);
+		border-radius: 0 0 var(--radius) var(--radius);
+	}
+
+	@media (max-width: 639px) {
+		.actions {
+			margin: 6px -18px -22px;
+			padding: 12px 18px;
+		}
 	}
 
 	.actions.end {
 		justify-content: flex-end;
 	}
 
-	.lead {
+		.lead {
 		margin: 0 0 0.35rem;
-		font-size: 0.9rem;
-		line-height: 1.5;
+		font-size: 1rem;
+		line-height: 1.55;
 	}
 
 	.preview-1 {
@@ -341,11 +347,7 @@
 		gap: 0.8rem;
 	}
 
-	.sk {
-		display: block;
-		border-radius: var(--radius-sm);
-		background: var(--border);
-	}
+	
 
 	.sk-line {
 		width: 30%;
@@ -384,7 +386,7 @@
 	.done-icon {
 		width: 52px;
 		height: 52px;
-		border-radius: 14px;
+				border-radius: 50%;
 		background: var(--success-tint);
 		display: inline-flex;
 		align-items: center;

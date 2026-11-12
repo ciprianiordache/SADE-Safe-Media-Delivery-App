@@ -40,35 +40,56 @@
 			if (cancelled || !loaded) return;
 			stripe = loaded;
 
-			// Read the page's own live theme so the embedded card fields match
-			// light/dark mode instead of only ever looking light.
-			const styles = getComputedStyle(document.documentElement);
-			const v = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback;
-
 			elements = stripe.elements({
 				clientSecret,
-				appearance: {
-					theme: 'stripe',
-					variables: {
-						colorPrimary: v('--accent', '#E8631C'),
-						colorBackground: v('--surface', '#FFFFFF'),
-						colorText: v('--text', '#211C18'),
-						colorTextPlaceholder: v('--text-hint', '#B4A997'),
-						colorDanger: v('--danger', '#C1443A'),
-						fontFamily: 'IBM Plex Sans, ui-sans-serif, system-ui, sans-serif',
-						borderRadius: '9px',
-						spacingUnit: '4px'
-					}
-				}
+				// Stripe's own labels and card errors in the page's language.
+				locale: i18n.locale === 'en' ? 'en' : 'ro',
+				appearance: appearance(),
+				fonts: [{ cssSrc: 'https://fonts.googleapis.com/css2?family=Reddit+Sans:wght@400..600&display=swap' }]
 			});
-			const paymentElement = elements.create('payment');
+			// Romania first: the country field starts on RO, not on a guess
+			// from the browser.
+			const paymentElement = elements.create('payment', {
+				defaultValues: { billingDetails: { address: { country: 'RO' } } }
+			});
 			if (mountEl) paymentElement.mount(mountEl);
 			ready = true;
 		})();
+
+		// Follow the page's theme: the toggle sets data-theme on <html>, and
+		// "system" follows the OS setting.
+		const restyle = () => elements?.update({ appearance: appearance() });
+		const observer = new MutationObserver(restyle);
+		observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+		const media = matchMedia('(prefers-color-scheme: dark)');
+		media.addEventListener('change', restyle);
+
 		return () => {
 			cancelled = true;
+			observer.disconnect();
+			media.removeEventListener('change', restyle);
 		};
 	});
+
+	// The card fields read the page's live tokens, so they match light/dark.
+	function appearance() {
+		const styles = getComputedStyle(document.documentElement);
+		const v = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback;
+		return {
+			theme: 'stripe' as const,
+			variables: {
+				colorPrimary: v('--accent', '#C2501A'),
+				colorBackground: v('--surface', '#FFFFFF'),
+				colorText: v('--text', '#211C18'),
+				colorTextSecondary: v('--text-muted', '#6E655B'),
+				colorTextPlaceholder: v('--text-faint', '#9C9287'),
+				colorDanger: v('--danger', '#C1443A'),
+				fontFamily: 'Reddit Sans, ui-sans-serif, system-ui, sans-serif',
+				borderRadius: '8px',
+				spacingUnit: '4px'
+			}
+		};
+	}
 
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();
@@ -96,9 +117,13 @@
 
 	function formatPrice(cents: number, currency: string): string {
 		try {
+			const whole = cents % 100 === 0;
 			return new Intl.NumberFormat(i18n.locale === 'ro' ? 'ro-RO' : 'en-US', {
 				style: 'currency',
-				currency: currency.toUpperCase()
+				currency: currency.toUpperCase(),
+				currencyDisplay: 'narrowSymbol',
+				minimumFractionDigits: whole ? 0 : 2,
+				maximumFractionDigits: whole ? 0 : 2
 			}).format(cents / 100);
 		} catch {
 			return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
@@ -106,17 +131,16 @@
 	}
 </script>
 
-<form onsubmit={submit} class="payment-form">
-	<span class="section-label">{i18n.t('preview.payWithCard')}</span>
-	<div bind:this={mountEl} class="element-mount"></div>
+<form onsubmit={submit} class="payment-form" aria-label={i18n.t('preview.payWithCard')}>
+	<div bind:this={mountEl} class="element-mount" class:loading={!ready}></div>
 	{#if error}
 		<p class="error-text">{error}</p>
 	{/if}
-	<button class="btn" type="submit" disabled={!ready || submitting} style="width: 100%">
-		{submitting ? i18n.t('preview.processingPayment') : `${i18n.t('preview.payButton')} — ${formatPrice(amountCents, currency)}`}
+	<button class="btn btn-block" type="submit" disabled={!ready || submitting}>
+		{submitting ? i18n.t('preview.processingPayment') : `${i18n.t('preview.payButton')} ${formatPrice(amountCents, currency)}`}
 	</button>
 	<p class="disclaimer muted small">
-		<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+		<svg class="lock" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
 			><rect x="5" y="11" width="14" height="9" rx="1.5" /><path d="M8 11 V8 a4 4 0 0 1 8 0 v3" /></svg
 		>
 		{i18n.t('preview.cardDisclaimer')}
@@ -130,27 +154,31 @@
 		gap: 0.75rem;
 	}
 
-	.section-label {
-		font-size: 0.72rem;
-		font-weight: 600;
-		letter-spacing: 0.06em;
-		color: var(--text-faint);
-		text-transform: uppercase;
+	/* Holds the card fields' place while Stripe.js loads. */
+	.element-mount {
+		min-height: 128px;
+		border-radius: var(--radius-sm);
 	}
 
-	.element-mount {
-		min-height: 90px;
+	.element-mount.loading {
+		background: var(--fill);
+		animation: sk-pulse 1.2s ease-in-out infinite;
 	}
 
 	.small {
-		font-size: 0.72rem;
-		line-height: 1.4;
+		font-size: 0.85rem;
+		line-height: 1.45;
 	}
 
 	.disclaimer {
 		display: flex;
-		align-items: center;
-		gap: 0.4rem;
+		align-items: flex-start;
+		gap: 0.45rem;
 		margin: 0;
+	}
+
+	.lock {
+		flex: none;
+		margin-top: 0.2em;
 	}
 </style>

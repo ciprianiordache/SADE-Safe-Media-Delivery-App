@@ -283,6 +283,7 @@ func (s *service) addDelivery(rs []Response) {
 			continue
 		}
 		rs[i].Paid = d.Paid
+		rs[i].FileName, rs[i].SizeBytes = d.FileName, d.SizeBytes
 		if !d.OpenedAt.IsZero() {
 			at := d.OpenedAt
 			rs[i].OpenedAt = &at

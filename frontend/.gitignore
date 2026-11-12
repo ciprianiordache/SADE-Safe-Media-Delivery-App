@@ -15,9 +15,13 @@ Thumbs.db
 # Env
 .env
 .env.*
+# Public build settings only (no secrets): the web and app builds need them.
+!.env
+!.env.app
 !.env.example
 !.env.test
 
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+/build-app

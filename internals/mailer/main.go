@@ -56,6 +56,9 @@ func build(cfg config.MailerConfig, msg Message) ([]byte, error) {
 	header := func(k, v string) { fmt.Fprintf(&b, "%s: %s\r\n", k, v) }
 	header("From", (&mail.Address{Name: cfg.FromName, Address: cfg.FromAddr}).String())
 	header("To", (&mail.Address{Address: msg.To}).String())
+	if rt, err := mail.ParseAddress(strings.TrimSpace(msg.ReplyTo)); err == nil && rt.Name == "" {
+		header("Reply-To", (&mail.Address{Address: rt.Address}).String())
+	}
 	header("Subject", mime.QEncoding.Encode("utf-8", msg.Subject))
 	header("Date", time.Now().Format(time.RFC1123Z))
 	header("Message-ID", messageID(cfg.FromAddr))

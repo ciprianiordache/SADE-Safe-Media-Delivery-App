@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -13,14 +14,15 @@ import (
 // render index.html.
 var reservedPrefixes = []string{"/api/", "/p/", "/d/", "/o/", "/healthz"}
 
-// spaFileServer serves a SvelteKit adapter-static build (fallback:
-// 'index.html') from dir: a request for a real file (JS/CSS/an image under
-// frontend/build) is served as-is; anything else - a client-side route like
-// /app/jobs/<id> hit on a hard refresh, or "/" - falls back to index.html so
-// SvelteKit's router can take over in the browser.
+// spaFileServer serves a SvelteKit adapter-static build from dir: a request
+// for a real file (JS/CSS/an image under frontend/build, or "/" -> the static
+// marketing page index.html) is served as-is; anything else - a client-side
+// route like /app/jobs/<id> hit on a hard refresh - falls back to the SPA
+// shell so SvelteKit's router can take over in the browser.
 func spaFileServer(dir string) http.Handler {
 	root := http.Dir(dir)
 	fileServer := http.FileServer(root)
+	shell := shellPath(dir)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for _, p := range reservedPrefixes {
 			if strings.HasPrefix(r.URL.Path, p) {
@@ -44,9 +46,22 @@ func spaFileServer(dir string) http.Handler {
 			return
 		}
 		r2 := r.Clone(r.Context())
-		r2.URL.Path = "/"
+		r2.URL.Path = shell
 		fileServer.ServeHTTP(w, r2)
 	})
+}
+
+// shellFile is adapter-static's fallback page. The build names it 200.html so
+// that index.html can be the static marketing page; a build without it (an
+// older one, or a test fixture) falls back to index.html as the shell.
+const shellFile = "200.html"
+
+// shellPath is the URL path of the SPA shell inside dir.
+func shellPath(dir string) string {
+	if info, err := os.Stat(filepath.Join(dir, shellFile)); err == nil && !info.IsDir() {
+		return "/" + shellFile
+	}
+	return "/"
 }
 
 // hasFrontendBuild reports whether dir looks like a built SvelteKit app, so

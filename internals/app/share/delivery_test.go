@@ -193,6 +193,34 @@ func TestDeliveryIsOwnerScopedAndCarriesALink(t *testing.T) {
 	}
 }
 
+func TestDeliveryReportsThePayment(t *testing.T) {
+	// Payments off: nothing to show.
+	h, _, _, _ := operatorHarness(t, false)
+	var d share.Delivery
+	_ = json.Unmarshal(call(h.Delivery, http.MethodGet, "owner", "").Body.Bytes(), &d)
+	if d.Payments || d.AmountCents != 0 {
+		t.Fatalf("payments off = %+v", d)
+	}
+
+	// On and unpaid: the price, no paid date.
+	h.SetPayment(4900, "eur")
+	d = share.Delivery{}
+	_ = json.Unmarshal(call(h.Delivery, http.MethodGet, "owner", "").Body.Bytes(), &d)
+	if !d.Payments || d.AmountCents != 4900 || d.Currency != "eur" || !d.PaidAt.IsZero() {
+		t.Fatalf("unpaid = %+v", d)
+	}
+
+	// Paid: the date of the "paid" event.
+	h, _, events, _ := operatorHarness(t, true)
+	h.SetPayment(4900, "eur")
+	_ = events.Record("job1", job_event.KindPaid, "")
+	d = share.Delivery{}
+	_ = json.Unmarshal(call(h.Delivery, http.MethodGet, "owner", "").Body.Bytes(), &d)
+	if !d.Paid || d.PaidAt.IsZero() {
+		t.Fatalf("paid = %+v", d)
+	}
+}
+
 func TestResendIsLimited(t *testing.T) {
 	h, _, events, n := operatorHarness(t, false)
 	for i := 0; i < 3; i++ {

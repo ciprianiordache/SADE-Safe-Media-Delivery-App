@@ -1,0 +1,44 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "frontend/static/index.html"
+        ],
+        "createdAt": "2026-11-10T22:31:00.130Z",
+        "reason": "Claude triage: every hit is a mock frame (hero__window, .panel) holding an absolutely placed UI mock with its own inset, a fixed-height flex bar centring its text, or a section edge; none has text touching an edge in the screenshots"
+      },
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "frontend/static/index.html"
+        ],
+        "createdAt": "2026-11-10T22:31:00.295Z",
+        "reason": "Claude triage: .ly-live comes from the design-taste kit's layout.css; this page does not use the class"
+      },
+      {
+        "rule": "radial-halo",
+        "value": "*",
+        "files": [
+          "frontend/static/index.html"
+        ],
+        "createdAt": "2026-11-10T22:31:00.459Z",
+        "reason": "Claude triage: the radial gradient is the warm ground of the hero window behind the gradient-mesh effect, on a light page, not a glow halo on dark"
+      },
+      {
+        "rule": "repeating-stripes-gradient",
+        "value": "*",
+        "files": [
+          "frontend/static/index.html"
+        ],
+        "createdAt": "2026-11-10T22:31:00.616Z",
+        "reason": "Claude triage: comes from the kit's backgrounds.css library; no striped ground is used on this page"
+      }
+    ]
+  }
+}

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ro" data-type="software" data-radius="soft" data-ground="sand" data-buttons="pill" data-motion>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Descarcă SADE pentru Windows, macOS și Linux</title>
+<meta name="description" content="Aplicația SADE pentru calculator: încarci fișierele, vezi cine le-a deschis și cine a plătit. Același cont ca pe site, intri cu codul din email.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Descarcă SADE pentru Windows, macOS și Linux">
+<meta property="og:description" content="Aplicația SADE pentru calculator, cu același cont ca pe site.">
+<meta property="og:image" content="../share.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/img/sade-logo.png" type="image/png">
+<meta name="theme-color" content="#fbf8f4">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Reddit+Sans:wght@400..700&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/system.css">
+<link rel="stylesheet" href="../assets/motion/motion.css">
+<style>
+:root {
+  --p-bg: #fbf8f4; --p-surface: #f3ede4; --p-ink: #211c18; --p-muted: #544b42;
+  --p-accent: #e8631c; --p-accent-ink: #111111; --p-action: #e8631c; --p-action-ink: #111111;
+  --p-inv-bg: #211c18; --p-inv-surface: #2e2924; --p-inv-ink: #fbf8f4; --p-inv-muted: #a09c98;
+  --p-inv-accent: #e8631c; --p-inv-accent-ink: #111111; --p-inv-action: #e8631c; --p-inv-action-ink: #111111;
+  --font-display: "Reddit Sans", system-ui, sans-serif;
+  --font-text: "Reddit Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --display-weight: 500;
+  --display-tracking: -0.03em;
+  --display-tracking-xl: -0.04em;
+}
+</style>
+<style>
+  .nav__logo img, .footer-logo img { width: 28px; height: 28px; display: block; }
+
+  /* the download hero: what it is, the one button for this computer */
+  .dl-hero { padding-block: clamp(48px, 8vw, 112px) clamp(40px, 6vw, 80px); }
+  .dl-list { padding-bottom: clamp(64px, 9vw, 128px); }
+  /* this page is a list, not screens: no full-screen sections */
+  main > .dl-hero, main > .dl-list { min-height: 0; height: auto; }
+  .footer .closing__links { padding-block: 48px 32px; }
+  .dl-hero h1 { max-width: 15ch; }
+  .dl-hero .lead { margin-top: var(--s-5); max-width: 52ch; font-size: var(--t-lead); color: var(--muted); }
+  .dl-main { margin-top: var(--s-7); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-5); }
+  .dl-meta { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .dl-main .btn[aria-disabled="true"] { pointer-events: none; opacity: .55; }
+
+  /* every platform as a hairline row: name, what you get, the action */
+  .platforms { margin-top: var(--s-6); }
+  .plat { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 16px;
+          padding: 20px 0; border-bottom: 1px solid var(--line); }
+  .plat:first-child { border-top: 1px solid var(--line); }
+  .plat__icon { width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center;
+                background: var(--p-surface); color: var(--ink); }
+  .plat__icon svg { width: 24px; height: 24px; }
+  .plat h3 { margin: 0; font-size: 1.15rem; font-weight: 500; letter-spacing: -0.01em; }
+  .plat p { margin: 4px 0 0; color: var(--muted); }
+  .plat__acts { display: flex; flex-wrap: wrap; gap: var(--s-2); justify-content: flex-end; }
+  /* the visitor's own system, moved first and named */
+  .you { display: none; margin-left: 8px; padding: 2px 10px; border-radius: 99px; vertical-align: 2px;
+         background: color-mix(in oklab, var(--p-accent) 14%, var(--bg)); color: #8a3410; font-size: .8rem; font-weight: 500; }
+  .plat.is-you .you { display: inline-block; }
+  .soon { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 99px;
+          background: var(--p-surface); color: var(--muted); font-weight: 500; white-space: nowrap; }
+  @media (max-width: 639px) {
+    .plat { grid-template-columns: 40px minmax(0, 1fr); }
+    .plat__icon { width: 40px; height: 40px; }
+    .plat__acts { grid-column: 1 / -1; justify-content: flex-start; }
+  }
+
+  /* the browser alternative and the sign-in note */
+  .alt { display: grid; gap: var(--s-6); grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: var(--s-6); }
+  .alt > div { padding-top: var(--s-4); border-top: 1px solid var(--line); }
+  .alt h3 { margin: 0 0 var(--s-2); font-size: 1.15rem; font-weight: 500; }
+  .alt p { margin: 0 0 var(--s-4); color: var(--muted); max-width: 46ch; }
+  @media (max-width: 767px) { .alt { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<header class="nav nav--centre">
+  <div class="wrap nav__bar">
+    <a class="skip-link" href="#top">Sari la conținut</a>
+    <a class="nav__logo" href="/"><img src="../assets/img/sade-logo.png" alt="" width="28" height="28">SADE</a>
+    <nav class="nav__links" aria-label="Principal">
+      <div class="nav__item"><a class="nav__link" href="/#produs">Produs</a></div>
+      <div class="nav__item"><a class="nav__link" href="/#functii">Funcții</a></div>
+      <div class="nav__item"><a class="nav__link" href="/#plata">Plată</a></div>
+      <div class="nav__item"><a class="nav__link" href="/#intrebari">Întrebări</a></div>
+      <div class="nav__item"><a class="nav__link" href="/descarca/" aria-current="page">Descarcă</a></div>
+    </nav>
+    <div class="nav__actions">
+      <a class="nav__link" href="/login">Intră în cont</a>
+      <a class="btn btn--primary" href="/login">Creează cont</a>
+    </div>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-label="Meniu">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 5h14M2 13h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+  <section class="dl-hero" aria-labelledby="dl-h">
+    <div class="wrap">
+      <h1 id="dl-h">Descarcă SADE pentru calculatorul tău</h1>
+      <p class="lead">Aplicația pentru Windows, macOS și Linux. Același cont ca pe site: intri cu adresa de email și codul de 6 cifre pe care ți-l trimitem.</p>
+      <div class="dl-main">
+        <a class="btn btn--primary btn--xl" id="dl-primary" href="#platforme">Alege sistemul de mai jos</a>
+        <span class="dl-meta" id="dl-meta"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="dl-list" id="platforme" aria-labelledby="plat-h">
+    <div class="wrap">
+      <h2 id="plat-h">Toate versiunile</h2>
+      <div class="platforms">
+        <div class="plat" data-os="windows">
+          <span class="plat__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg></span>
+          <div><h3>Windows<span class="you">Sistemul tău</span></h3><p>Windows 10 și 11, 64 de biți. Instalarea nu cere drepturi de administrator.</p></div>
+          <div class="plat__acts"><a class="btn btn--secondary" data-file="windows" href="#" aria-disabled="true">Descarcă .exe</a></div>
+        </div>
+        <div class="plat" data-os="macos">
+          <span class="plat__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="12" rx="1.5"/><path d="M1 19h22"/></svg></span>
+          <div><h3>macOS<span class="you">Sistemul tău</span></h3><p>macOS 11 sau mai nou. Câte o versiune pentru Apple Silicon (M1 și mai noi) și pentru Intel.</p></div>
+          <div class="plat__acts">
+            <a class="btn btn--secondary" data-file="macos-arm" href="#" aria-disabled="true">Apple Silicon</a>
+            <a class="btn btn--secondary" data-file="macos-intel" href="#" aria-disabled="true">Intel</a>
+          </div>
+        </div>
+        <div class="plat" data-os="linux">
+          <span class="plat__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="m7 9 3 3-3 3M12 15h5"/></svg></span>
+          <div><h3>Linux<span class="you">Sistemul tău</span></h3><p>AppImage pentru orice distribuție, .deb pentru Ubuntu și Debian.</p></div>
+          <div class="plat__acts">
+            <a class="btn btn--secondary" data-file="linux-appimage" href="#" aria-disabled="true">AppImage</a>
+            <a class="btn btn--secondary" data-file="linux-deb" href="#" aria-disabled="true">.deb</a>
+          </div>
+        </div>
+        <div class="plat" data-os="ios">
+          <span class="plat__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></span>
+          <div><h3>iPhone și iPad<span class="you">Sistemul tău</span></h3><p>Pentru verificat livrările și trimis un fișier de pe telefon.</p></div>
+          <div class="plat__acts"><span class="soon">În curând în App Store</span></div>
+        </div>
+        <div class="plat" data-os="android">
+          <span class="plat__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></span>
+          <div><h3>Android<span class="you">Sistemul tău</span></h3><p>Telefoane și tablete cu Android 8 sau mai nou.</p></div>
+          <div class="plat__acts"><span class="soon">În curând în Google Play</span></div>
+        </div>
+      </div>
+
+      <div class="alt">
+        <div>
+          <h3>Nu poți instala nimic?</h3>
+          <p>SADE merge și în browser, cu același cont și aceleași livrări. Bun pe un calculator de firmă sau pe un Chromebook.</p>
+          <a class="link" href="/login">Folosește SADE în browser</a>
+        </div>
+        <div>
+          <h3>Nu ai încă un cont?</h3>
+          <p>Contul se face cu adresa de email, fără parolă. Apoi intri cu el în aplicație.</p>
+          <a class="link" href="/login">Creează cont</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer" aria-label="Subsol">
+  <div class="wrap">
+    <div class="closing__links">
+      <div class="grid">
+        <div class="span-4 stack-4">
+          <a class="nav__logo footer-logo" href="/"><img src="../assets/img/sade-logo.png" alt="" width="28" height="28">SADE</a>
+          <p class="footer__lede">Filigran și livrare pentru fișierele pe care le trimiți clienților.</p>
+        </div>
+        <div class="span-2 start-7 footer__col"><h3>Produs</h3><ul><li><a href="/#produs">Livrări</a></li><li><a href="/#functii">Funcții</a></li><li><a href="/descarca/">Descarcă</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Ajutor</h3><ul><li><a href="/#siguranta">Siguranță</a></li><li><a href="/#intrebari">Întrebări</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Cont</h3><ul><li><a href="/login">Intră în cont</a></li><li><a href="/app">Livrările mele</a></li></ul></div>
+      </div>
+      <div class="footer__legal">
+        <span>&copy; 2026 SADE</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script type="module" src="../assets/system.js"></script>
+<script type="module" src="../assets/motion/motion.js"></script>
+<script type="module" src="../assets/download.js"></script>
+</body>
+</html>

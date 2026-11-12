@@ -207,14 +207,36 @@ func (r *repo) DeliverySummary(jobIDs []string) (map[string]DeliverySummary, err
 	if err != nil {
 		return nil, fmt.Errorf("job: delivery paid: %w", err)
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
+			rows.Close()
 			return nil, fmt.Errorf("job: scan paid: %w", err)
 		}
 		s := out[id]
 		s.Paid = true
+		out[id] = s
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Raw SQL for the same reason: asset's tests import job.
+	rows, err = r.db.Query(r.rebind(
+		"SELECT job_id, filename, size_bytes FROM assets WHERE kind = 'original' AND job_id IN ("+in+")"), args...)
+	if err != nil {
+		return nil, fmt.Errorf("job: delivery files: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, name string
+		var size int64
+		if err := rows.Scan(&id, &name, &size); err != nil {
+			return nil, fmt.Errorf("job: scan files: %w", err)
+		}
+		s := out[id]
+		s.FileName, s.SizeBytes = name, size
 		out[id] = s
 	}
 	return out, rows.Err()

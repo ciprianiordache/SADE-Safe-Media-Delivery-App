@@ -463,3 +463,40 @@ func TestHandleRecoversFromPanic(t *testing.T) {
 		t.Fatalf("a panicking job should be rescheduled with the panic recorded, got %q (ok=%v)", msg, ok)
 	}
 }
+
+// Every copy names its recipient (PRODUCT.md principle 2): the operator's own
+// text gets the address appended, a template without {recipient} gets it
+// too, and "Logo" burns the address under the logo.
+func TestProcessAlwaysBurnsTheRecipient(t *testing.T) {
+	cases := []struct {
+		name, kind, text, opts string
+		wantOverlay            string
+		wantText               string
+	}{
+		{"own text", "text", "Doar pentru tine", "", ffmpeg.OverlayText, "Doar pentru tine · client@example.com"},
+		{"own text with the address", "text", "pentru client@example.com", "", ffmpeg.OverlayText, "pentru client@example.com"},
+		{"template without recipient", "text", "", `{"v":1,"textTemplate":"{company}","company":"Studio X"}`, ffmpeg.OverlayText, "Studio X · client@example.com"},
+		{"logo only", "logo", "", "", ffmpeg.OverlayBoth, "client@example.com"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			store := localStore(t)
+			origKey := "originals/j/original.jpg"
+			if _, err := store.Put(context.Background(), origKey, strings.NewReader("SOURCE")); err != nil {
+				t.Fatal(err)
+			}
+			engine := &fakeEngine{probe: &ffmpeg.ProbeResult{Media: ffmpeg.MediaImage, Width: 1920}, output: "W"}
+			p := New(testConfig(), newFakeJobStore(), &fakeAssets{original: Original{StorageKey: origKey, Filename: "a.jpg"}}, store, engine, &fakeNotifier{}, testutil.Logger())
+			j := Job{ID: "j", MediaType: "image", RecipientEmail: "client@example.com", WatermarkKind: c.kind, WatermarkText: c.text, WatermarkOpts: c.opts, Attempts: 1}
+			if err := p.process(context.Background(), j); err != nil {
+				t.Fatal(err)
+			}
+			if engine.lastReq.Overlay != c.wantOverlay {
+				t.Errorf("overlay = %q, want %q", engine.lastReq.Overlay, c.wantOverlay)
+			}
+			if got := engine.lastReq.TextFor(0); got != c.wantText {
+				t.Errorf("text = %q, want %q", got, c.wantText)
+			}
+		})
+	}
+}
