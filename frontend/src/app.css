@@ -34,6 +34,8 @@
 	   mixed from the ink so they work on both themes. */
 	--radius: 12px;
 	--radius-sm: 8px;
+	/* tags, kbd, menu rows and other small marks */
+	--radius-xs: 6px;
 	--line: color-mix(in oklab, var(--text) 9%, transparent);
 	--line-2: color-mix(in oklab, var(--text) 15%, transparent);
 	--fill: color-mix(in oklab, var(--text) 3.5%, var(--surface));
@@ -352,6 +354,11 @@ a:hover {
 	transform: translateY(-1px);
 }
 
+/* A desktop program's buttons do not float up under the pointer. */
+html.is-app .btn:hover {
+	transform: none;
+}
+
 .btn:active:not(:disabled) {
 	transform: translateY(1px) scale(0.985);
 }
@@ -386,6 +393,18 @@ a:hover {
 }
 
 /* The outlined pill of the job panel ("Copiază linkul", "Retrimite"). */
+/* The one destructive fill (stop links, delete, sign out everywhere). */
+.btn-danger,
+.btn-danger:hover {
+	background: var(--danger);
+	color: #fff;
+	border-color: transparent;
+}
+
+.btn-danger:hover:not(:disabled) {
+	filter: brightness(0.92);
+}
+
 .btn-line {
 	background: transparent;
 	color: var(--text);
@@ -434,9 +453,50 @@ a:hover {
 }
 
 .link-u:hover {
-	color: var(--text);
+	color: var(--accent-ink);
 	background-size: 0% 1px;
 	background-position: 100% 100%;
+}
+
+/* The app's two link looks, and only these: the action link inside text
+   (accent, underlined) and the quiet one (muted, underlined) for the way
+   back, skip or another address. Both answer the pointer and the press. */
+.inline-link,
+.link-btn {
+	position: relative;
+	appearance: none;
+	background: none;
+	border: none;
+	padding: 0;
+	font: inherit;
+	font-weight: 500;
+	color: var(--accent-ink);
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+
+.inline-link:hover,
+.link-btn:hover {
+	color: var(--accent-ink-hover, var(--text));
+	text-decoration-thickness: 2px;
+}
+
+.link-btn.quiet {
+	color: var(--text-muted);
+	font-weight: 400;
+}
+
+.link-btn.quiet:hover {
+	color: var(--text);
+}
+
+.inline-link::after,
+.link-btn::after {
+	content: '';
+	position: absolute;
+	inset: -12px -6px;
 }
 
 /* ---- forms ------------------------------------------------------------ */
@@ -489,7 +549,6 @@ a:focus-visible,
 summary:focus-visible {
 	outline: 2px solid var(--accent-bright);
 	outline-offset: 2px;
-	border-radius: var(--radius-sm);
 }
 
 .btn:focus-visible {
@@ -556,7 +615,7 @@ summary:focus-visible {
 	gap: 6px;
 	height: 24px;
 	padding: 0 8px;
-	border-radius: 6px;
+	border-radius: var(--radius-xs);
 	font-size: 0.8rem;
 	font-weight: 500;
 	white-space: nowrap;
@@ -663,6 +722,11 @@ html.is-app .chip::before {
 
 html.is-app .app-body .win.form,
 html.is-app .app-body .win.preview {
+	box-shadow: none;
+}
+
+html.is-app .prefs-main .win {
+	border-radius: var(--radius-sm);
 	box-shadow: none;
 }
 
@@ -791,9 +855,30 @@ input[type='range'] {
 	background: var(--ink-btn-text);
 }
 
+.switch:hover:not(:disabled) {
+	background: color-mix(in oklab, var(--text) 28%, var(--surface));
+}
+
+.switch[aria-checked='true']:hover:not(:disabled),
+.switch:checked:hover:not(:disabled) {
+	background: color-mix(in oklab, var(--ink-btn) 86%, var(--surface));
+}
+
 .switch:disabled {
 	opacity: 0.5;
 	cursor: not-allowed;
+}
+
+/* Every control answers the press, not only the big buttons: one shared
+   rule, a brief darkening that works on any fill and in both themes. */
+:is(.row, .side-item, .menu-item, .chip-btn, .close-pane, .more-btn, .segmented button, .pill-group button,
+	.dropzone, .tb-back, .icon-btn, .link-btn, .inline-link, .link-u, .text-btn, .switch, summary, .cap):active:not(:disabled) {
+	filter: brightness(0.93);
+}
+
+:root[data-theme='dark'] :is(.row, .side-item, .menu-item, .chip-btn, .close-pane, .more-btn, .segmented button, .pill-group button,
+	.dropzone, .tb-back, .icon-btn, .link-btn, .inline-link, .link-u, .text-btn, .switch, summary, .cap):active:not(:disabled) {
+	filter: brightness(1.15);
 }
 
 /* ---- tables ----------------------------------------------------------- */
@@ -908,7 +993,7 @@ th {
 	appearance: none;
 	background: transparent;
 	border: none;
-	border-radius: 6px;
+	border-radius: var(--radius-xs);
 	min-width: 40px;
 	min-height: 38px;
 	justify-content: center;
@@ -1193,7 +1278,7 @@ html.is-app select::picker(select) {
 
 html.is-app select option {
 	padding: 7px 10px;
-	border-radius: 6px;
+	border-radius: var(--radius-xs);
 	font-size: 0.88rem;
 	color: var(--text);
 }

@@ -172,7 +172,7 @@
 					<button type="button" class="btn btn-ghost btn-sm" onclick={() => (confirmDelete = false)}>
 						{i18n.t('job.deleteCancel')}
 					</button>
-					<button type="button" class="btn btn-sm danger-btn armed" onclick={remove} disabled={deleting}>
+					<button type="button" class="btn btn-sm btn-danger" onclick={remove} disabled={deleting}>
 						{i18n.t('job.deleteConfirm')}
 					</button>
 								{/if}
@@ -502,7 +502,7 @@
 	}
 
 	.player {
-		border-radius: 10px;
+		border-radius: var(--radius);
 		overflow: hidden;
 		background: #17130f;
 		display: flex;
@@ -675,15 +675,4 @@
 		color: var(--danger);
 	}
 
-	.danger-btn {
-		color: var(--danger);
-		border-color: color-mix(in oklab, var(--danger) 40%, transparent);
-	}
-
-	.danger-btn:hover:not(:disabled),
-	.danger-btn.armed {
-		background: var(--danger);
-		color: #fff;
-		border-color: transparent;
-	}
 </style>

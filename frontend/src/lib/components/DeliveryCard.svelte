@@ -317,7 +317,7 @@
 		align-items: baseline;
 		gap: 12px;
 		padding: 10px 12px;
-		border-radius: 8px;
+		border-radius: var(--radius-sm);
 		background: var(--fill);
 		font-size: 0.9rem;
 	}
@@ -370,18 +370,12 @@
 		flex-direction: column;
 		gap: 10px;
 		padding: 12px;
-		border-radius: 8px;
+		border-radius: var(--radius-sm);
 		background: var(--danger-tint);
 	}
 
 	.armed p {
 		color: var(--text);
-	}
-
-	.btn-danger {
-		background: var(--danger);
-		color: #fff;
-		border-color: transparent;
 	}
 
 	.small {

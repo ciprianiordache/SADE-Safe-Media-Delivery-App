@@ -431,7 +431,7 @@
 		display: grid;
 		place-items: center;
 		padding: 4px;
-		border-radius: 6px;
+		border-radius: var(--radius-xs);
 		background: var(--fill);
 	}
 

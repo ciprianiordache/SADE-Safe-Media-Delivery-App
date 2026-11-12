@@ -258,7 +258,7 @@
 		gap: 4px;
 		height: 30px;
 		padding: 0 10px 0 6px;
-		border-radius: 7px;
+		border-radius: var(--radius-sm);
 		color: var(--text);
 		font-weight: 500;
 	}

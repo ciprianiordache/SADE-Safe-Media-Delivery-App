@@ -169,8 +169,12 @@
 		min-height: 44px;
 	}
 
-	.text-btn:hover,
-	.text-btn.danger {
+	.text-btn:hover {
+		color: var(--text);
+	}
+
+	.text-btn.danger,
+	.text-btn.danger:hover {
 		color: var(--danger);
 	}
 

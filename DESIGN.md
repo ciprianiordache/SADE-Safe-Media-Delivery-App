@@ -69,6 +69,20 @@ One filled action per group (the ink button); rare or risky actions (links off, 
 "⋯" menu (`OverflowMenu`) and confirm in place; a status is a dot and a word, never a pill that
 looks pressable.
 
+**One control system (2026-11-12).** Radii come from the scale only: `--radius` 12px (windows,
+popovers, media), `--radius-sm` 8px (inputs, sidebar items, settings groups, the payment box),
+`--radius-xs` 6px (tags, kbd, menu rows), and 999px pills; no other values. One destructive fill
+(`.btn-danger`). Two link looks only: the action link (`.inline-link` / `.link-btn`: accent,
+underlined) and the quiet one (`.link-btn.quiet`: muted, underlined). Every control answers the
+pointer and the press: one shared `:active` rule in `app.css` (a brief darkening; lightening in
+dark) covers rows, side items, menu rows, chips, icon and close buttons, segmented controls,
+switches and links; switches darken on hover. In the app buttons do not lift on hover (the
+marketing page's pills keep their lift on the web). The focus ring follows each control's own
+shape. "Fișier nou" stays the orange brand pill in the app too, by choice: it ties the app to the
+site. Settings groups in the app are Windows 11 preference groups: white, hairline, 8px, no
+shadow, on the window's tinted ground - the one place a light group sits on the ground, as in the
+system's own Settings.
+
 ## Color tokens
 
 | Token | Light | Dark | Use |

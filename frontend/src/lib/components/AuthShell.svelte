@@ -136,7 +136,7 @@
 		align-items: flex-start;
 		padding: 56px 24px;
 		min-height: 520px;
-		border-radius: 16px;
+		border-radius: var(--radius);
 		background: color-mix(in oklab, var(--surface-2) 70%, var(--bg));
 		box-shadow: inset 0 0 0 1px var(--line);
 	}

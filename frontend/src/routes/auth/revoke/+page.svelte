@@ -58,7 +58,7 @@
 				<h1>{i18n.t('revoke.title')}</h1>
 				<p class="muted">{i18n.t('revoke.body')}</p>
 			</div>
-			<button class="btn danger-btn" type="button" onclick={revoke} disabled={phase === 'working'}>
+			<button class="btn btn-danger" type="button" onclick={revoke} disabled={phase === 'working'}>
 				{phase === 'working' ? i18n.t('revoke.working') : i18n.t('revoke.submit')}
 			</button>
 		{/if}
@@ -93,7 +93,7 @@
 	.icon-tile {
 		width: 48px;
 		height: 48px;
-		border-radius: 13px;
+		border-radius: var(--radius);
 		background: var(--danger-tint);
 		display: inline-flex;
 		align-items: center;
@@ -104,12 +104,4 @@
 		background: var(--success-tint);
 	}
 
-	.danger-btn {
-		background: var(--danger);
-	}
-
-	.danger-btn:hover:not(:disabled) {
-		background: var(--danger);
-		filter: brightness(0.92);
-	}
 </style>

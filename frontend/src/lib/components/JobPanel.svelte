@@ -181,7 +181,7 @@
 	}
 
 	.media {
-		border-radius: 10px;
+		border-radius: var(--radius);
 		overflow: hidden;
 		background: #17130f;
 		display: grid;

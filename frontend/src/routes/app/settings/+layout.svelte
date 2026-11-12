@@ -81,7 +81,7 @@
 	.prefs-main :global(.win) {
 		box-shadow: none;
 		border: 1px solid var(--line);
-		border-radius: 10px;
+		border-radius: var(--radius-sm);
 	}
 
 	@media (max-width: 719px) {

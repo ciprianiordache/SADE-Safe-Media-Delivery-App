@@ -155,7 +155,38 @@ Nothing left unstarted at the domain level — every table in the schema is wire
 
 ### Resume here (if the session reset)
 
-**Latest:** tenth `/impeccable critique` of the installed app (25/40 - stricter run: status and
+**Latest:** eleventh `/impeccable critique` of the installed app, with the `/design-taste-frontend`
+lens (user asked for both; the taste skill's marketing rules do not apply to an app - only its
+one-system / motion / keyboard / copy checks and its copy-lint were used) - 27/40, snapshot
+`.impeccable/critique/2026-11-12T17-40-56Z__frontend-src-tauri.md` - and all five fixes (user:
+system + feedback first, all 5; "Fișier nou" left to me - kept as the orange brand pill, no lift):
+- **One control system** (documented in DESIGN.md "One control system"): `--radius-xs` 6px added;
+  every off-scale radius (16/13/10/7/5/4px) mapped to 12/8/6; one `.btn-danger` in app.css
+  (DeliveryCard's, the job page's `danger-btn armed` and revoke's `danger-btn` merged); two link
+  looks only - `.inline-link` / `.link-btn` (accent, underlined) and `.link-btn.quiet` (muted),
+  defined once in app.css, the local copies in +page / welcome / login removed; LogoPicker's
+  `.text-btn` turns red on hover only when `.danger`; "⋯" (`.more-btn`) transparent like the other
+  hairline pills.
+- **Feedback**: one shared `:active` rule (brightness 0.93; 1.15 in dark) for rows, side items,
+  menu rows, chips, close/more/icon buttons, segmented, pill-group, dropzone, back link, links,
+  switches, summary, caption buttons; `.switch:hover`; no hover lift for `.btn` in the app; the
+  global focus rule no longer sets border-radius (a focused switch stays a pill - verified 999px).
+- **Settings**: in the app `.prefs-main .win` is 8px, hairline, no shadow (Windows 11 groups).
+- **Copy** (taste rules): links are oprite/pornite everywhere ("Confirmă: oprește linkurile", toasts,
+  history), one sign-out verb ("Deconectează-te", "Deconectează toate dispozitivele" - no longer
+  wraps), "În coadă" for pending (filter too), no "!" ("Contul e pregătit", "Copia cu filigran a
+  fost trimisă către…"), no "în siguranță" lines (recipient footer "Livrat prin SADE"; offline:
+  "Livrările rămân pe server…"), buttons with objects ("Vezi livrarea", "Închide logo-ul",
+  "Arată sesiunile"), no em dashes left in the Romanian strings, dead `brand.save/leaveConfirm/
+  unsaved` keys removed.
+- **List**: column headers are buttons that sort (Client / Fișier A-Z, Stare, Când toggles
+  newest/oldest, arrow on the active one; new `Sort` modes `client` / `file`, also in the select);
+  age shows "acum 1 h" (`ago`); the file column takes the remaining width (table fills the
+  window); each row has an `aria-label` (recipient, file, status, age) and no `aria-haspopup`.
+- Verified in the rebuilt app over CDP (header sort, row label, focused switch radius, Brand groups,
+  list layout). `npm run check` clean. Installer not rebuilt. Not committed.
+
+**Before that:** tenth `/impeccable critique` of the installed app (25/40 - stricter run: status and
 error recovery up, new findings on theme/efficiency/help; snapshot
 `.impeccable/critique/2026-11-12T17-17-58Z__frontend-src-tauri.md`) and all five fixes (user: the
 two P1 first, all 5; file page vs pane left to me - kept as is for now, the pane lacks Details,

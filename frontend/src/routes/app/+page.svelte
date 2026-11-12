@@ -3,7 +3,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { isAllowedFile, mediaTypeOf } from '$lib/types';
 	import type { Job, MediaType, Usage, WatermarkKind } from '$lib/types';
-	import { formatBytes, fullDate, relativeTime } from '$lib/format';
+	import { ago, formatBytes, fullDate } from '$lib/format';
 	import { toasts } from '$lib/toast.svelte';
 	import { brand } from '$lib/stores.svelte';
 	import { deliveryState, initials, stateClass, stateKey, tone } from '$lib/delivery';
@@ -589,7 +589,24 @@
 	// then the kind of file.
 	type Filter = 'all' | 'working' | 'opened' | 'paid' | 'off' | 'failed';
 	type TypeFilter = 'all' | MediaType;
-	type Sort = 'newest' | 'oldest' | 'status';
+	type Sort = 'newest' | 'oldest' | 'status' | 'client' | 'file';
+
+	// A column header sorts by its column, as in Explorer: "Când" flips
+	// between newest and oldest, the others sort A-Z.
+	function sortBy(col: 'client' | 'file' | 'status' | 'when') {
+		if (col === 'when') sort = sort === 'newest' ? 'oldest' : 'newest';
+		else sort = col;
+	}
+	const COLS = [
+		['client', 'dashboard.col.client'],
+		['file', 'dashboard.col.file'],
+		['status', 'dashboard.col.status'],
+		['when', 'dashboard.col.when']
+	] as const;
+
+	function colSorted(col: 'client' | 'file' | 'status' | 'when'): boolean {
+		return col === 'when' ? sort === 'newest' || sort === 'oldest' : sort === col;
+	}
 	const PAGE_SIZE = 15;
 	const FILTERS: Filter[] = ['all', 'working', 'opened', 'paid', 'off', 'failed'];
 	const TYPES: MediaType[] = ['video', 'image', 'audio'];
@@ -649,6 +666,8 @@
 			.slice()
 			.sort((a, b) => {
 				if (sort === 'status') return statusOrder[a.status] - statusOrder[b.status];
+				if (sort === 'client') return a.recipientEmail.localeCompare(b.recipientEmail, i18n.locale);
+				if (sort === 'file') return (a.fileName ?? '').localeCompare(b.fileName ?? '', i18n.locale, { numeric: true });
 				const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
 				return sort === 'oldest' ? diff : -diff;
 			})
@@ -934,6 +953,8 @@
 							<option value="newest">{i18n.t('dashboard.sort.newest')}</option>
 							<option value="oldest">{i18n.t('dashboard.sort.oldest')}</option>
 														<option value="status">{i18n.t('dashboard.sort.status')}</option>
+								<option value="client">{i18n.t('dashboard.sort.client')}</option>
+								<option value="file">{i18n.t('dashboard.sort.file')}</option>
 						</select>
 					</label>
 				{/if}
@@ -1016,8 +1037,13 @@
 								<p class="muted">{i18n.t('dashboard.emptyBody')}</p>
 							</div>
 						{:else}
-							<div class="cols" aria-hidden="true">
-								<span>{i18n.t('dashboard.col.client')}</span><span>{i18n.t('dashboard.col.file')}</span><span>{i18n.t('dashboard.col.status')}</span><span>{i18n.t('dashboard.col.when')}</span>
+							<div class="cols" role="group" aria-label={i18n.t('dashboard.sortLabel')}>
+								{#each COLS as [c, key] (c)}
+									<button type="button" class="col-btn" class:on={colSorted(c)} aria-pressed={colSorted(c)} onclick={() => sortBy(c)}>
+										{i18n.t(key)}
+										{#if colSorted(c)}<span class="col-arrow" aria-hidden="true">{c === 'when' && sort === 'oldest' ? '↑' : '↓'}</span>{/if}
+									</button>
+								{/each}
 							</div>
 							{#if sortedJobs.length === 0}
 								<div class="no-matches">
@@ -1039,12 +1065,12 @@
 										{@const st = deliveryState(job)}
 										{@const sel = wide && !showUpload && job.id === selectedId}
 										<li>
-											<a class="row" class:is-sel={sel} class:is-ctx={ctx?.id === job.id} data-id={job.id} href={`/app/jobs/${job.id}`} onclick={(e) => select(e, job.id)} oncontextmenu={(e) => openCtx(e, job.id)} onkeydown={(e) => onRowKey(e, job.id)} tabindex={wide ? (job.id === focusRowId ? 0 : -1) : undefined} aria-current={sel ? 'true' : undefined} aria-haspopup={IS_APP ? 'menu' : undefined}>
+											<a class="row" class:is-sel={sel} class:is-ctx={ctx?.id === job.id} data-id={job.id} href={`/app/jobs/${job.id}`} onclick={(e) => select(e, job.id)} oncontextmenu={(e) => openCtx(e, job.id)} onkeydown={(e) => onRowKey(e, job.id)} tabindex={wide ? (job.id === focusRowId ? 0 : -1) : undefined} aria-current={sel ? 'true' : undefined} aria-label={`${job.recipientEmail}, ${job.fileName ?? ''}, ${i18n.t(stateKey(st))}, ${ago(job.createdAt, i18n.locale)}`}>
 												<span class="avatar" data-tone={tone(job.recipientEmail)} aria-hidden="true">{initials(job.recipientEmail)}</span>
 												<span class="who">{job.recipientEmail}</span>
 												<span class="sub">{subLine(job)}</span>
 												<span class="state"><span class={stateClass(st)} title={stateTitle(job)}>{i18n.t(stateKey(st))}</span></span>
-												<span class="age mono" title={fullDate(job.createdAt, i18n.locale)}>{relativeTime(job.createdAt, i18n.locale)}</span>
+												<span class="age mono" title={fullDate(job.createdAt, i18n.locale)}>{ago(job.createdAt, i18n.locale)}</span>
 											</a>
 										</li>
 									{/each}
@@ -1232,7 +1258,7 @@
 		height: 32px;
 		margin: 0;
 		padding: 0 4px 0 10px;
-		border-radius: 7px;
+		border-radius: var(--radius-sm);
 		background: var(--surface);
 		box-shadow: inset 0 0 0 1px var(--line-2);
 		color: var(--text-muted);
@@ -1279,7 +1305,7 @@
 		min-width: 20px;
 		height: 20px;
 		padding: 0 4px;
-		border-radius: 5px;
+		border-radius: var(--radius-xs);
 		background: var(--fill-2);
 		font: 500 0.75rem var(--font-sans);
 		color: var(--text-muted);
@@ -1328,7 +1354,7 @@
 		width: auto;
 		min-height: 32px;
 		padding: 0 28px 0 10px;
-		border-radius: 7px;
+		border-radius: var(--radius-sm);
 		font-size: 0.85rem;
 		font-weight: 500;
 		color: var(--text);
@@ -1337,7 +1363,7 @@
 	:global(html.is-app) .sort select {
 		padding: 0 10px;
 		min-height: 32px;
-		border-radius: 7px;
+		border-radius: var(--radius-sm);
 		font-size: 0.85rem;
 		font-weight: 500;
 		color: var(--text);
@@ -1644,8 +1670,8 @@
 	.cols,
 	.row {
 		display: grid;
-		grid-template-columns: 28px minmax(140px, 280px) minmax(0, 460px) 120px 64px;
-		justify-content: start;
+		/* The file column takes the rest, so the table fills the window. */
+		grid-template-columns: 28px minmax(140px, 280px) minmax(0, 1fr) 120px 96px;
 		align-items: center;
 		gap: 0 14px;
 		padding: 0 18px;
@@ -1658,12 +1684,40 @@
 		color: var(--text-muted);
 	}
 
-	.cols span:first-child {
+	.cols .col-btn:first-child {
 		grid-column: 1 / 3;
 	}
 
-	.cols span:last-child {
-		text-align: right;
+	.cols .col-btn:last-child {
+		justify-content: flex-end;
+	}
+
+	/* Column headers sort, as in Explorer: flat, the sorted one in ink. */
+	.col-btn {
+		appearance: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		height: 100%;
+		padding: 0;
+		border: none;
+		background: none;
+		font: inherit;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.col-btn:hover {
+		color: var(--text);
+	}
+
+	.col-btn.on {
+		color: var(--text);
+		font-weight: 500;
+	}
+
+	.col-arrow {
+		font-size: 0.75rem;
 	}
 
 	.row {
@@ -1704,7 +1758,7 @@
 		display: flex;
 		flex-direction: column;
 		border: 1px solid var(--line);
-		border-radius: 10px;
+		border-radius: var(--radius);
 		background: var(--surface);
 		box-shadow: 0 10px 30px -8px rgb(0 0 0 / 0.22), 0 2px 6px rgb(0 0 0 / 0.08);
 		animation: ctx-in 0.12s var(--ease);
@@ -1722,7 +1776,7 @@
 		min-height: 34px;
 		padding: 0 10px;
 		border: none;
-		border-radius: 6px;
+		border-radius: var(--radius-xs);
 		background: none;
 		font: inherit;
 		font-size: 0.9rem;
@@ -1904,7 +1958,7 @@
 		height: 52px;
 		display: grid;
 		place-items: center;
-		border-radius: 12px;
+		border-radius: var(--radius);
 		background: var(--surface);
 		color: var(--accent-ink);
 		box-shadow: var(--shadow-card);
@@ -1998,26 +2052,8 @@
 		font-size: 0.78rem;
 	}
 
-	.inline-link {
-		appearance: none;
-		background: none;
-		border: none;
-		padding: 0;
-		font: inherit;
-		font-weight: 500;
-		color: var(--accent-ink);
-		text-decoration: underline;
-		text-underline-offset: 3px;
-		cursor: pointer;
-		position: relative;
-	}
 
 	/* Inline in a sentence, so the visible text stays small; the tap area does not. */
-	.inline-link::after {
-		content: '';
-		position: absolute;
-		inset: -12px -6px;
-	}
 
 	.typo {
 		display: flex;
@@ -2043,9 +2079,6 @@
 		margin-left: -0.6rem;
 	}
 
-	.link-btn.quiet {
-		color: var(--text-muted);
-	}
 
 	/* What goes where, as hairline rows (the marketing page's template table). */
 	.summary {
@@ -2108,7 +2141,7 @@
 		width: 40px;
 		height: 40px;
 		flex-shrink: 0;
-		border-radius: 10px;
+		border-radius: var(--radius);
 		background: var(--surface);
 		color: var(--accent-ink);
 		box-shadow: var(--shadow-sm);
@@ -2138,17 +2171,7 @@
 	}
 
 	.link-btn {
-		appearance: none;
-		background: none;
-		border: none;
-		color: var(--accent-ink);
-		font: inherit;
 		font-size: 0.85rem;
-		font-weight: 500;
-		cursor: pointer;
-		min-height: 44px;
-		padding: 0 0.6rem;
-		border-radius: var(--radius-sm);
 	}
 
 	.icon-btn {

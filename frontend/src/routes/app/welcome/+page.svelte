@@ -102,7 +102,7 @@
 				<p class="muted">{i18n.t('brand.loadError')}</p>
 			</div>
 			<div class="actions">
-				<a class="link-btn" href="/app">{i18n.t('welcome.skip')}</a>
+				<a class="link-btn quiet" href="/app">{i18n.t('welcome.skip')}</a>
 				<button class="btn" type="button" onclick={() => brand.load()}>{i18n.t('common.retry')}</button>
 			</div>
 		{:else if !b}
@@ -154,7 +154,7 @@
 						<BrandPreview logoUrl="" {position} opacityPct={b.opacityPct} logoScalePct={b.logoScalePct} textFor={sampleFor} />
 					</div>
 					<div class="actions">
-						<button type="button" class="link-btn" onclick={skip} disabled={busy}>{i18n.t('welcome.skip')}</button>
+						<button type="button" class="link-btn quiet" onclick={skip} disabled={busy}>{i18n.t('welcome.skip')}</button>
 						<button class="btn" type="submit" disabled={busy}>{i18n.t('welcome.next')}</button>
 					</div>
 				</form>
@@ -183,7 +183,7 @@
 					</div>
 				</div>
 				<div class="actions">
-					<button type="button" class="link-btn" onclick={() => goTo(1)} disabled={busy}>{i18n.t('welcome.back')}</button>
+					<button type="button" class="link-btn quiet" onclick={() => goTo(1)} disabled={busy}>{i18n.t('welcome.back')}</button>
 					<button class="btn" type="button" onclick={next} disabled={busy}>{i18n.t('welcome.next')}</button>
 				</div>
 			{:else}
@@ -365,22 +365,7 @@
 	}
 
 	.link-btn {
-		min-height: 44px;
-		display: inline-flex;
-		align-items: center;
-		text-decoration: none;
-		appearance: none;
-		background: none;
-		border: none;
-		font: inherit;
 		font-size: 0.88rem;
-		color: var(--text-muted);
-		cursor: pointer;
-		padding: 0.3rem;
-	}
-
-	.link-btn:hover {
-		color: var(--text);
 	}
 
 	.done-icon {

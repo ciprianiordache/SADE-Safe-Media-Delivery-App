@@ -227,7 +227,7 @@
 				<button class="btn btn-ghost" type="button" onclick={resend} disabled={submitting || cooldown > 0}>
 					{cooldown > 0 ? i18n.t('login.resendIn', { s: cooldown }) : i18n.t('login.resend')}
 				</button>
-				<button class="link-btn" type="button" onclick={useOther}>{i18n.t('login.useOther')}</button>
+				<button class="link-btn quiet" type="button" onclick={useOther}>{i18n.t('login.useOther')}</button>
 			</div>
 		{:else}
 			<div class="card-head">
@@ -446,21 +446,7 @@
 	}
 
 	.link-btn {
-		appearance: none;
-		background: none;
-		border: none;
-		color: var(--text-muted);
-		font: inherit;
 		font-size: 0.85rem;
-		cursor: pointer;
-		min-height: 44px;
-		padding: 0 0.5rem;
-		text-decoration: underline;
-		text-underline-offset: 3px;
-	}
-
-	.link-btn:hover {
-		color: var(--text);
 	}
 
 	.server {

@@ -87,9 +87,10 @@
 		place-items: center;
 		border: 1px solid var(--line-2);
 		border-radius: 999px;
-		background: var(--surface);
+		background: transparent;
 		color: var(--text);
 		cursor: pointer;
+		transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
 	}
 
 	/* Drawn 36px, tapped 48px (-4px measured 42 once neighbours took theirs). */
@@ -114,7 +115,7 @@
 		display: flex;
 		flex-direction: column;
 		border: 1px solid var(--line);
-		border-radius: 10px;
+		border-radius: var(--radius);
 		background: var(--surface);
 		box-shadow: 0 10px 30px -8px rgb(0 0 0 / 0.22), 0 2px 6px rgb(0 0 0 / 0.08);
 		animation: more-in 0.12s var(--ease);
@@ -132,7 +133,7 @@
 		min-height: 34px;
 		padding: 0 10px;
 		border: none;
-		border-radius: 6px;
+		border-radius: var(--radius-xs);
 		background: none;
 		font: inherit;
 		font-size: 0.9rem;

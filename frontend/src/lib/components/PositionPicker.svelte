@@ -101,7 +101,7 @@
 	.mark {
 		width: 24px;
 		height: 14px;
-				border-radius: 4px;
+				border-radius: var(--radius-xs);
 		background: var(--surface);
 		box-shadow: var(--shadow-sm);
 		transition: background 0.15s var(--ease), transform 0.15s var(--ease);
